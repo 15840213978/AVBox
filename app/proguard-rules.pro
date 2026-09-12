@@ -329,3 +329,8 @@
 -dontwarn org.joda.time.format.ISODateTimeFormat
 -dontwarn org.kxml2.io.KXmlParser
 -dontwarn org.xmlpull.mxp1.MXParser
+
+# 液态玻璃导航栏(io.github.kyant0 backdrop/capsule):库内部按 API 版本条件引用高版本 API,R8 缺类告警放行
+-dontwarn com.kyant.backdrop.**
+-dontwarn com.kyant.capsule.**
+-dontwarn com.kyant.shapes.**

@@ -28,9 +28,12 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -52,14 +55,17 @@ import com.github.tvbox.osc.ui.components.SegmentOption
 import com.github.tvbox.osc.ui.components.SettingsCard
 import com.github.tvbox.osc.ui.components.SettingsCardPosition
 import com.github.tvbox.osc.ui.components.SettingsGroup
+import com.github.tvbox.osc.ui.components.SettingsSwitchRow
 import com.github.tvbox.osc.ui.components.ThemeColorPickerSheet
 import com.github.tvbox.osc.ui.components.TopBarActionBox
 import com.github.tvbox.osc.ui.theme.AppThemeState
+import com.github.tvbox.osc.ui.theme.LiquidGlassState
 import com.github.tvbox.osc.ui.theme.PaletteStyles
 import com.github.tvbox.osc.ui.theme.PresetSeeds
 import com.github.tvbox.osc.ui.theme.ThemeMode
 import com.github.tvbox.osc.ui.theme.ThemeSource
 import com.materialkolor.PaletteStyle
+import kotlin.math.roundToInt
 
 /** 非自定义模式下不可用行的整体透明度(与示例项目一致) */
 private const val DisabledAlpha = 0.45f
@@ -77,6 +83,11 @@ fun ThemeSettingsScreen(onNavigateBack: () -> Unit) {
     val config = AppThemeState.config
     val isCustom = config.source == ThemeSource.CUSTOM
     var seedPickerOpen by remember { mutableStateOf(false) }
+    // 液态玻璃滑条:拖动中走本地 state,松手才落盘(与全局 SettingsSliderRow 约定一致);
+    // remember 键绑 config 值,外部变更(恢复默认)即时回显
+    val glassConfig = LiquidGlassState.config
+    var blurValue by remember(glassConfig.blurDp) { mutableStateOf(glassConfig.blurDp) }
+    var distortionValue by remember(glassConfig.distortionDp) { mutableStateOf(glassConfig.distortionDp) }
 
     // 无边框顶栏(2026-09-11 晚照 `示例文件/android` 官方方案重做):Scaffold + M3 TopAppBar
     val listState = rememberScrollState()
@@ -99,13 +110,15 @@ fun ThemeSettingsScreen(onNavigateBack: () -> Unit) {
                 .verticalScroll(listState)
                 .padding(horizontal = 16.dp)
                 .padding(bottom = 8.dp),
+            // 分组间距 28dp,与设置页同规格(2026-09-13 用户定稿:此前漏配,两个分组贴死,分组结构不可见)
+            verticalArrangement = Arrangement.spacedBy(28.dp),
         ) {
-            // 顶部占位 = 顶栏高度 + 8dp:首卡与顶栏间距与设置页一致(2026-09-12 用户定稿,原 -8+28=+20)
-            Spacer(Modifier.height(topPad + 8.dp))
+            // 顶部占位 = 顶栏高度 - 20dp:spacedBy(28) 已含 28dp,净间距仍为 topPad+8dp(与设置页同公式)
+            Spacer(Modifier.height(topPad - 20.dp))
 
             SettingsGroup(title = null) {
                 ThemeCard(SettingsCardPosition.FIRST) {
-                    HeaderRow()
+                    HeaderRow("主题颜色")
                 }
                 ThemeCard(SettingsCardPosition.MIDDLE) {
                     CustomThemeSwitchRow(
@@ -149,7 +162,63 @@ fun ThemeSettingsScreen(onNavigateBack: () -> Unit) {
                 }
             }
 
-            Spacer(Modifier.height(64.dp))
+            // 液态玻璃导航栏组(2026-09-13,用户定稿:布局照搬示例 NavStyleScreen 设计稿——
+            // 头部卡(标题+重置,无 icon)、开关卡、两张滑条卡;重置按钮不带容器底,其余与设计稿一致)
+            SettingsGroup(title = null) {
+                // 头部卡:标题 + 重置(纯文字),下行为版本支持说明(2026-09-13 用户定稿:去掉 icon,只保留标题)
+                SettingsCard(SettingsCardPosition.FIRST) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "导航栏效果",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.weight(1f),
+                            )
+                            TextButton(onClick = { LiquidGlassState.restoreDefaults() }) {
+                                Text("重置")
+                            }
+                        }
+                        Text(
+                            text = "Android 13 及以上支持液态玻璃",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                SettingsCard(SettingsCardPosition.MIDDLE) {
+                    SettingsSwitchRow(
+                        title = "开启液态玻璃效果",
+                        checked = glassConfig.enabled,
+                        onCheckedChange = { LiquidGlassState.setEnabled(it) },
+                    )
+                }
+                SettingsCard(SettingsCardPosition.MIDDLE) {
+                    GlassSliderRow(
+                        title = "模糊效果",
+                        value = blurValue,
+                        valueRange = LiquidGlassState.BLUR_RANGE,
+                        onValueChange = { blurValue = it },
+                        onValueChangeFinished = { LiquidGlassState.setBlurDp(blurValue) },
+                    )
+                }
+                SettingsCard(SettingsCardPosition.LAST) {
+                    GlassSliderRow(
+                        title = "扭曲效果",
+                        value = distortionValue,
+                        valueRange = LiquidGlassState.DISTORTION_RANGE,
+                        onValueChange = { distortionValue = it },
+                        onValueChangeFinished = { LiquidGlassState.setDistortionDp(distortionValue) },
+                    )
+                }
+            }
+
+            // 底部收尾:28dp 已由 spacedBy 提供,补 36dp 保持总收尾 64dp 不变
+            Spacer(Modifier.height(36.dp))
         }
     }
 
@@ -159,7 +228,8 @@ fun ThemeSettingsScreen(onNavigateBack: () -> Unit) {
             initialColor = config.seedArgb,
             onConfirm = { argb ->
                 AppThemeState.setSeed(argb)
-                seedPickerOpen = false
+                // 关闭由 ThemeColorPickerSheet 内部带动画处理(2026-09-13),
+                // 滑出结束经 onDismissRequest → onDismiss 置 seedPickerOpen = false
             },
             onDismiss = { seedPickerOpen = false },
         )
@@ -193,11 +263,11 @@ private fun ThemeCard(
     }
 }
 
-/** 分组标题行:"主题颜色" */
+/** 分组标题行(如"主题颜色") */
 @Composable
-private fun HeaderRow() {
+private fun HeaderRow(title: String) {
     Text(
-        text = "主题颜色",
+        text = title,
         style = MaterialTheme.typography.titleMedium,
         color = MaterialTheme.colorScheme.onSurface,
     )
@@ -218,6 +288,64 @@ private fun CustomThemeSwitchRow(checked: Boolean, onCheckedChange: (Boolean) ->
         )
         Spacer(Modifier.width(16.dp))
         Switch(checked = checked, onCheckedChange = onCheckedChange)
+    }
+}
+
+/**
+ * 液态玻璃滑条行(2026-09-13 照搬示例 NavStyleScreen 的 NavSliderRow):
+ * 标题 + 右侧数值角标(surfaceVariant 小圆角块) + Slider(显式配色与全局滑块一致);
+ * 拖动中走本地 state,松手经 [onValueChangeFinished] 落盘。
+ */
+@Composable
+private fun GlassSliderRow(
+    title: String,
+    value: Float,
+    valueRange: ClosedFloatingPointRange<Float>,
+    onValueChange: (Float) -> Unit,
+    onValueChangeFinished: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+    ) {
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.weight(1f),
+            )
+            Spacer(Modifier.width(16.dp))
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            ) {
+                Text(
+                    text = value.roundToInt().toString(),
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                )
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        Slider(
+            value = value,
+            onValueChange = onValueChange,
+            onValueChangeFinished = onValueChangeFinished,
+            valueRange = valueRange,
+            steps = 0,
+            // 显式配色:原生 Slider 默认 inactiveTrack 走 surfaceContainerHighest 色阶,与全站滑块观感不一
+            colors = SliderDefaults.colors(
+                thumbColor = MaterialTheme.colorScheme.primary,
+                activeTrackColor = MaterialTheme.colorScheme.primary,
+                inactiveTrackColor = MaterialTheme.colorScheme.surfaceVariant,
+                disabledThumbColor = MaterialTheme.colorScheme.outline,
+                disabledActiveTrackColor = MaterialTheme.colorScheme.outline,
+                disabledInactiveTrackColor = MaterialTheme.colorScheme.surfaceVariant,
+            ),
+        )
     }
 }
 

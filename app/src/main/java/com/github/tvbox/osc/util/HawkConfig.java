@@ -101,4 +101,8 @@ public class HawkConfig {
     public static final String THEME_MODE = "theme_mode"; //0 跟随系统 1 浅色 2 深色
     public static final String THEME_SEED = "theme_seed"; //自定义种子色 ARGB
     public static final String THEME_PALETTE_STYLE = "theme_palette_style"; //PaletteStyle 枚举名
+    // 液态玻璃导航栏(2026-09-13,照搬 示例文件/android):blur 需 API 31+,lens 需 API 33+,低版本回退 M3 栏
+    public static final String LIQUID_GLASS_ENABLED = "liquid_glass_enabled";
+    public static final String LIQUID_GLASS_BLUR = "liquid_glass_blur"; //模糊强度 dp(0~40,默认 20)
+    public static final String LIQUID_GLASS_DISTORTION = "liquid_glass_distortion"; //折射强度 dp(0~30,默认 30)
 }

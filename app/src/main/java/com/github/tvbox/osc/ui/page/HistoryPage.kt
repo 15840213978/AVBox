@@ -53,6 +53,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -154,7 +155,7 @@ class HistoryViewModel : ViewModel() {
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun HistoryPage(vm: HistoryViewModel = viewModel()) {
+fun HistoryPage(vm: HistoryViewModel = viewModel(), bottomPadding: Dp = 0.dp) {
     val context = LocalContext.current
     val items by vm.items.collectAsState()
     val loading by vm.loading.collectAsState()
@@ -219,7 +220,8 @@ fun HistoryPage(vm: HistoryViewModel = viewModel()) {
                     start = 16.dp,
                     end = 16.dp,
                     top = topPad + 8.dp,
-                    bottom = 8.dp,
+                    // 液态玻璃模式:叠加悬浮栏遮挡高度(MainScreen 下发,M3 栏模式为 0)
+                    bottom = 8.dp + bottomPadding,
                 ),
                 verticalArrangement = Arrangement.spacedBy(12.dp), // 卡片间距 12dp(2026-09-09 用户定稿,原 8dp)
             ) {

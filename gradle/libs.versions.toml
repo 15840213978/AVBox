@@ -59,6 +59,9 @@ androidxLifecycleRuntime = "2.11.0"
 androidxCoreSplashscreen = "1.2.0"
 coil = "3.6.2"
 materialKolor = "5.0.1"
+# 液态玻璃导航栏(io.github.kyant0):backdrop 纯 Compose 实现背景采样 blur(API 31+)/lens(API 33+),capsule 连续曲率胶囊形状
+backdrop = "2.0.1"
+capsule = "2.1.3"
 
 [libraries]
 nanohttpd = { group = "org.nanohttpd", name = "nanohttpd", version.ref = "nanohttpd" }
@@ -117,6 +120,8 @@ androidx-compose-material-icons-extended = { group = "androidx.compose.material"
 coil-compose = { group = "io.coil-kt.coil3", name = "coil-compose", version.ref = "coil" }
 coil-network-okhttp = { group = "io.coil-kt.coil3", name = "coil-network-okhttp", version.ref = "coil" }
 materialkolor = { group = "com.materialkolor", name = "material-kolor", version.ref = "materialKolor" }
+backdrop = { group = "io.github.kyant0", name = "backdrop", version.ref = "backdrop" }
+capsule = { group = "io.github.kyant0", name = "capsule", version.ref = "capsule" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

@@ -28,6 +28,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
@@ -123,6 +124,10 @@ fun AVBoxOptionSheet(
         containerColor = MaterialTheme.colorScheme.surfaceContainer,
         modifier = modifier,
     ) {
+        // 本内容 lambda 在 SheetOverlay 的 provider 内组合,此处读到的是真实的「带动画关闭」;
+        // 防抖:滑出动画的 280ms 窗口内忽略重复点击,避免 onSelect 双触发(原瞬时移除无此窗口)
+        val dismissAnimated = LocalSheetDismiss.current
+        var accepted by remember { mutableStateOf(false) }
         SettingsGroup(
             title = null,
             modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
@@ -136,8 +141,12 @@ fun AVBoxOptionSheet(
                         title = option,
                         selected = option == selected,
                         onClick = {
-                            onSelect(option)
-                            onDismissRequest()
+                            if (!accepted) {
+                                accepted = true
+                                // 先回传选中结果(状态即时生效),面板再滑出,最后才真正移除
+                                onSelect(option)
+                                dismissAnimated()
+                            }
                         },
                     )
                 }
@@ -195,6 +204,12 @@ class SheetHostState {
 
 /** 页面被 pager/底栏等裁剪时,由上层在窗口根部提供槽位,sheet 改在该处渲染(覆盖全屏) */
 val LocalSheetHost = staticCompositionLocalOf<SheetHostState?> { null }
+
+/** sheet 内容可调用的「带滑出动画关闭」(2026-09-13):与 scrim/返回/拖拽同款滑出动画。
+ * 行内点击(选项/行卡片)经此关闭,替代调用方直接置 false 导致面板瞬间消失;
+ * 必须在 sheet 内容组合作用域内读取(内容在 [SheetOverlay] 的 provider 内组合),
+ * 默认空实现仅为兜底,正常调用不会命中 */
+val LocalSheetDismiss = staticCompositionLocalOf<() -> Unit> { {} }
 
 /** 窗口根部槽位宿主(通常放在 MainScreen 内容最外层,需能覆盖底栏与系统栏) */
 @Composable
@@ -276,51 +291,55 @@ private fun SheetOverlay(
             shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
             color = containerColor ?: BottomSheetDefaults.ContainerColor,
         ) {
-            // 内容区不加导航栏 inset(2026-09-11 用户定稿):列表可滑到手势条下面,手势条浮在内容上(沉浸);
-            // 面板底色本来就铺到屏幕最底,各 sheet 内容自带 16dp 底部 padding 保证收尾间距
-            Column {
-                // 把手 + 标题固定不滚动,并独占下滑关闭手势(2026-09-11):
-                // 手势原先挂在整个面板上,会与内容区的纵向滚动抢夺触摸,内层列表滚不动
-                Column(
-                    modifier = Modifier.draggable(
-                        state = sheetDragState(collapse, entered, panelHeightPx),
-                        orientation = Orientation.Vertical,
-                        onDragStopped = { velocity ->
-                            val dismiss = collapse.value > SHEET_DRAG_DISMISS_FRACTION ||
-                                    velocity > SHEET_DRAG_DISMISS_VELOCITY
-                            if (dismiss) {
-                                dismissWithAnimation()
-                            } else {
-                                scope.launch { collapse.animateTo(0f, tween(SHEET_SLIDE_DURATION_MS)) }
-                            }
-                        },
-                    ),
-                ) {
-                    // 把手居中:M3 的 DragHandle 自身仅 32dp 宽(内部靠 align(Center) 定位),
-                    // 需外层拉满宽度再居中,否则会贴到面板左边
-                    Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                        BottomSheetDefaults.DragHandle()
-                    }
-                    title?.let {
-                        Text(
-                            text = it,
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                        )
-                    }
-                }
-                if (isScrollable) {
-                    // 内容区高度交给 weight,超高时把面板顶到限高并在区内滚动;
-                    // 内容自带滚动容器时传 isScrollable = false,让内层自己滚
+            // 向内容暴露「带动画关闭」(2026-09-13):行内点击(选项/行卡片)经 LocalSheetDismiss
+            // 触发与 scrim/返回/拖拽同款的滑出动画,替代调用方直接置 false 的瞬间消失
+            CompositionLocalProvider(LocalSheetDismiss provides { dismissWithAnimation() }) {
+                // 内容区不加导航栏 inset(2026-09-11 用户定稿):列表可滑到手势条下面,手势条浮在内容上(沉浸);
+                // 面板底色本来就铺到屏幕最底,各 sheet 内容自带 16dp 底部 padding 保证收尾间距
+                Column {
+                    // 把手 + 标题固定不滚动,并独占下滑关闭手势(2026-09-11):
+                    // 手势原先挂在整个面板上,会与内容区的纵向滚动抢夺触摸,内层列表滚不动
                     Column(
-                        modifier = Modifier
-                            .weight(1f, fill = false)
-                            .verticalScroll(rememberScrollState()),
-                        content = content,
-                    )
-                } else {
-                    Column(content = content)
+                        modifier = Modifier.draggable(
+                            state = sheetDragState(collapse, entered, panelHeightPx),
+                            orientation = Orientation.Vertical,
+                            onDragStopped = { velocity ->
+                                val dismiss = collapse.value > SHEET_DRAG_DISMISS_FRACTION ||
+                                        velocity > SHEET_DRAG_DISMISS_VELOCITY
+                                if (dismiss) {
+                                    dismissWithAnimation()
+                                } else {
+                                    scope.launch { collapse.animateTo(0f, tween(SHEET_SLIDE_DURATION_MS)) }
+                                }
+                            },
+                        ),
+                    ) {
+                        // 把手居中:M3 的 DragHandle 自身仅 32dp 宽(内部靠 align(Center) 定位),
+                        // 需外层拉满宽度再居中,否则会贴到面板左边
+                        Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                            BottomSheetDefaults.DragHandle()
+                        }
+                        title?.let {
+                            Text(
+                                text = it,
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                            )
+                        }
+                    }
+                    if (isScrollable) {
+                        // 内容区高度交给 weight,超高时把面板顶到限高并在区内滚动;
+                        // 内容自带滚动容器时传 isScrollable = false,让内层自己滚
+                        Column(
+                            modifier = Modifier
+                                .weight(1f, fill = false)
+                                .verticalScroll(rememberScrollState()),
+                            content = content,
+                        )
+                    } else {
+                        Column(content = content)
+                    }
                 }
             }
         }

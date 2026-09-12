@@ -69,6 +69,11 @@ class HomeViewModel : ViewModel() {
     /** 分类列表是否已返回:getSort 回调前 partitions 恒为空列表,不引入此标记
      * "完成"判定会在分类未到时误成立(rec 已非 Loading + 空列表 none{Loading}) */
     private val sortsLoaded = MutableStateFlow(false)
+    /** 配置是否就绪(2026-09-13 切源竞态修复):切源时 onApiUrlChanged 先 invalidateVodConfig
+     * (sources 被清空)再异步拉新配置,窗口内 getSort(null) 会瞬时返回 Empty——
+     * 若不阻断,完成判定提前成立 → pageLoading=false 且 sources 为空 → 首页闪「尚未配置订阅接口」。
+     * 就绪前整页完成判定恒不成立,窗口内保持页心转圈 */
+    private val bootReady = MutableStateFlow(false)
     /** 整页/分区加载失败事件(看门狗超时,携带提示文案),页面层收集后弹 Toast */
     val pageErrorEvents = MutableSharedFlow<String>(extraBufferCapacity = 1)
 
@@ -115,14 +120,17 @@ class HomeViewModel : ViewModel() {
         currentSource.value = ApiConfig.get().getHomeSourceBean()
         // 配置(重)加载完成即刷新首页;首次 Ready 与后续接口变更后的 Ready 都走这里
         scope.launch {
-            AppBootstrap.state.collect { if (it is AppBootstrap.Boot.Ready) loadHome() }
+            AppBootstrap.state.collect {
+                bootReady.value = it is AppBootstrap.Boot.Ready
+                if (it is AppBootstrap.Boot.Ready) loadHome()
+            }
         }
-        // 整页加载完成判定:分类已返回 + 推荐区非 Loading + 全部分区非 Loading。
+        // 整页加载完成判定:bootReady + 分类已返回 + 推荐区非 Loading + 全部分区非 Loading。
         // 只负责置 false(结束);置 true 只发生在 loadHome(),避免 refreshPartitions/
         // applyFilter 等局部重载误触发整页 Loading
         scope.launch {
-            combine(rec, partitions, sortsLoaded) { r, ps, loaded ->
-                loaded && r.state != PartitionState.Loading &&
+            combine(bootReady, rec, partitions, sortsLoaded) { ready, r, ps, loaded ->
+                ready && loaded && r.state != PartitionState.Loading &&
                     ps.none { it.state == PartitionState.Loading }
             }.collect { ready ->
                 if (ready && pageLoading.value) {

@@ -97,6 +97,7 @@ import com.github.tvbox.osc.player.controller.ComposeLiveController
 import com.github.tvbox.osc.ui.components.AVBoxBottomSheet
 import com.github.tvbox.osc.ui.components.LoadStateBox
 import com.github.tvbox.osc.ui.components.LoadState
+import com.github.tvbox.osc.ui.components.LocalSheetDismiss
 import com.github.tvbox.osc.ui.components.SettingsCard
 import com.github.tvbox.osc.ui.components.SettingsCardPosition
 import com.github.tvbox.osc.ui.components.SettingsGroup
@@ -1220,23 +1221,28 @@ class LivePlayActivity : BaseActivity() {
     // 时移回看(EPG 点击 → catchup URL 播放)
     // ============================================================
 
-    private fun onEpgRowClicked(position: Int) {
-        if (position == currentLiveLookBackIndex) return
-        val selectedData = epgdata.getOrNull(position) ?: return
-        if (selectedData.startdateTime == null || selectedData.enddateTime == null) return
+    /** EPG 行点击(2026-09-13 重构):不再在内部关闭节目单(sheet 置 false 会跳过滑出动画),
+     * 改由组合层在返回 true 时走 LocalSheetDismiss 带动画关闭。
+     * @return true = 已切换播放(回直播或开始回看);false = 无变化(重复点击/条件不满足) */
+    private fun onEpgRowClicked(position: Int): Boolean {
+        if (position == currentLiveLookBackIndex) return false
+        val selectedData = epgdata.getOrNull(position) ?: return false
+        if (selectedData.startdateTime == null || selectedData.enddateTime == null) return false
         val now = Date()
-        if (now.before(selectedData.startdateTime)) return
-        if (now.after(selectedData.enddateTime) && !canCurrentChannelCatchup()) return
+        if (now.before(selectedData.startdateTime)) return false
+        if (now.after(selectedData.enddateTime) && !canCurrentChannelCatchup()) return false
         currentLiveLookBackIndex = position
+        var switched = false
         if (!now.before(selectedData.startdateTime) && !now.after(selectedData.enddateTime)) {
             // 正在播出 → 回直播
             backToLiveFromEpg()
-            epgSheetVisible = false
+            switched = true
         } else if (canCurrentChannelCatchup()) {
             startCatchupReplay(selectedData)
-            epgSheetVisible = false
+            switched = true
         }
         epgVersion++
+        return switched
     }
 
     private fun startCatchupReplay(epg: Epginfo) {
@@ -2535,6 +2541,9 @@ class LivePlayActivity : BaseActivity() {
             // 内容自带 LazyColumn(heightIn 520dp),滚动交给它,避免与封装的内容区抢手势
             isScrollable = false,
         ) {
+            // 切换成功才关闭节目单(2026-09-13):走 LocalSheetDismiss 滑出动画;
+            // 此处读取发生在 SheetOverlay 的 provider 作用域内
+            val dismissAnimated = LocalSheetDismiss.current
             val epgList = activity.epgdata
             if (epgList.isEmpty()) {
                 Text(
@@ -2557,7 +2566,10 @@ class LivePlayActivity : BaseActivity() {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable(enabled = clickable) { activity.onEpgRowClicked(index) }
+                            .clickable(enabled = clickable) {
+                                // 仅在真正切换播放(回直播/开始回看)时关闭节目单,与原行为一致
+                                if (activity.onEpgRowClicked(index)) dismissAnimated()
+                            }
                             .padding(horizontal = 16.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {

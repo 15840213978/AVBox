@@ -8,6 +8,8 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -210,19 +212,18 @@ fun ConfigManageScreen(onNavigateBack: () -> Unit) {
     val isVod = mode == ConfigMode.Vod
     // 命名避开 LazyListScope.items DSL 函数,防止后续在 LazyColumn 内容里误引用
     val currentItems = if (isVod) vodItems else liveItems
-    val listState = rememberLazyListState()
 
     // 管理模式下取消全部选中即自动退出(删除控件随之隐藏);列表清空同理
     LaunchedEffect(selected, currentItems) {
         if (manageMode && selected.isEmpty()) manageMode = false
     }
 
-    // 切分段:退出管理模式并清空勾选(否则会把另一角色勾中的源当成当前角色的删除目标)+ 列表回顶
+    // 切分段:退出管理模式并清空勾选(否则会把另一角色勾中的源当成当前角色的删除目标)。
+    // 列表回顶不再需要:分段切换动画的每份内容组合各持独立 LazyListState,天然从顶部开始
     LaunchedEffect(mode) {
         manageMode = false
         selected = emptySet()
         editTarget = null
-        listState.scrollToItem(0)
     }
 
     /** 退出管理模式:取消勾选并关闭编辑弹窗(右上角控件随之回到「添加」) */
@@ -325,13 +326,8 @@ fun ConfigManageScreen(onNavigateBack: () -> Unit) {
         }
     }
 
-    // 当前角色正在使用的源置顶,其余保持添加顺序(2026-09-11 用户要求:后加的源在下方)
-    val orderedItems = remember(currentItems, activeUrl, liveActiveUrl, liveFollow, isVod) {
-        currentItems.sortedByDescending {
-            val url = parseSubscribe(it).url
-            if (isVod) url == activeUrl else !liveFollow && url == liveActiveUrl
-        }
-    }
+    // 当前角色正在使用的源置顶、其余按添加顺序的排序已移入分段动画内容内按段计算
+    // (AnimatedContent 的离场/入场两份组合需各自按目标分段取数,不能共用按当前分段排序的结果)
 
     // 分段徽标:让用户不切分段也能看到两个角色各自的当前选择
     val vodBadge = remember(vodItems, activeUrl) {
@@ -419,82 +415,113 @@ fun ConfigManageScreen(onNavigateBack: () -> Unit) {
                     .fillMaxWidth()
                     .padding(start = 16.dp, end = 16.dp, top = topPad + 8.dp),
             )
-            if (isVod && currentItems.isEmpty()) {
-                // 点播段空态 = 全 App 未配置订阅接口的引导态
-                LoadStateBox(
-                    state = LoadState.Empty,
-                    emptyText = "暂无订阅",
-                    errorText = "",
-                    retryText = "",
-                    modifier = Modifier.fillMaxSize(),
-                )
-            } else {
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier.fillMaxSize(),
-                    // 顶栏留白已由上面的分段行承担,这里只留分段与首卡的 12dp 间距(与卡间距一致)
-                    contentPadding = PaddingValues(
-                        start = 16.dp,
-                        end = 16.dp,
-                        top = 12.dp,
-                        bottom = 8.dp,
-                    ),
-                    verticalArrangement = Arrangement.spacedBy(12.dp), // 卡片间距 12dp(与历史页一致)
-                ) {
-                    if (!isVod) {
-                        // 直播段首项:合成的「跟随点播源」(非订阅项,不参与长按删除)
-                        item(key = "Live#follow") {
-                            FollowVodCard(
-                                checked = liveFollow,
-                                subtitle = if (activeUrl.isEmpty()) "未配置点播源" else "当前点播源:$vodBadge",
-                                onFollow = { followLiveNow() },
-                                modifier = Modifier.animateItem(),
-                            )
+            // 点播/直播分段切换动画(2026-09-13):整列卡片随分段方向横向滑动 + 淡入淡出。
+            // 内容 lambda 一律以 m(目标分段)取数:vodItems/liveItems/activeUrl/liveFollow
+            // 均为与 mode 无关的状态,离场/入场两份组合各自取数互不干扰;
+            // 卡片点击行为同样按 m 分发,过渡期间误点离场卡不会把点播源写进直播配置
+            AnimatedContent(
+                targetState = mode,
+                transitionSpec = {
+                    // 直播段在右:切到直播从右滑入,切回点播从左滑入,离场反向
+                    val toRight = targetState == ConfigMode.Live
+                    (
+                        slideInHorizontally(spring(stiffness = Spring.StiffnessMedium)) { full ->
+                            if (toRight) full / 4 else -full / 4
+                        } + fadeIn(spring(stiffness = Spring.StiffnessMedium))
+                        ).togetherWith(
+                        slideOutHorizontally(spring(stiffness = Spring.StiffnessMedium)) { full ->
+                            if (toRight) -full / 4 else full / 4
+                        } + fadeOut(spring(stiffness = Spring.StiffnessMedium))
+                    )
+                },
+                label = "configSegment",
+            ) { m ->
+                val mIsVod = m == ConfigMode.Vod
+                val mItems = if (mIsVod) vodItems else liveItems
+                if (mIsVod && mItems.isEmpty()) {
+                    // 点播段空态 = 全 App 未配置订阅接口的引导态
+                    LoadStateBox(
+                        state = LoadState.Empty,
+                        emptyText = "暂无订阅",
+                        errorText = "",
+                        retryText = "",
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                } else {
+                    // 当前段正在使用的源置顶,其余保持添加顺序(2026-09-11 用户要求:后加的源在下方)
+                    val mOrdered = remember(mItems, activeUrl, liveActiveUrl, liveFollow, mIsVod) {
+                        mItems.sortedByDescending {
+                            val url = parseSubscribe(it).url
+                            if (mIsVod) url == activeUrl else !liveFollow && url == liveActiveUrl
                         }
                     }
-                    items(orderedItems, key = { "${mode.name}#$it" }) { value ->
-                        val item = parseSubscribe(value)
-                        val inUse = isInUse(item.url)
-                        SubscribeCard(
-                            // 切源时激活卡片置顶重排:animateItem 让卡片平滑滑动到新位置(2026-09-12 用户要求)
-                            modifier = Modifier.animateItem(),
-                            item = item,
-                            active = inUse,
-                            deletable = !inUse,
-                            manageMode = manageMode,
-                            selected = value in selected,
-                            onClick = {
-                                if (manageMode) {
-                                    // 正在使用的源不可删(勾选框禁用,点击给提示)
+                    LazyColumn(
+                        state = rememberLazyListState(),
+                        modifier = Modifier.fillMaxSize(),
+                        // 顶栏留白已由上面的分段行承担,这里只留分段与首卡的 12dp 间距(与卡间距一致)
+                        contentPadding = PaddingValues(
+                            start = 16.dp,
+                            end = 16.dp,
+                            top = 12.dp,
+                            bottom = 8.dp,
+                        ),
+                        verticalArrangement = Arrangement.spacedBy(12.dp), // 卡片间距 12dp(与历史页一致)
+                    ) {
+                        if (!mIsVod) {
+                            // 直播段首项:合成的「跟随点播源」(非订阅项,不参与长按删除)
+                            item(key = "Live#follow") {
+                                FollowVodCard(
+                                    checked = liveFollow,
+                                    subtitle = if (activeUrl.isEmpty()) "未配置点播源" else "当前点播源:$vodBadge",
+                                    onFollow = { followLiveNow() },
+                                    modifier = Modifier.animateItem(),
+                                )
+                            }
+                        }
+                        items(mOrdered, key = { "${m.name}#$it" }) { value ->
+                            val item = parseSubscribe(value)
+                            val inUse = if (mIsVod) item.url == activeUrl else !liveFollow && item.url == liveActiveUrl
+                            SubscribeCard(
+                                // 切源时激活卡片置顶重排:animateItem 让卡片平滑滑动到新位置(2026-09-12 用户要求)
+                                modifier = Modifier.animateItem(),
+                                item = item,
+                                active = inUse,
+                                deletable = !inUse,
+                                manageMode = manageMode,
+                                selected = value in selected,
+                                onClick = {
+                                    if (manageMode) {
+                                        // 正在使用的源不可删(勾选框禁用,点击给提示)
+                                        if (inUse) {
+                                            Toast.makeText(context, "正在使用的源不能删除", Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            selected = if (value in selected) selected - value else selected + value
+                                        }
+                                    } else if (mIsVod) {
+                                        switchToVod(item)
+                                    } else {
+                                        switchToLive(item)
+                                    }
+                                },
+                                onLongClick = {
+                                    // 长按进入管理模式并选中该卡(右上角出现删除控件);正在使用的源不可删
                                     if (inUse) {
                                         Toast.makeText(context, "正在使用的源不能删除", Toast.LENGTH_SHORT).show()
                                     } else {
-                                        selected = if (value in selected) selected - value else selected + value
+                                        manageMode = true
+                                        selected = setOf(value)
                                     }
-                                } else if (isVod) {
-                                    switchToVod(item)
-                                } else {
-                                    switchToLive(item)
-                                }
-                            },
-                            onLongClick = {
-                                // 长按进入管理模式并选中该卡(右上角出现删除控件);正在使用的源不可删
-                                if (inUse) {
-                                    Toast.makeText(context, "正在使用的源不能删除", Toast.LENGTH_SHORT).show()
-                                } else {
-                                    manageMode = true
-                                    selected = setOf(value)
-                                }
-                            },
-                            onCheckedChange = { checked ->
-                                // 点播:关闭不动作(必须有一个点播源);直播:关闭 = 回到「跟随点播源」
-                                if (checked) {
-                                    if (isVod) switchToVod(item) else switchToLive(item)
-                                } else if (!isVod) {
-                                    followLiveNow()
-                                }
-                            },
-                        )
+                                },
+                                onCheckedChange = { checked ->
+                                    // 点播:关闭不动作(必须有一个点播源);直播:关闭 = 回到「跟随点播源」
+                                    if (checked) {
+                                        if (mIsVod) switchToVod(item) else switchToLive(item)
+                                    } else if (!mIsVod) {
+                                        followLiveNow()
+                                    }
+                                },
+                            )
+                        }
                     }
                 }
             }

@@ -246,7 +246,7 @@ private fun PartitionListScreen(mode: String, title: String, sortJson: String?, 
                 sort = sort,
                 onDismiss = { filterOpen = false },
                 onConfirm = { selection ->
-                    filterOpen = false
+                    // 关闭由 FilterSheet 内部带动画处理(2026-09-13),这里只应用筛选
                     vm.applyFilter(selection)
                 },
             )

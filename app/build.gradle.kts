@@ -165,6 +165,9 @@ dependencies {
     implementation(libs.coil.network.okhttp)
     // 主题取色(主题设置页):种子色/风格 → M3 配色方案
     implementation(libs.materialkolor)
+    // 液态玻璃导航栏:backdrop 背景采样(vibrancy/blur/lens)+ capsule 连续曲率胶囊形状
+    implementation(libs.backdrop)
+    implementation(libs.capsule)
 
     // 脱糖运行时库(由本模块打进 APK;库模块各自声明同名依赖以启用自身代码的脱糖)
     coreLibraryDesugaring(libs.desugar.jdk.libs)

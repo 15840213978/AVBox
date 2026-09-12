@@ -91,6 +91,7 @@ import com.github.tvbox.osc.player.ui.playerDim
 import com.github.tvbox.osc.ui.components.AVBoxBottomSheet
 import com.github.tvbox.osc.ui.components.LoadState
 import com.github.tvbox.osc.ui.components.LoadStateBox
+import com.github.tvbox.osc.ui.components.LocalSheetDismiss
 import com.github.tvbox.osc.ui.components.VodCard
 import com.github.tvbox.osc.ui.page.jumpToDetail
 import com.github.tvbox.osc.ui.player.PlayContainer
@@ -1721,6 +1722,9 @@ private fun EpisodeSheet(vm: DetailViewModel, revision: Int) {
         // 内容自带横向 LazyRow 与 LazyVerticalGrid(height 自适应 + 560dp 上限),滚动交给它们
         isScrollable = false,
     ) {
+        // 集卡点击改走「带动画关闭」(2026-09-13):先切集播放,面板滑出后再移除;
+        // 此处读取发生在 SheetOverlay 的 provider 作用域内
+        val dismissAnimated = LocalSheetDismiss.current
         Column(modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
             if (flags.size > 1) {
                 LazyRow(
@@ -1780,7 +1784,7 @@ private fun EpisodeSheet(vm: DetailViewModel, revision: Int) {
                         selected = index == playIndex,
                         onClick = {
                             vm.onEpisodeClick(index)
-                            vm.dismissEpisodeSheet()
+                            dismissAnimated()
                         },
                         modifier = Modifier
                             .fillMaxWidth()

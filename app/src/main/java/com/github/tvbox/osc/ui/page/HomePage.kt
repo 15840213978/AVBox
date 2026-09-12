@@ -87,6 +87,7 @@ import com.github.tvbox.osc.ui.components.HeroCarousel
 import com.github.tvbox.osc.ui.components.LoadState
 import com.github.tvbox.osc.ui.components.AppTopBarScaffold
 import com.github.tvbox.osc.ui.components.LoadStateBox
+import com.github.tvbox.osc.ui.components.LocalSheetDismiss
 import com.github.tvbox.osc.ui.components.PressableCard
 import com.github.tvbox.osc.ui.components.SettingsCard
 import com.github.tvbox.osc.ui.components.SettingsCardPosition
@@ -100,8 +101,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.greenrobot.eventbus.EventBus
 
+/**
+ * [bottomPadding]:液态玻璃模式下悬浮导航栏的遮挡高度(MainScreen 统一下发,M3 栏模式传 0 走布局避让),
+ * 叠加到列表 contentPadding 与 FAB 底部偏移,末尾内容不被悬浮栏遮住。
+ */
 @Composable
-fun HomePage(vm: HomeViewModel) {
+fun HomePage(vm: HomeViewModel, bottomPadding: Dp = 0.dp) {
     val context = LocalContext.current
     val currentSource by vm.currentSource.collectAsState()
     val sources by vm.sources.collectAsState()
@@ -267,8 +272,8 @@ fun HomePage(vm: HomeViewModel) {
                         state = pullState,
                         onRefresh = { vm.reload() },
                     ),
-                // 底部留 FAB 悬浮空间,末尾卡片不被遮挡
-                contentPadding = PaddingValues(top = topPad + 8.dp, bottom = 88.dp),
+                // 底部留 FAB 悬浮空间,末尾卡片不被遮挡;液态玻璃模式再叠加悬浮栏遮挡高度
+                contentPadding = PaddingValues(top = topPad + 8.dp, bottom = 88.dp + bottomPadding),
             ) {
                 // Hero 大卡轮播:推荐前 5 部(2026-09-10 揭秘日风格)。
                 // BugFix:LazyColumn 以首可见项 key 锚定滚动位置,若 Hero 数据到位后才插入首项,
@@ -373,7 +378,9 @@ fun HomePage(vm: HomeViewModel) {
             onClick = { context.startActivity(Intent(context, LivePlayActivity::class.java)) },
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(16.dp),
+                .padding(16.dp)
+                // 液态玻璃模式:悬浮栏盖住屏幕底部,FAB 随 bottomPadding 抬到栏上方
+                .padding(bottom = bottomPadding),
         ) {
             Icon(painter = painterResource(R.drawable.ic_live_fab), contentDescription = "直播")
         }
@@ -388,6 +395,9 @@ fun HomePage(vm: HomeViewModel) {
             // 内容自带 LazyColumn(heightIn 420dp),滚动交给它
             isScrollable = false,
         ) {
+            // 行内点击改走「带动画关闭」(2026-09-13):先执行动作,面板滑出后再移除,
+            // 替代原先直接置 false 的瞬间消失。此处读取发生在 SheetOverlay 的 provider 作用域内
+            val dismissAnimated = LocalSheetDismiss.current
             LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -418,7 +428,7 @@ fun HomePage(vm: HomeViewModel) {
                                         if (!selected) {
                                             vm.switchSource(bean)
                                         }
-                                        showSourceSheet = false
+                                        dismissAnimated()
                                     },
                                     trailing = {
                                         CardPolicyPill(
@@ -443,7 +453,8 @@ fun HomePage(vm: HomeViewModel) {
                             SettingsRow(
                                 title = "配置管理",
                                 onClick = {
-                                    showSourceSheet = false
+                                    // 面板滑出与新 Activity 转场同时进行,返回时 sheet 已关闭
+                                    dismissAnimated()
                                     ConfigManageActivity.start(context)
                                 },
                             )
@@ -476,7 +487,8 @@ fun HomePage(vm: HomeViewModel) {
                 } else if (option == "搜索相似内容") {
                     context.jumpToSearch(video.name ?: "")
                 }
-                collectMenu = null
+                // 不在此处置空 collectMenu:AVBoxOptionSheet 选中后会先播放滑出动画,
+                // 动画结束才回调 onDismissRequest 清理;此处若直接置 null 会跳过动画
             },
         )
     }

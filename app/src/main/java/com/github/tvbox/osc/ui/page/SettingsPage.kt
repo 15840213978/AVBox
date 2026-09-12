@@ -42,6 +42,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ViewModel
@@ -202,7 +203,7 @@ class OptionSheetState(
 )
 
 @Composable
-fun SettingsPage(vm: SettingsViewModel = viewModel()) {
+fun SettingsPage(vm: SettingsViewModel = viewModel(), bottomPadding: Dp = 0.dp) {
     val state by vm.state
     // 缓存占用会随播放持续增长,而 ViewModel 只在首帧(或改设置/清理后)算一次;
     // 播放发生在 Detail/LivePlay 等独立 Activity,返回本页必然走 ON_RESUME,故在此重算,
@@ -240,7 +241,8 @@ fun SettingsPage(vm: SettingsViewModel = viewModel()) {
                 .fillMaxSize()
                 .verticalScroll(listState)
                 .padding(horizontal = 16.dp)
-                .padding(bottom = 8.dp),
+                // 液态玻璃模式:叠加悬浮栏遮挡高度(MainScreen 下发,M3 栏模式为 0)
+                .padding(bottom = 8.dp + bottomPadding),
             verticalArrangement = Arrangement.spacedBy(28.dp), // 2026-09-09:分组卡片间距 28dp(用户定稿)
         ) {
             // 顶部占位 = 顶栏高度 - 20dp(2026-09-12 用户定稿:首卡与顶栏间距在 -12 基础上再缩小 8dp,约 13dp 视觉间距)

@@ -42,6 +42,8 @@ import kotlin.math.sqrt
 /**
  * 颜色选择器(2026-09-11,照搬 `示例文件/android` 的 ColorPickerDialog):
  * Compose 自绘 HSV 色轮 + 亮度滑块 + 初始/当前色对比,返回所选颜色 ARGB Int。
+ * 2026-09-13 取消/确定改走「带动画关闭」:调用方 onConfirm/onDismiss 里不要自己置 false
+ * (onDismiss 仍由 scrim/返回/滑出结束的 onDismissRequest 触发)。
  */
 @Composable
 fun ThemeColorPickerSheet(
@@ -57,6 +59,9 @@ fun ThemeColorPickerSheet(
     val currentColor = remember(hsv) { android.graphics.Color.HSVToColor(hsv) }
 
     AVBoxBottomSheet(onDismissRequest = onDismiss, title = title) {
+        // 此处读取发生在 SheetOverlay 的 provider 作用域内;防抖防滑出窗口内双触发 onConfirm
+        val dismissAnimated = LocalSheetDismiss.current
+        var accepted by remember { mutableStateOf(false) }
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -87,9 +92,20 @@ fun ThemeColorPickerSheet(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.End,
             ) {
-                TextButton(onClick = onDismiss) { Text("取消") }
+                TextButton(onClick = {
+                    if (!accepted) {
+                        accepted = true
+                        dismissAnimated()
+                    }
+                }) { Text("取消") }
                 Spacer(Modifier.width(8.dp))
-                Button(onClick = { onConfirm(currentColor) }) { Text("确定") }
+                Button(onClick = {
+                    if (!accepted) {
+                        accepted = true
+                        onConfirm(currentColor)
+                        dismissAnimated()
+                    }
+                }) { Text("确定") }
             }
         }
     }
