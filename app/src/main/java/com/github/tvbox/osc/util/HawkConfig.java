@@ -1,0 +1,104 @@
+package com.github.tvbox.osc.util;
+
+/**
+ * @author pj567
+ * @date :2020/12/23
+ * @description:
+ */
+public class HawkConfig {
+    public static final String API_URL = "api_url";
+    public static final String EPG_URL = "epg_url";
+    public static final String API_HISTORY = "api_history";
+    public static final String API_LINE_LIST = "api_line_list";
+    public static final String API_LINE_SOURCE = "api_line_source";
+    public static final String LIVE_API_HISTORY = "live_api_history";
+    public static final String EPG_HISTORY = "epg_history";
+    public static final String HOME_API = "home_api";
+    public static final String DEFAULT_PARSE = "parse_default";
+    public static final String IJK_CODEC = "ijk_codec";
+    public static final String SUBTITLE_TEXT_STYLE = "subtitle_text_style";//外挂字幕文字样式 0 白 1 粉(#FFB6C1)
+    public static final String PLAY_TYPE = "play_type";//1 ijk 2 exo 10 MXPlayer
+    public static final String LIVE_PLAY_TYPE = "live_play_type";//1 ijk 2 exo 10 MXPlayer
+    public static final String PLAY_RENDER = "play_render"; //0 texture 2
+    public static final String PLAY_SCALE = "play_scale"; //0 texture 2
+    // EXO 音频隧道(audio offload,2026-09-11):压缩音频码流直通 DSP 解码;设备/格式不支持时自动回退普通播放
+    public static final String PLAY_TUNNEL = "play_tunnel";
+    // 音轨优先 AAC(2026-09-11,独立开关):选轨偏好 AAC,提高隧道命中率/规避个别机型 offload 异常
+    public static final String PLAY_PREFER_AAC = "play_prefer_aac";
+    public static final String LIVE_PLAY_SCALE = "live_play_scale";
+    public static final String PLAY_TIME_STEP = "play_time_step"; //0 texture 2
+    public static final String DOH_URL = "doh_url";
+    public static final String HISTORY_NUM = "history_num";
+    public static final String LIVE_CHANNEL = "last_live_channel_name";
+    public static final String LIVE_CHANNEL_REVERSE = "live_channel_reverse";
+    public static final String LIVE_CROSS_GROUP = "live_cross_group";
+    public static final String LIVE_CONNECT_TIMEOUT = "live_connect_timeout";
+    public static final String LIVE_SHOW_NET_SPEED = "live_show_net_speed";
+    public static final String LIVE_SHOW_RESOLUTION = "live_show_resolution";
+    public static final String LIVE_SHOW_TIME = "live_show_time";
+    public static final String SUBTITLE_TEXT_SIZE = "subtitle_text_size";
+    public static final String SUBTITLE_TIME_DELAY = "subtitle_time_delay";
+    public static final String SUBTITLE_EXO_SCALE = "subtitle_exo_scale";
+    public static final String SUBTITLE_EXO_POSITION = "subtitle_exo_position";
+    public static final String SOURCES_FOR_SEARCH = "checked_sources_for_search";
+    public static final String NOW_DATE = "now_date"; //当前日期
+    public static final String REMOTE_TVBOX = "remote_tvbox_host";
+    public static final String IJK_CACHE_PLAY = "ijk_cache_play";
+    public static final String PLAYER_IS_LIVE = "player_is_live";
+    public static final String DOH_JSON = "doh_json";
+    public static final String LIVE_GROUP_INDEX = "live_group_index";
+    public static final String LIVE_GROUP_LIST = "live_group_list";
+    public static final String LIVE_API_URL = "live_api_url";
+    public static final String M3U8_PURIFY = "m3u8_purify";
+    public static final String AUTO_SWITCH_LINE = "auto_switch_line";
+    public static final String SCREEN_DISPLAY = "screen_display";
+    public static final String LIVE_WEB_HEADER = "live_web_header";
+    public static final String DEFAULT_LOAD_LIVE = "DEFAULT_LOAD_LIVE";
+    public static final String SEARCH_HISTORY = "search_history";
+    /**
+     * 无痕模式(2026-09-12):开启后**不写入**搜索历史与观看历史(含播放进度);
+     * 手动收藏、以及删除/清空历史等用户主动操作不受影响。判定统一走 [HistoryHelper.isIncognito]
+     */
+    public static final String INCOGNITO = "incognito";
+    // 搜索线程数(2026-09-12,设置页滑块 16/32/48/64 四档):全站搜索源并发信号量许可数
+    public static final String SEARCH_THREADS = "search_threads";
+    public static final int SEARCH_THREADS_DEFAULT = 32;
+    // 长按倍速(2026-09-12,设置页滑块 2x~10x 步长 1):长按画面临时提速的倍率
+    public static final String LONG_PRESS_SPEED = "long_press_speed";
+    public static final int LONG_PRESS_SPEED_DEFAULT = 3;
+    // 缓冲倍数(2026-09-12,设置页滑块 1x~10x 步长 1,默认 3x,照搬 fongmi 方案):
+    // Exo 蓄水目标 = 官方默认 50s × N;起播/再缓冲阈值不乘,保证秒开
+    public static final String BUFFER_TIMES = "buffer_times";
+    public static final int BUFFER_TIMES_DEFAULT = 3;
+    public static final String PRELOAD_NEXT_EPISODE = "preload_next_episode";
+    /** 下一集预载时长(秒,20~120 步长 10,第二期参数化):控制预载数据范围(内存缓冲 + 磁盘写盘) */
+    public static final String PRELOAD_DURATION = "preload_duration";
+    public static final int PRELOAD_DURATION_DEFAULT = 60;
+    /** 边播边缓存(第二期扩展,默认开):点播全程走磁盘缓存数据源(直播页不启用,见 MyVideoView 点播标记) */
+    public static final String PLAY_CACHE = "play_cache";
+    /**
+     * Exo 共享缓存容量 MB(128~4096 步长 128,默认 512):
+     * 预载写盘与边播边缓存共用同一 SimpleCache(LRU);容量在缓存创建时固定,改动需重启 App 生效
+     */
+    public static final String EXO_CACHE_SIZE_MB = "exo_cache_size_mb";
+    public static final int EXO_CACHE_SIZE_MB_DEFAULT = 512;
+    public static final String DANMU_OPEN = "danmu_open";
+    public static final String DANMU_MAX_LINE = "danmu_max_line";
+    public static final String DANMU_SPEED = "danmu_speed";
+    public static final String DANMU_ALPHA = "danmu_alpha";
+    public static final String DANMU_SIZE_SCALE = "danmu_size_scale";
+    public static final String DANMU_RANDOM_COLOR = "danmu_random_color";
+    public static final String DANMU_API = "danmu_api";
+    // 源级卡片点击策略(2026-09-11):HashMap<sourceKey, "detail">,缺省即"搜索"
+    public static final String SOURCE_CARD_POLICY = "source_card_policy";
+    // 配置管理订阅源(2026-09-11):ArrayList<String>,每项 "名字\t链接"
+    public static final String SUBSCRIBE_LIST = "subscribe_list";
+    // 配置管理独立直播源(2026-09-12 点播/直播拆分):格式同 SUBSCRIBE_LIST。
+    // 与点播源分开存储 —— 同一链接若同时用作点播与直播,应让直播保持"跟随"(LIVE_API_URL 空),不必重复录入
+    public static final String LIVE_SUBSCRIBE_LIST = "live_subscribe_list";
+    // 主题设置(2026-09-11,照搬 示例文件/android 主题设置页)
+    public static final String THEME_SOURCE = "theme_source"; //0 跟随系统取色 1 自定义种子色
+    public static final String THEME_MODE = "theme_mode"; //0 跟随系统 1 浅色 2 深色
+    public static final String THEME_SEED = "theme_seed"; //自定义种子色 ARGB
+    public static final String THEME_PALETTE_STYLE = "theme_palette_style"; //PaletteStyle 枚举名
+}

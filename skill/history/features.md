@@ -1,0 +1,351 @@
+# AVBox 功能迭代实施记录（历史归档）
+
+> 本文件是 `skill/history/` 归档的一部分：2026-09-09 起各项功能改造的**实施过程、历史补丁与排查记录**。
+> 活规范见 `../avbox-mobile-ui-spec.md`，通用规则见 `../SKILL.md`。
+> 用途：**仅在需要追溯「当初怎么做的、为什么这么做、踩过什么坑」时按需检索**，不要通读。
+> 说明：文内 `§x` 引用沿用归档前的旧编号（§4.x 未变；旧 §5/§6/§7/§8 已重组，见 SKILL.md 文档地图）。
+
+---
+
+## 归档时的项目状态（2026-09-12）
+
+- **状态**:Step 7 已完成(assembleDebug 通过,真机回归待装包验证);快搜功能已删除(2026-09-09,见下)
+- **最近更新**:2026-09-11(★ **主题设置页**(照搬 `示例文件/android`:取色来源/深浅模式/预设色卡/HSV 取色器/配色风格,新增 materialkolor 依赖与 `AppThemeState` 全局状态,设置 tab 入口,见下方「主题设置页」);**顶部应用栏无边框化**(4 tab + 二级页;内容延伸至状态栏 + 随滚动滚走 + 顶部渐变遮罩,见 §6 与下方「顶部应用栏无边框化」;首页/栏目页**卡片点击分发**+ 网盘目录下钻 + 源级「搜索/详情」策略,见 §4.1「卡片点击分发」与本页「卡片点击分发 + 网盘目录下钻」;详情页 UI 补丁:⑦ 线路/清晰度卡片化、⑧ 状态栏图标外观断言,见 §8 Step 4 补丁;加载指示器全局改用 `ContainedLoadingIndicator` 并定稿 64dp(详情页/直播页例外 48dp),见 §6;搜索结果页 = 波浪线进度条 + 结果源筛选 chips,见 §4.6;**配置管理页**(2026-09-11 二轮:设置 tab 新入口 = 源添加/管理唯一入口,订阅源开关切换 + 长按删除,见下方「配置管理页」;隧道模式 + AAC 优先(见下方小节);2026-09-12:首页**下拉刷新**(48dp 圆形指示器 + 松手整页重载,见下方「首页下拉刷新」);**点播 / 直播配置拆分 + 配置管理页分段**(2026-09-12 晚,见下方同名小节))
+- **下一步**:真机回归(Step 4/5/6/7 欠账合并验证 + 主题设置页新功能验证 + 隧道模式/AAC 优先 + 首页下拉刷新)
+
+## 点播 / 直播配置拆分 + 配置管理页分段（2026-09-12 晚）
+
+**背景（用户原话）**：「配置管理能否支持点播和直播分开来？如果没有加上直播源就默认使用目前开启的点播源作为直播，如果添加了直播源优先级则更高，但是点播还是用原来的点播源。」
+
+**对照上游（`示例文件/TV-fongmi`，只读参考）**：FongMi 已是同语义实现，直接照搬其判定方式而非自创开关 —— `BaseConfig.needSync()`（`sync || config==null || url 为空 || url 等于直播配置 url`）、`LiveConfig.config()`（`sync = config.getUrl().equals(VodConfig.getUrl())`）、`LiveConfig.load()`（`if (sync) return`，跟随态连拉都不拉）、`VodConfig.initLive()`（仅 `needSync` 时把点播 JSON 的 lives 喂给 LiveConfig）；存储 = Room `Config` 实体带 `type` 列（0 点播 / 1 直播 / 2 壁纸），UI = 设置页 Vod / Live 两条独立行 + 同一个输入弹窗按 type 换标题（**清空 url = 删除该 type = 回到跟随**）。
+
+**改造前的实际状态（读代码得出的关键结论）**：读路径**已经**具备该语义 —— `API_URL` / `LIVE_API_URL` 本就是两个键，`loadLiveConfig()` 空则回落 `API_URL`，`parseJson()` 只在 `live_api_url` 为空或等于当前解析的 `apiUrl` 时才从点播 JSON 取 `lives`，直播页切换也只写 `LIVE_API_URL`。**真正的缺口只有两处**：① `ConfigManagePage.applySubscribe()` 与 `SettingsPage` 接口线路**双写两个键**（点播/直播被强制同源，并会把独立直播源冲掉）；② 没有任何录入独立直播源的入口。
+
+**落地（数据层 → 写入侧 → UI）**：
+
+1. **数据层**：`ApiConfig.getEffectiveLiveUrl()`（独立源优先、空则回落点播源）/ `isLiveFollowVod()` / `invalidateLiveConfig()`（清内存 + `loadedLiveConfigUrl=""`，让直播页下次进入必然重载）；`clearConfig()` 拆成 `clearVodConfig()` / `clearLiveConfig()`。**跟随的表示法沿用「空 或 等于点播 url」** —— 旧双写留下的相等状态天然判定为跟随，老用户升级后行为不变，**不需要数据迁移**。
+2. **写入侧解耦**：`applySubscribe()` 拆成 `applyVodSource()`（返回"切换后是否跟随"；跟随则把 `LIVE_API_URL` 归一化为空并继续跟随新点播源，独立则一个字都不改）/ `applyLiveSource()`（不碰 `API_URL`、不触发 `AppBootstrap.retry()`）/ `applyLiveFollowVod()`；`SettingsPage` 接口线路同样只写点播。删空点播列表改走 `clearVodConfig()`（独立直播源保留，旧 `clearConfig()` 会连坐清掉）。
+3. **UI**：配置管理页顶栏改 `collapseEnabled = false`（pinned，`topPad` 恒定，分段行才能常驻 —— 与首页/搜索页同款模式），顶部加「点播 / 直播」分段；`CapsuleSegmentedButton` 加 `badge`（第二行摘要，null 时渲染与旧版一致，主题页不受影响）与 `minHeight`；直播段首项 = 合成的「跟随点播源」卡（开关不可关 —— 直播至少要有一个来源）；新增 `HawkConfig.LIVE_SUBSCRIBE_LIST` 存独立直播源（格式与 `SUBSCRIBE_LIST` 一致，`loadSubscribes/saveSubscribe` 参数化 key 复用，零迁移）。
+4. **直播页「配置切换」组**：第 0 项补合成的「跟随点播源」（`ApiConfig.LIVE_FOLLOW_ITEM_NAME`），历史项下标整体 +1，选中判定 / 点击 / 长按删除三处同步换算。**不补这一项不行**：解耦后 `LIVE_API_HISTORY` 不再记录点播 url，该组会没有任何选中项。
+
+**踩过的坑 / 决策（可复用）**：
+
+- `ApiConfig.getLiveGroupIndexKey()` **故意保持原样**（仍按原始 `LIVE_API_URL` 取键）：改成按"生效地址"会让老用户的直播分组记忆一次性失效，收益不抵风险。
+- 「跟随点播源」卡的当前源名走 `subtitle` 而非 `SettingsSwitchRow.valueText` —— `valueText` 在 Row 里不受 `weight` 约束，源名过长会把右侧 `Switch` 挤出卡片。
+- 切分段必须重置 `manageMode` / `selected`，否则会把另一角色勾中的源当成当前角色的删除目标。
+- `OutlinedTextField.supportingText` 用显式标注 `(@Composable () -> Unit)?` 的局部 val；写成 `x?.let { { Text(it) } }` 会被推断成普通 `()->Unit` 与可组合类型不匹配。
+- `clearVodConfig()` 里 `isLiveFollowVod()` 必须在把 `API_URL` 置空**之前**求值，否则跟随判定失效、`LIVE_API_URL` 残留成陈旧快照。
+- 直播源支持纯文本形态（`parseLiveConfigContent` 三分支:带 lives 的 JSON / 纯直播 JSON / m3u-txt 文本），因此直播段的添加框提示写「支持配置 JSON / m3u / txt 直播源」；本地文件经 `clan://` 同样走这条路。
+
+**验证**：`:app:compileDebugKotlin` + `:app:compileDebugJavaWithJavac` 均 BUILD SUCCESSFUL（产物时间戳已核对晚于源文件改动）；真机待验：①点播段切源后直播仍跟随;②添加独立直播源后切点播源,直播源不被覆盖;③直播段关闭普通卡回到跟随;④删空点播列表时独立直播源仍在;⑤直播设置「配置切换」组跟随项选中态。
+
+**同日追加（分段外观按页区分 + 配置管理页编辑控件 + 卡片源图标）**：
+
+- **分段外观按页区分（用户反馈驱动）**：轨道样式一度做成组件全局默认,用户看过真机后反馈主题设置页"难看死了",遂改为 `SegmentStyle` 二选一 —— `Connected`(默认,原连接胶囊,主题设置页不传参即原样) / `Track`(配置管理页显式传)。`Connected` 分支除连接形状外**不传任何参数**、全走 M3 `ToggleButton` 默认,这样"主题页与引入时逐像素一致"是被代码结构保证的,而不是靠比对。教训:共享组件改默认外观 = 同时改所有调用页,先问清哪个页面要变。
+- **图标转换**：`.tubiao/编辑.svg` → `drawable/ic_edit.xml`、`.tubiao/配置管理的订阅源卡片icon图标.svg` → `drawable/ic_subscribe_source.xml`,沿用既有约定(`viewportWidth/Height=960` + `<group android:translateY="960">` 平移负坐标 + `fillColor="#FFFFFFFF"`,颜色交给 Compose `Icon(tint=)`）。
+- **编辑控件**：管理模式右上改为 `Row(8dp 间距)` = 编辑(左)+ 删除(右),两者复用历史页 `ManageActionIcon`;编辑仅当**勾选恰好 1 项**时 `enabled`(多选无意义)。新增 `updateSubscribe(mode, original, name, url)` 按**原链接**定位原地更新 —— 与 `saveSubscribe` 的"按新链接查重"不同,因为编辑允许改链接本身;链接撞车时去掉被撞项。保存后把勾选值从旧字符串替换为新字符串,避免"选中集里留着已不存在的条目 → 管理模式下无可见勾选却仍能点删除"的错位。
+- **共用一个 dialog**：`AddSubscribeDialog` 加 `initialName/initialUrl`,新增态传空串、编辑态预填;标题在「添加/编辑」×「订阅/直播源」四种组合间切换。
+- **当前在用源被编辑**：仅当地址变化时重新生效(点播 → `switchToVod` 整页重载;直播 → `switchToLive` 只换直播侧),纯改名不重载。
+- **卡片源图标**：复用设置页的 `SettingsIconBadge`(40dp `primaryContainer` 圆 + 22dp 图标)。⚠️ 第一版把图标放进文字 Column 内与名称同行,导致链接左侧不缩进、与名称不对齐 —— 改为置于 Column **之外**,名称/链接同基线且整块与图标垂直居中,卡高也不变。
+- **验证**：`:app:compileDebugKotlin` BUILD SUCCESSFUL;`:app:installDebug` BUILD SUCCESSFUL 27s,已装机(`lastUpdateTime=2026-09-13 00:13:23`)。
+
+## 无痕模式（2026-09-12 晚；偏好设置页）
+
+**需求（用户原话）**：「在偏好设置页面 m3u8 净化和弹幕开关卡片的中间新增加一项功能名为无痕模式，开启后搜索历史不记录，观看历史也不记录，手动收藏功能正常」。
+
+**先查上游**：FongMi 已有同名功能（`Setting.isIncognito()` = `Prefers.getBoolean("incognito")`,设置页一行开关）,拦截点全在策略层 `playback/vod/VodHistoryPolicy.java`(`save` / `saveVisit` / `saveCurrent` 三个写入口都 `if (Setting.isIncognito()) return`,另外 `findOrCreate` 里 `history.delete()` 让本会话内仍能续播)。**差异**:FongMi 的无痕**只覆盖观看历史**,不拦搜索历史;本项目按用户要求把搜索历史也纳入。
+
+**落地点（在数据层拦,不在调用点拦）**：
+
+- `HawkConfig.INCOGNITO = "incognito"`(默认关);判定收敛到 `HistoryHelper.isIncognito()`,避免多处重复读 Hawk。
+- 搜索历史:`HistoryHelper.setSearchHistory()` 开头 return。全工程写 `SEARCH_HISTORY` 的只有本类三处 —— `setSearchHistory`(拦)/ `clearSearchHistory` / `removeSearchHistory`(后两者是用户主动删除,**故意不拦**)。
+- 观看历史:`RoomDataManger.insertVodRecord()` 开头 return。**这是关键判断** —— 该方法经核查是观看历史 + 播放进度的**唯一落库点**(`DetailActivity` 的片头 `preparePlayBundle`、切集、`syncPlayingVodInfo`、`playerCfg` 四处 `insertVod()` 全汇聚到这里),所以在数据层拦一处就全覆盖,且未来新增调用点自动受保护;比在 4 个调用点各写一遍可靠。
+- **收藏不受影响**:收藏走 `RoomDataManger.insertVodCollect`(DetailActivity 收藏按钮 + 首页长按「加入收藏」),完全没碰。
+
+**为什么只拦写入、不隐藏已有数据**:用户说的是"不记录",不是"看不到"。已有历史照常展示、清空/删除照常可用 —— 否则用户会以为历史丢了。
+
+**验证**：`:app:compileDebugKotlin` + `:app:compileDebugJavaWithJavac` BUILD SUCCESSFUL;`:app:installDebug` BUILD SUCCESSFUL 22s,已装机。真机待验:①开启后搜索一次,退出重进搜索页无新历史;②播放一集后历史页不出现该条目,重进详情页从第 1 集开始(不续播);③同状态下点收藏,收藏页正常出现该条目;④关闭无痕后上述记录恢复。
+
+## 详情页选集行去重 + 首页直播 FAB 换项目图标（2026-09-12 深夜，用户截图反馈）
+
+- **选集行重复「全部」**：用户截图指出"选集区域这一栏不要在全部下面还显示全部"。核实:`EpisodeRow`(`DetailActivity.kt`)表头右侧已有 `PillAction(ic_episode_grid_all, "全部") → vm.showEpisodeSheet()`，而 `LazyRow` 末尾还挂了一颗 `item(key = "all")` 的 `FilterChip("全部")`，两者点击行为完全相同 → 删除末尾那颗（同一动作两个入口，既冗余又挤占横向 chips 空间）。⚠️ 保留表头那颗：它带图标、与「倒序/正序」成对，是选集卡片表头的固定组成。
+- **首页直播 FAB 换图标**：用户新放入 `.tubiao/直播fab.svg`（Material Symbols 的 screen-share/直播图标）。转换 → `drawable/ic_live_fab.xml`（同前约定:viewport 960 + `translateY=960` + 白色 fill 交给 Compose tint），`HomePage.kt` 的 `Icon(imageVector = Icons.Filled.LiveTv)` 改为 `Icon(painter = painterResource(R.drawable.ic_live_fab))`，并清掉 `androidx.compose.material.icons.filled.LiveTv` 导入（全工程仅此一处引用）。HomePage 此前完全没用过 `R`/`painterResource`，本次补了两个 import。
+- **验证**：`:app:compileDebugKotlin` BUILD SUCCESSFUL；`:app:installDebug` BUILD SUCCESSFUL 31s，已装机。
+
+## 死代码 / 死文件审计（2026-09-13，用户要求）
+
+**方法（可复现）**：先把 `app/src` + `quickjs/src` + `player/src` + `pyramid/src` 全部 `.kt/.java/.xml` 读成一个大字符串作为"全工程引用集"，再逐个比对：
+①资源名 — 每个 `res/drawable*`/`mipmap*` 文件名、`res/values*` 里声明的每个 `name`，查 `R.<type>.<名>` 或 `@<type>/<名>`；
+②文件级 — 每个 `.kt/.java` 提取顶层 `fun/class/object/interface` 名，看是否在本文件之外出现；
+③成员级 — 每个 public/internal 方法/字段名在全工程是否只出现 1 次（即只有声明）。
+⚠️ **两个必须做的修正**（否则误报一大片）：Java getter/setter 在 Kotlin 侧是**属性语法**（`getChannelGroupList()` 写成 `.channelGroupList`），要额外按首字母小写再数一次；`RefreshEvent` 那种全大写常量要注意大小写敏感的匹配。
+
+**本次实际删除（已验证零引用、零风险）**：
+
+| 项 | 位置 | 判定依据 |
+|---|---|---|
+| `ic_launcher_background.xml` | `res/drawable/` | AS 模板网格图；自适应图标用的是 **`@color/ic_launcher_background`**（colors.xml 里的同名颜色），这个 drawable 从建仓起就没人引用 |
+| `color_CCFFFFFF` | `res/values/colors.xml` | 注释说服务于 `view_play_container.xml` 的加载提示，但那三个提示 View 已于 2026-09-11 移除（布局文件自己的注释可证）；此后无引用 |
+| `IpScanningVo.java` | `bean/` | 整个类零引用（含 python/java 侧与 assets），IP 扫描功能早已不存在 |
+| `hotVodDelete` | `HawkConfig` | `public static boolean`，零引用（注意：它是**字段**不是 Hawk 键，与其它常量不同，删掉不影响持久化数据） |
+| 6 个 `TYPE_*` | `RefreshEvent` | `TYPE_PUSH_URL/EPG_URL_CHANGE/SETTING_SEARCH_TV/FILTER_CHANGE/LIVE_API_URL_CHANGE/HOME_SOURCE_CHANGE` 全工程既无 post 也无订阅者；**保留常量的数值不动**（EventBus 按 int 分发），并在类注释里记下这些空洞编号避免复用 |
+| `minHeight` 形参 | `CapsuleSegmentedButton` | 2026-09-12 引入后，随着调用方改用 `SegmentStyle`（两段各自 40dp 天然高度），两个调用页都不再传 → 形参 + `heightIn` 调用 + `Dp` import 一并删除；段高下限仍由 M3 `ToggleButton` 自带 |
+
+**刻意保留（扫描命中但绝不能删）** —— 这三类占了"疑似死代码"的绝大多数：
+
+1. **JNI/native 桥**：`com.p2p.P2PClass` 全部 ~23 个 `P2P*`/`xGFilm*` 方法 —— 由 `libp2p.so` 反向调用，源码里必然"零引用"。
+2. **JS 爬虫 API**：`com.github.catvod.crawler.js.*`（`Global.pdfh/pdfa/rsaX/js2Proxy`、`Json.safeListElement`、`Res.getCode`、`rsa/RSAEncrypt` 等）—— 由 JS 脚本通过 `JsSpider` 注册的全局对象调用；`proguard-rules.pro:208` 有 `-keep class com.github.catvod.**`。这正是 spec §6.3「依赖裁剪不得只看宿主源码静态引用」的例子。
+3. **接口/框架回调**：DLNA 的 `remoteDeviceAdded/onServiceConnected/createStreamServer…`、`Service.onBind/onStartCommand`、`TimedTextFileFormat.toSRT/toASS/…`、OkHttp `Authenticator.authenticate`、`SSLSocketFactory.getDefaultCipherSuites`、Gson `ExclusionStrategy.shouldSkipField`、弹幕 `danmakuShown/drawingFinished` 等 —— 都由框架按接口调用。
+
+**已知但本次未删（等用户决定）**：`app` 自己的工具类里还有约 40 个"零引用"的 public 方法，例如 `StringUtils.isNotNull/isBlank/trimBlanks/getBaseUrl/isJsonType/escapeJavaScriptString`、`ImgUtil.isBase64Image/decodeBase64ToBitmap/spanCountByStyle/initStyle/getStyleDefaultWidth`、`DefaultConfig.getAppVersionCode/getAppVersionName/getFileSuffix/getFilePrefixName`、`OkGoHelper.reloadDns/mapHosts/getItvClient`、`LocalIPAddress.isNetworkAvailable/isIPAddress`、`MD5.encrypt4login`、`BaseActivity.hasPermission/getAssetText`、`Proxy.getM3U8Content`、`SearchHelper.putCheckedSources`、`PlayerHelper.getPlayerExist`、`FileUtils.clearSpiderCacheFiles`、`AppManager.appExit/isActivity`、`SourceViewModel.clearSortCache`、`ApiConfig.clearJarLoader`、`DanmakuApi.hasCustomApi/getDisplayApiUrl/setCustomApi`、`PreloadManagerHolder.hasActivePreload/setDrmSessionManagerProvider`、`PlayerUiState.playLabelVisible`、`RemoteTVBox.setAvalible`、`CustomWebReceiver.REFRESH_SOURCE`、`RequestProcess.KEY_ACTION_*`、`parser/Utils.UaMobile`、`AppTaskExecutor.setDelegate`。
+
+为什么不一并删：`proguard-rules.pro:207` 是 `-keep class com.github.tvbox.osc.** { *; }`（**全量 keep，死代码在 release 里也不会被 shrink 掉，所以清理确实有价值**），但同一份配置说明这些类是"对外保留"的宿主面；第三方 jar 里确实出现过引用宿主 `com.github.tvbox.osc.util.*` 的写法。删 `com.github.tvbox.osc.**` 的 public 方法风险不为零且需要逐个人工判断，按项目「最小化修改」约定留待确认。
+
+**验证**：`:app:installDebug` BUILD SUCCESSFUL 36s，已装机。
+
+### 第二批（未做）：`com.github.tvbox.osc.**` 的 ~40 个零引用 public 方法
+
+见上方清单。风险点：`proguard-rules.pro:207` 是 `-keep class com.github.tvbox.osc.** { *; }`（全量 keep，说明这些类是"对外保留"的宿主面），且第三方 jar 出现过引用宿主 `com.github.tvbox.osc.util.*` 的写法 → 逐个删需人工判断，风险不为零。
+
+### 第一批（2026-09-13 已做）：private/internal + 纯 UI 层
+
+**方法补充**：第一轮只扫了 public/protected，本轮补扫 `private`（Kotlin `private fun/val`、Java `private` 方法），判据 = 名字在全工程只出现 1 次（私有成员本就无法被外部引用，所以"只出现一次"即死）。
+
+**已删（7 项，全部零引用 + 行为等价）**：
+
+| 项 | 位置 | 说明 |
+|---|---|---|
+| `findEpisodes` | `api/DanmakuApi` | private static 辅助；同文件 `findEpisodeList` 才是被用的那个 |
+| `hasCustomApi` | `api/DanmakuApi` | 旧设置页的展示辅助，新设置页直接读 `HawkConfig.DANMU_API` |
+| `getDisplayApiUrl` | `api/DanmakuApi` | 同上（新设置页用 `SettingsState.danmuApi`） |
+| `playPreSource` | `ui/activity/LivePlayActivity` | 切"上一个源"；兄弟方法 `playNextSource` 仍被超时换源链路调用（第 545 行），本方法是旧"快滑换源"手势的残留（该手势已于 §4.5 定稿移除） |
+| `playLabelVisible` | `player/state/PlayerUiState` | 计算属性，全工程无读者；`play_label` 这个 view 在 Compose 化后已不存在（全仓仅剩这一处注释提到它） |
+| `clearSortCache(String)` | `viewmodel/SourceViewModel` | 只清单个 key；实际使用的是整清 `clearRuntimeCache()` |
+
+**扫出但"不能删 / 先别删"的三类**（这才是这轮审计的主要价值）：
+
+1. **`@Preview` 不是死代码**：`ui/theme/Theme.kt` 的 `AVBoxThemeLightPreview` / `AVBoxThemeDarkPreview` 被扫描判为"零引用"，但它们由 **Compose 工具链（Android Studio 预览）**消费，删了就没了预览能力 → **保留**。凡是 `@Preview` 标注的函数都会这样误报。
+2. **catvod 包里的 private 死方法，本轮不动**：`crawler/JarLoader.requireRecentLoader`（同文件其它方法各自内联了同样的 `loaders.get(recent)` 逻辑，是重构残留）、`crawler/js/JsSpider.createArray`（同族 `createObject/get/set` 都在用，只有它没人用）。**故意不删** —— 这两个文件属 `com.github.catvod.**` 上游面，改动会增加后续同步上游的成本。
+3. **两个"断线"而非"死代码"—— 需要用户决策，本轮只报告不删**：
+   - **`RemoteTVBox.setAvalible` 是 `HawkConfig.REMOTE_TVBOX` 的唯一写入点，而全工程没人调用它**。链路后果：`getAvalible()` 恒为 null → `getAvalibleActionUrl()` 恒为 "" → `PlayerHelper:267` 的 `RemoteTVBox.run(...)` 恒返回 false，且 `PlayerHelper:220` 的 `playersExist.put(13, …)` 恒为 false ⇒ **13 号"RemoteTVBox 播放器"实际永远不可用**。但**投屏功能本身是好的**：Compose 投屏 sheet（`PlayerSheets.kt:974`）绕过这套机制，直接 `post("http://" + device.id + "/action")` 用扫描到的设备地址。判断：这是 Compose 迁移时丢掉的一次调用（旧 UI 应该会在发现设备后记住 host），不是单纯的残渣 —— 要么把 `setAvalible` 接回"发现设备/投屏成功"处，要么把 `run`/`getAvalible`/`getAvalibleActionUrl`/`REMOTE_TVBOX` 与 `PlayerHelper` 的 13 号条目一起退场。删 setter 一个方法反而会让这条线索消失，故保留。
+   - **`LivePlayActivity.mUpdateTimeshiftRun` 从未被 post**：它是"每秒把 `tsPosition` 刷新成当前播放位置"的 Runnable，但全文件没有 `postDelayed(mUpdateTimeshiftRun, …)`。后果：进入回看（`startCatchupReplay` 只在开始时置一次 `tsPosition`）后，**时移条的滑块与"位置/时长"文本不会随播放自动前进**，只有拖动才更新。判断：这是**缺一次接线的小 bug**，不是死代码 —— 要么在 `startCatchupReplay` 里 post、在 `backToLiveFromEpg`/退出时 remove，要么确认不需要自动刷新后删掉。本轮保留待决策。
+
+### 两个「断线」修复（2026-09-13，用户拍板"修复 a 和 b"）
+
+**a) RemoteTVBox host 写入接回**（`PlayerSheets.kt`）：
+
+- **扫描发现时**：`found(viewHost, end)` 回调里，若 `RemoteTVBox.getAvalible() == null` 则 `setAvalible(viewHost)` —— 只在"尚未记住"时写，避免多台 TVBox 时把用户的选择覆盖掉；写入放在 `mainHandler.post {}` 内（回调原本就在扫描线程）。
+- **投屏成功时**：`ok == true` 分支里 `setAvalible(device.id)` 覆盖式写入 —— 这是用户显式选中的设备，优先级最高。失败不写（不给 #13 留一个连不上的地址）。
+- 两处都紧跟 `PlayerHelper.invalidatePlayersExistInfo()`（新增方法）。
+- ⚠️ **`PlayerHelper.getPlayersExistInfo()` 是进程级缓存**：`mPlayersExistInfo == null` 才重算，此前**没有任何重置点**。所以即使接回了写入，不重置缓存的话 13 号选项在本次进程内仍然不会出现 —— 这是修复里最容易漏的一环。
+- 顺带确认：`CastDevice.tvbox(host)` 的 `id` 就是 host 本身，与 `getAvalibleActionUrl()` 拼的 `http://<host>/action` 及投屏 POST 的 URL 完全一致，所以存 host（不带 scheme）是对的。
+
+**b) 时移进度 ticker 接线**（`LivePlayActivity.kt`）：
+
+- 新增 `startTimeshiftTicker()`（**先 remove 再 postDelayed 1000ms**）/ `stopTimeshiftTicker()`。
+- `startCatchupReplay()` 末尾启动；`backToLiveFromEpg()`、`playChannel()`（`isSHIYI = false` 那处，切台即退出回看）停止；`onDestroy()` 原有的 `mHandler.removeCallbacksAndMessages(null)` 已覆盖销毁路径。
+- Runnable 内加 `if (!isSHIYI) return` 兜底：任何漏掉的退出路径最多多跑一拍就自停。
+- "先 remove 再 post"是必需的 —— 反复进出回看会叠加多个 ticker（每秒刷新多次）。
+- 📌 旁证：活规范 §4.5 早已写明时移条是"**1s 轮询**"，即设计意图如此，只是实现漏了 post —— 这不是新增行为，是补齐既定行为。
+
+**验证**：`:app:installDebug` BUILD SUCCESSFUL 28s，已装机（`lastUpdateTime=2026-09-13 00:35:30`）。真机待验：①投屏 sheet 扫描到 TVBox 后，播放设置里的「RemoteTVBox 播放器」出现；②投屏成功后该选项仍可用且指向所选设备；③回看时滑块与时长文本每秒前进；④退出回看/切台后不再前进。
+
+## 切到"坏源"后首页仍显示旧源（2026-09-13，用户提问驱动的修复）
+
+**用户问题**：「配置管理页面点播分类如果添加并使用了一个不能使用的源，此时回到首页是不是还会显示之前能用的旧源，而不是显示失败或者空白？」—— **核实结论：是的，会**。完整链路：
+
+1. `ConfigManagePage.applyVodSource()` 写 `API_URL = 新源` → `AppBootstrap.retry()`。
+2. `loadConfig(false, …)`：新源没有历史缓存（缓存文件名 = `MD5(apiUrl)`）→ 拉取失败 → `callback.error(...)`。**关键：失败路径不会调用 `parseJson()`**，而清场动作 `resetConfigData()` 只在 `parseJson()` 开头执行 ⇒ 单例 `ApiConfig` 里的 `sourceBeanList` / `mHomeSource` / `parseBeanList` **原样保留上一个源的数据**。
+3. `MainScreen` 的错误弹窗是**覆盖层**（`MainContent()` 始终在渲染），背后首页照常。
+4. `HomeViewModel` 只在 `Boot.Ready` 时 `loadHome()`，对 `Error` 无反应；`sources`/`currentSource` 是 init 期快照 ⇒ 首页既不刷新也不报错，继续显示旧源内容。
+5. 点弹窗「取消」= `continueOffline()` → `Boot.Ready` → `loadHome()` 读到 `mHomeSource`（旧源）⇒ **旧源照旧可用**。
+6. 而 Hawk 里 `API_URL` 已经是新源 ⇒ **重启后才发现新源不可用**，与运行中表现矛盾。
+
+**修复**：新增 `ApiConfig.invalidateVodConfig()`（`resetConfigData()` + `mHomeSource = null` + `invalidateLiveConfig()`，**不动 Hawk 地址**）与 `AppBootstrap.onApiUrlChanged()`（作废旧配置 → 广播 `TYPE_API_URL_CHANGE` → `retry()`），三处调用点：`ConfigManagePage.applyVodSource()`、`SettingsPage` 接口线路、`ApiConfig.switchApiCollectionIfNeeded()`。
+
+- 为什么"切换前就作废"而不是"失败后回调里再清"：不必给 `AppBootstrap` 加失败回调链路；成功时 `parseJson()` 本来就会重新填充，作废是无害的；失败时首页自然落到 `emptyHome` → `loadHome` 的 `loadingSourceKey = null` 分支 → `onSortResult` 置空态（未配置引导态），与错误弹窗语义一致。
+- 地址未变（同源再启用）不走这条链，只 `invalidateLiveConfig()`，避免无谓整页重载。
+- 广播 `TYPE_API_URL_CHANGE` 的必要性：`HomeViewModel` 早就在 `init` 里把 `sources`/`currentSource` 快照住了，只清 `ApiConfig` 不会让在屏内容变化 —— 必须让首页立即 `reload()`，否则旧内容会一直摆到下一次 `Boot.Ready`。
+- 📌 与 2026-09-11 的修复同源同思路：「原实现删光后保留 API_URL，会出现『订阅列表已空、App 仍用着被删的源』的状态不一致」—— 项目既有决策是**一致性优先于便利性**。
+- 已知未处理（既有问题，非本次引入）：作废窗口期内若从历史记录进入详情页，`SourceViewModel.getDetail` 里 `ApiConfig.get().getSource(sourceKey)` 可能返回 null 而 NPE（`int type = sourceBean.getType()` 未判空）。触发需要"切换后加载完成前进详情页"且该源 key 已失效，概率低，留作后续加固。
+
+**验证**：`:app:installDebug` BUILD SUCCESSFUL 30s，已装机。真机待验：①添加一个无效链接并启用 → 首页应显示「配置加载失败」弹窗，背后为未配置引导态/空态而非旧源内容；②点「取消」后首页仍是空态而不是旧源；③把地址改回可用源 → 首页恢复正常。
+
+## 源失效判空加固 + 卡片涟漪对齐参考项目（2026-09-13）
+
+**A. `getSource()` 返回 null 的判空（补上一节留的隐患）**。核查全工程 17 处 `ApiConfig.get().getSource(...)`，绝大多数已有 `?.`/`== null` 保护（`DefaultConfig`、`DetailActivity` 五处、`HistoryPage` 都是安全的），**真正缺判空的是 3 处**：
+
+| 位置 | 原风险 |
+|---|---|
+| `SourceViewModel.getDetail` | `int type = sourceBean.getType()` 直接解引用 → NPE。改为先判空、`postValue(createEmptyDetail(sourceKey))`（与末尾"未知 type"分支同形状，详情页走空态）；顺手把末尾那段内联构造抽成 `createEmptyDetail()` 复用 |
+| `SourceViewModel.getPlayInternal` | 同上 → 改为 `postPlayResult(..., null)`，播放器按"解析失败"处理 |
+| `PlayContainer.initPlayerCfg` | `sourceBean.getPlayerType()` NPE，而**该 try 块的 `catch (Throwable)` 是空的** ⇒ 静默跳过后面 `pr/ijk/sc/sp/st/et` **全部**播放器设置，配置只剩半截（症状很隐蔽：播放器选项看似没生效）。改为 `sourceBean == null ? -1 : …`，回退全局播放器设置 |
+| `PlayContainer.checkVideoFormat` | `sourceBean.getType()` NPE（有 `catch(Exception)` 兜底，但会走异常控制流）→ 加 `sourceBean != null &&` 前置判断 |
+
+触发场景（同一根因）：切源后加载完成前从历史记录点进旧源条目；或订阅源被删而历史仍在。
+
+**B. 卡片涟漪透明度对齐参考项目**。用户要求"参考 `示例文件/android` 修改点击卡片的激活反馈涟漪"。先摸清参考项目（子代理全仓审计）结论：**它没有可复用的 pressable 组件，也没有任何自定义 `Indication`/`ripple()`/`LocalIndication`** —— 涟漪定制只有一处，在 `Theme.kt` 里**全局**把 M3 默认透明度翻倍，经 `LocalRippleConfiguration` 下发：
+
+```kotlin
+val rippleAlpha = RippleAlpha(hoveredAlpha = 2f*0.08f, focusedAlpha = 2f*0.10f,
+                              pressedAlpha = 2f*0.10f, draggedAlpha = 2f*0.16f)
+CompositionLocalProvider(LocalRippleConfiguration provides RippleConfiguration(rippleAlpha = rippleAlpha))
+```
+
+照此在本项目 `AVBoxTheme` 里加了同样的 `rememberRippleConfiguration()` 包装。选全局而非逐卡传 `indication`：`clickable`/`combinedClickable`/`Surface(onClick)`/`ToggleButton` 一次覆盖、风格统一；`PressableCard` 现有的显式 `indication = ripple()` 同样会读到该配置。`RippleConfiguration` 已 deprecated 且官方无替代入口，只能 `@Suppress("DEPRECATION")`（参考项目代码里也留了同样的注释）。
+
+**参考项目其它结论（供后续取舍，本次未改）**：①按压缩放目标只有 **0.94** 一个值（0.96/0.98 不存在），经 `Modifier.scale` + `spring(dampingRatio=0.6f, stiffness=800f)`，且**必须与真实 clickable 组合**涟漪才不丢（`ExpressiveButton` 的写法）；本项目沿用自定的 0.97 与 `graphicsLayer`。②参考项目圆角卡一律 **先 `.clip(shape)` 再 `clickable`**，源码注释写明原因（否则涟漪/长按激活区溢出圆角变矩形）—— 本项目 `PressableCard` 已是该顺序。③参考项目的卡片一律 `elevation = 0.dp` 且按下不变形/不抬升，只有 `ExpressiveButton` 有 `pressedElevation = 1.dp`。④它有 `LocalReducedMotion`，但只被入场动画消费，**按下反馈路径都不读它**。
+
+**验证**：`:app:compileDebugKotlin` + `:app:compileDebugJavaWithJavac` BUILD SUCCESSFUL；`:app:installDebug` BUILD SUCCESSFUL 27s，已装机。真机待验：①首页卡片点击涟漪明显可见（原 10% → 20%）；②切源窗口期从历史点进旧源条目不崩、进空态。
+
+## 宿主契约审计 + slf4j/JS/Guava 修复（2026-09-12 晚；承接当晚的 zxing 崩溃）
+
+**背景**：zxing 崩溃（见 `logs/crash_diagnosis_20260912.md`）暴露了一类系统性问题 —— 宿主必须为动态加载的爬虫 jar 提供运行期类。当晚做了一次系统性审计并把缺口补齐。
+
+**审计方法（可复现，值得复用）**：解析 jar 的 DEX —— 用 `class_defs`（class_idx → type_ids → string_ids）取出 jar **自己定义**的类；用 ASCII 正则 `L...;` 扫常量池取出 jar **引用**的类；再扫宿主 APK 全部 dex 的引用集。三者相减：
+`jar 引用 ∧ jar 未定义 ∧ 宿主缺失 = 宿主必须补的类`。
+注意两个坑：① DEX 里类型描述符**自带 `L` 前缀与 `;` 后缀**，比对时必须同形态，否则结果全是噪声；② `Add-Type` 定义的 C# 类型不跨 pwsh 进程，解析与比对必须在**同一次调用**里完成。
+
+**审计结果（对真实事故 jar `logs/jars/crash_9ebc36e2.jar`，843 定义类 / 1190 引用类）**：
+- jar 依赖宿主提供：okhttp3(17 类)、gson(7)、zxing(4)、quickjs wrapper(5)、宿主 catvod 的 `crawler.Spider`/`SpiderDebug`、平台自带的 `org.xmlpull.v1.XmlPullParser`；
+- jar 自带 836 个 spider 类 + 6 个 `parser` 类 + `js/Method`，**不依赖宿主的 `utils.*`/`bean.*`** → fongmi catvod 里那套 `api` 大清单（brotli/guava/sardine/smbj/preference/logger）**本 jar 零引用**，不补；
+- 真实缺口：`org.slf4j.ILoggerFactory`、`org.slf4j.impl.StaticLoggerBinder`、`com.whl.quickjs.android.QuickJSLoader$Console`、`com.github.catvod.debug.MainActivity`。
+- 另一支 jar `old_77b88823.jar` **不是爬虫 jar**（含 `ftyguard_v7/v8.so` + `ftyshinidie.guard`，仅 36KB dex，`test/MainActivity`），无参考价值。
+
+**修复三项**：
+1. ~~**slf4j**：`org.slf4j:slf4j-api:1.7.36` + `slf4j-nop:1.7.36` + `-keep class org.slf4j.**` + `-dontwarn org.slf4j.**`~~ —— **当晚已全部撤回**，见下方「修正」。
+2. **JS 全局别名 + `http.js` 模块名**：`assets/js/lib/net.js` 原本只到 fongmi `http.js` 的第 17 行，缺 19-32 行的 `defineGlobalAlias` 块；且 fongmi 的模块名是 `http.js`，本项目只有 `net.js` → JS 源站 `import ... from 'http.js'` 会走 `FileUtils.loadModule` 找不到文件 → `isInvalidModuleContent` → `compileEmptyModule`，**静默变成空模块而非报错**（`JsSpider.java:402-424 / 464-472`、`FileUtils.java:280-305`）。修复：`net.js` 补齐别名块，并新增 `http.js`（两者与 fongmi `http.js` **逐字节一致**，SHA256 `6317D5D4…`）。
+3. **Guava keep**：Guava 由 `androidx.media3:media3-common` 传递带入（APK 内 2137 个 `com/google/common` 类），但宿主代码零静态引用 → release 下 R8 会改名/裁剪，jar 引用即崩。已加 `-keep class com.google.common.** { *; }`。
+
+**release 验证（本轮最关键的一步）**：debug 不混淆，契约缺口只在 release 暴露。执行 `assembleDebug` + `assembleRelease` 后审计 **release 产物**（`AVBox_release.apk`，R8 后 5 个 dex / 34337 个类，64.6MB；debug 80.4MB）：
+- 契约项全部命中：zxing / slf4j(含 `StaticLoggerBinder`) / Guava / okhttp3 / gson / quickjs / catvod 均在；
+- 对真实 jar **无新增缺口**（仍只剩 `QuickJSLoader$Console`(上游共有问题，fongmi 同版本亦然) 与 `catvod/debug/MainActivity`(jar 调试入口)）；
+- `mapping.txt` 佐证 keep 生效：`com.google.common.collect.ImmutableList -> com.google.common.collect.ImmutableList`、`org.slf4j.impl.StaticLoggerBinder -> org.slf4j.impl.StaticLoggerBinder` 等均为**同名映射**（未被改名/删除）。
+
+**脱糖（同日补，见 spec §2）**：四个模块开启 `isCoreLibraryDesugaringEnabled` + `desugar_jdk_libs_nio:2.1.5`。⚠️ 只覆盖**编译进 APK 的代码**：jar 是预编译 dex 不过 D8，其 `java.time` 引用原样保留，API 24/25 仍会 `NoClassDefFoundError` —— 脱糖**修不了 jar**。
+
+**未完成**：真机冒烟 —— 装包验证进行到一半时设备从 USB 断开（`adb devices` 为空），`install -r` 未执行；下次接上设备后补 `assembleDebug` 装机 + 启动 40s 无崩溃确认。
+
+### 修正（2026-09-12 深夜）：slf4j 是误判，已撤回
+
+**触发**：当晚播放中点开详情页后日志出现（被 catch 住、走 `System.err`，未崩应用）：
+
+```
+IncompatibleClassChangeError: Class 'org.slf4j.helpers.NOPLoggerFactory' does not implement
+interface 'com.github.catvod.spider.merge.Pu' in call to
+'com.github.catvod.spider.merge.a9 com.github.catvod.spider.merge.Pu.yq(java.lang.String)'
+	at com.github.catvod.spider.merge.mu.tF(Unknown Source:1)
+	at com.github.catvod.spider.merge.SC.<init>(Unknown Source:5)
+	at com.github.catvod.spider.merge.q3.yq(Unknown Source:40)
+```
+
+**机理**：`NOPLoggerFactory` 只可能来自我加的 `slf4j-nop`，因果确定。爬虫 jar 把 slf4j-api **shade 进了自己的混淆包**（`merge.mu` = LoggerFactory、`merge.Pu` = ILoggerFactory），运行期按 slf4j 老规矩去宿主找 `org.slf4j.impl.StaticLoggerBinder`：
+
+- 宿主**没有**绑定（改动前）→ 查找失败 → jar 内部回落 NOP → 静默降级，正常；
+- 宿主**提供**绑定（改动后）→ 查找成功 → 拿到实现「未混淆 `org.slf4j.ILoggerFactory`」的 `NOPLoggerFactory`，而 jar 要的是自己那套 `merge.Pu` → **ICCE**。
+
+**处置**：移除 `implementation(libs.slf4j.*)` 两行、`-keep/-dontwarn org.slf4j.**`、version catalog 的 `slf4j` 条目；重建后 APK 内 `org/slf4j` 引用数 = **0**（已核对）。version catalog 与《proguard-rules.pro》均留下了「不要加」的说明。
+
+**教训（写进 spec §6.3）**：**常量池引用 ≠ 宿主应当提供**。zxing 是「jar 引用了、宿主没给 → 崩」，slf4j 是「jar 引用了、宿主给了 → 崩」——同一个审计方法得出的两类相反结论，区别只在 jar 是否把该库 shade 进了自己的包。这类判断静态审计看不出来，**必须跑起来才能证伪**；换句话说，第一版审计的「宿主契约清单」应视为**候选列表**，逐项都要过一遍真机。
+
+## 首页下拉刷新(2026-09-12,用户要求:「下拉时出现圆形加载指示器,松手后刷新,指示器大小48dp」)
+
+- **组件**:material3 1.5.0-alpha23 官方 `Modifier.pullToRefresh`(等价 `PullToRefreshBox`,因不想给 LazyColumn 整块体加一层缩进,挂在 LazyColumn 的 modifier 上,指示器作为同 BoxScope 兄弟节点)+ `rememberPullToRefreshState()`;阈值/行程均为 M3 默认 80dp(手指需下拉 160dp 触发,`DragMultiplier=0.5`)。
+- **指示器**(`HomePage.HomePullRefreshIndicator`,文件中 private;2026-09-12 二轮按用户澄清重做):**进 App 引导页(BootLoading)同款 M3 expressive `ContainedLoadingIndicator`,48dp**——**全项目圆形加载指示器(播放器页面除外)统一用它**(见 §6)。滑入/隐藏/裁剪机制复用 `PullToRefreshDefaults.IndicatorBox`,但 `shape = RectangleShape` + `containerColor = Color.Transparent` + `elevation = 0.dp` → 不产生圆底徽章与阴影,形态与引导页一致;下拉态 `progress = { state.distanceFraction }`(随牵引距离形变,>1 时整体旋转——照抄 M3 官方 `PullToRefreshDefaults.LoadingIndicator` 的 drawWithContent 实现,注意 `rotate {}` 块内必须 `this@drawWithContent.drawContent()`,隐式调用编译不过)→ 刷新态转不定态圈,`Crossfade` 过渡。⚠️ 未用 M3 自带 `Indicator`(16dp 箭头,非 md3e)与 expressive `PullToRefreshDefaults.LoadingIndicator`(它把 `containerColor` 同时喂给外层圆底徽章和内层加载器,想去掉徽章就得连加载器自己的容器底一起去掉,拿不到引导页观感)。
+- **顶栏遮挡(关键坑)**:顶栏是透明覆盖层且由 Scaffold 画在内容之上,指示器若停在内容顶部(y=0)会被左上角订阅源胶囊完全盖住 → 指示器整体 `offset(y = topPadding)`(topPadding = `AppTopBarScaffold` 回调的顶栏实测总高),从顶栏下沿滑出。指示器无 pointerInput/clickable,不拦截列表触摸。
+- **松手刷新**:`onRefresh` → `pullRefreshing = true` + `HomeViewModel.reload()`(清 `sortCache`/`extendCache` 后整页重载;直接用 `loadHome()` 会命中 sortCache 导致「刷新了但推荐没变」)。
+- **完成判定**:`rec.state != Loading && partitions.none { it.state == Loading }`(看门狗 45s 转 Error 同样解锁),`LaunchedEffect(pullRefreshing, homeReloaded)` 复位;**未配置接口的引导态不启用**下拉刷新。
+- **验证**:`:app:compileDebugKotlin -q` 退出码 0;read_lints 无诊断;真机观感待用户确认(圆容器 + 24dp 环的组合、从顶栏下沿滑入的位置、"下拉填充→松手转圈"的过渡)。
+
+## 隧道模式 + AAC 优先(2026-09-11;二轮按 fongmi 实现重做,一轮的音频 offload 方案废弃)
+
+- **语义修正(关键)**:fongmi/OK影视 的「隧道模式」= **MediaCodec tunneled playback**(视频+音频经硬件 AV 同步直通渲染,`MediaFormat.KEY_TUNNELED_PLAYBACK`),入口 = `DefaultTrackSelector.Parameters.Builder.setTunnelingEnabled(boolean)` —— **不是音频 offload**。一轮实现的 `TrackSelectionParameters.AudioOffloadPreferences`(audio offload/DSP 直通)在实测机被系统 `AudioManager.getPlaybackOffloadSupport()=0` 挡死,永不生效,已废弃;`isOffloadedPlaybackSupported=true` 与 `getPlaybackOffloadSupport=0` 并存(vivo 的 direct profile 与 audio policy 判定不一致)。
+- **fongmi 源码考古**(`示例文件/TV-fongmi`):`setting/DecodeSetting.java`(`isTunnel`/`putTunnel`,键 `decode_tunnel`)+ `player/exo/ExoUtil.java#buildTrackSelector`(`builder.setTunnelingEnabled(DecodeSetting.isTunnelingEnabled())` + `setPreferredAudioMimeType(AAC)`)。联动规则:`putTunnel(true)` → 强制 `putRender(RENDER_SURFACE)`;`putRender(TextureView)` → 自动 `putTunnel(false)`;播放判定 `isTunnelingEnabled() = isTunnel() && render==SURFACE`(**隧道要求视频直出 Surface,TextureView 走 GPU 合成不可隧道**);非 EXO 内核隐藏两开关(mpv 时);隧道开启时禁用画质/音质设置(strings: `error_video/audio_effect_tunnel`)。
+- **落地(本项目)**:①键不变 `PLAY_TUNNEL`/`PLAY_PREFER_AAC`(默认 false);②`player/ExoPlayer#applyPlaybackParameters()`(`initPlayer` super 后)= `trackSelector.buildUponParameters()` → `setTunnelingEnabled(tunnel && render==SurfaceView)` + 可选 `setPreferredAudioMimeTypes(AAC)` → `trackSelector.setParameters(...)`(**不再走** `mInternalPlayer.setTrackSelectionParameters`,避免重置 tunneling 扩展字段);③设置页双向联动:开隧道且渲染=TextureView → 自动切 SurfaceView;渲染切 TextureView → 自动关隧道。
+- **自动降级**:①内核自动切 IJK(rtmp 强制/自动重试)→ 本类不实例化;②渲染非 SurfaceView → 参数不启用;③设备 codec 不支持 FEATURE_TunneledPlayback → media3 静默回退(`isTunnelingEnabled()=false`),无副作用。
+- **fongmi 未搬入**:非 EXO 内核隐藏开关(本项目保持独立开关常显)、隧道时禁画质/音质设置(本项目无此功能)、DecodeTrackSelector(依赖 fongmi 对 media3 的源码魔改,不需要)。
+- **生效时机**:下次开始播放(播放器重建时读 Hawk)。
+- **验证(已完成,2026-09-11 真机)**:参数下发成功(`prefs tunnel=true, surfaceRender=true, preferAac=true`);本机视频轨 video/avc(avc1.640028)的 codec 不支持 FEATURE_TunneledPlayback → `tunnelingEnabled=false` = 预期自动降级,链路(开关 → 选轨 → RendererConfiguration)工作正常。排查期临时落盘日志(`ExoPlayer` 内 `avbox_tunnel.log` 通道)已按用户要求移除。
+
+## 配置管理页(2026-09-11,用户要求;同日二轮:开关切换 + 长按删除 + 成为源管理唯一入口)
+
+- **定位**:全 App **唯一的源添加/管理入口**(二轮用户要求原文:「将设置页面的接口配置接口历史都删除了,此后添加和管理源的入口只有配置管理」)。
+- **入口**:设置 tab「配置与数据」分组首位「配置管理」行 → `ConfigManageActivity`(壳同 `ThemeSettingsActivity`;页面 `ui/page/ConfigManagePage.kt`,Manifest portrait);首页两处旧入口同步改跳此页 = 引导态按钮(文案「添加订阅」)、订阅源 sheet 末组行(「配置管理」)。
+- **页面**:无边框顶栏 = 返回钮 + 大标题「配置管理」+ 右上角控件(常态 = 「添加订阅」(40dp 圆形、surfaceBright 圆底、图标 = `.tubiao/添加订阅.svg` 转换的 `ic_subscribe_add.xml`);管理模式 = 「删除」(40dp 圆钮,复用历史页 `ManageActionIcon`),两者互斥);订阅源列表 = **28dp 圆角卡片**(色 `cardContainer`,距屏幕边缘 16dp、卡间距 12dp;卡内 = 名字 titleMedium + 链接 bodyMedium onSurfaceVariant 单行省略);空态 = `LoadStateBox`「暂无订阅」。
+- **开关切换(二轮用户定稿)**:卡片右侧 `Switch` = 该源是否为当前接口(`activeUrl` 与 `Hawk API_URL` 比对);打开 = 切换(写 API_URL/LIVE_API_URL + 接口&直播历史 + 非线路历史清线路 + `AppBootstrap.retry()`,Toast「已切换到:名」);关闭不动作(必须有一个源在用);整卡点击 = 同开关。**列表首个订阅源添加后自动启用**(覆盖新装/清空后场景,免一步开关)。
+- **排序(四轮用户定稿)**:**正在使用的源恒置顶**(渲染层排序 `orderedItems`,存储顺序不变),其余按添加顺序 → **新添加的源追加到列表末尾 = 显示在下方**(二轮时误插到最前)。
+- **长按删除(二轮 + 四轮用户定稿)**:长按卡片 → 进入管理模式并选中该卡(卡右侧开关转 `Checkbox`,顶栏「添加订阅」转「删除」);管理模式整卡点击 = 切换选中;取消全部选中 / 删除完成自动退出。**正在使用的源不可删除** —— 勾选框 `enabled=false`,长按/点选 Toast「正在使用的源不能删除」,`deleteSelected()` 再过滤一层兜底;仅当列表被删空(边界:激活源不在列表中,如旧版本升级遗留)才 `ApiConfig.clearConfig()` + `AppBootstrap.retry()` 回引导态(**2026-09-11 修复**:原实现删光后保留 `API_URL`,会出现「订阅列表已空、App 仍用着被删的源」的状态不一致,重启也照样生效)。
+- **添加订阅 dialog**:Material3 `AlertDialog`(标题「添加订阅」+ 两行 `OutlinedTextField`(名字 / 链接,label 常显)+ 右下角「保存」;链接为空时保存钮禁用)。同链接重复保存 = 更新名字,位置不变。
+- **数据**:Hawk `HawkConfig.SUBSCRIBE_LIST` = `"subscribe_list"`(`ArrayList<String>`,每项 `名字\t链接`,分隔符约定同 HistoryHelper 的 `API_LINE_SPLIT`)。
+- **连带删除(旧入口整链)**:设置页「接口配置」「接口历史」两行 + `ApiHistorySheet`/`ApiConfigSheet`/`ApiSheetHost`/`ApiConfigSheetHost`(`ui/dialog/ApiSheets.kt` 整文件)+ `Jump.showApiDialog()` + `MainScreen` 的 `ApiConfigSheetHost()` 挂载。保留 `HawkConfig.API_HISTORY`/`LIVE_API_HISTORY` 数据键(仍被 `ApiConfig` 仓源线路逻辑与 `LivePlayActivity` 直播设置「配置切换」消费)。
+- **本地文件选择(2026-09-11 三轮引入 → 五轮改系统 SAF)**:添加订阅 dialog **标题右上角**「从本地选择」控件(40dp 圆形 surfaceBright 圆底 + `ic_file_choose.xml`(源 `.tubiao/文件选择.svg`,文件夹图标))。**五轮用户要求「把这个页面删除,改为 SAF」**:自绘 `LocalFileActivity` 整页删除 + Manifest 声明删除;`LocalConfigHelper` 重写为 SAF 链 —— 调用页注册 `ActivityResultContracts.OpenDocument()`(MIME `*/*`),`startLocalConfig(launcher, onResult)` 设 pending 后 `launcher.launch(...)`,回调经 `handleLocalConfigResult(activity, uri)` 把 Uri 转 `clan://` 接口地址**回填到链接输入框**(不直接保存)。转换规则 `localConfigToApi`:有存储权限且能取到真实路径 → 直接引用原文件;否则复制到 App 外置缓存 `config/`(SAF 自带读取授权,**无需存储权限**,故原内联 `PermissionHelper.requestStorage` 申请已删)。`MainActivity` 里专为旧 sheet 挂的 `localConfigLauncher`/`launchLocalConfig` 此前已删。
+- **数据层新增(2026-09-11)**:`ApiConfig.clearConfig()`(public)= `resetConfigData()` + `mHomeSource = null` + 清 `API_URL`/`LIVE_API_URL`/`HOME_API` + `HistoryHelper.clearApiLineList()`;供「订阅列表被删空」回引导态使用(激活源不可删后,该路径仅剩「激活源不在列表中」的边界情形)。安全性依据:空 `API_URL` 时 `loadConfig` 直接 `callback.error("-1")`(AppBootstrap 按「取消等待、离线继续」处理 → Ready),`getHomeSourceBean()` 有 `emptyHome` 兜底,`HomePage` 以 `sources.isEmpty()` 进引导态。
+- **验证**:`:app:compileDebugKotlin -q` 退出码 0;`installDebug` BUILD SUCCESSFUL 26s 已装机(V2425A);真机待验:开关切换与全局刷新、**使用中的源置顶**、**新加源排在下方**、**使用中的源不可删**(长按/点选提示)、长按删除、添加首个源自动启用、**SAF 选择器选中文件回填链接**。
+
+## 主题设置页(2026-09-11,用户要求"照搬示例文件/android 主题设置页的 UI、功能与图标")
+
+- **来源**:`示例文件/android` 的 `feature/settings/.../ui/theme/`(ThemeSettingsScreen / ThemeSections / ThemePresetSeeds / ColorPicker)+ `core/designsystem/.../theme/`(ThemeState / ThemeConfig / Theme.kt)+ `core/ui` widgets(CapsuleSegmentedButton / IconContainer / StatusBarScrim / segmentedItemShape)。
+- **项目适配(本项目无 Hilt / 无 MVI / 无 DataStore)**:
+  - 主题状态 = 单例 `object AppThemeState`(Hawk 持久化 4 个键 `THEME_SOURCE` / `THEME_MODE` / `THEME_SEED` / `THEME_PALETTE_STYLE`;`mutableStateOf` 向全 App 广播)。**不建 ViewModel**:主题是进程级状态,页面只做"读状态 + 下发 intent",加 VM 只是转发(与 MainScreen 直读 AppBootstrap 同风格)。
+  - 新增依赖 `com.materialkolor:material-kolor:5.0.1`(版本目录键 `materialKolor`,与示例项目同版本、本地 Gradle 缓存已有),用于 `PaletteStyle` 与 `dynamicColorScheme`(种子色 → 整套 M3 配色)。缓存策略同示例:主配色 `(seed,isDark,style)` 与色卡预览 `(seed,style)` 各一个 `ConcurrentHashMap`。
+  - 页面 = 新 `ThemeSettingsActivity` + `ui/page/ThemeSettingsPage.kt`(走 Activity 跳转,符合 §2「不用 navigation-compose」);入口 = 设置 tab **首个分组**「主题设置」整行,值摘要 = 取色来源 · 深浅模式。
+  - 新增组件:`ui/components/CapsuleSegmentedButton.kt`(胶囊分段选择器:ToggleButton + connectedShapes + 按下弹簧回弹)、`ui/components/ThemeColorPickerSheet.kt`(HSV 色轮取色器,装在既有 `AVBoxBottomSheet` 内)、`ui/components/EdgeToEdgeTopBar.kt` 追加 `TopBarActionBox`(40dp 圆形返回钮,供二级页复用)。
+  - 图标(`app/src/main/res/drawable/`,逐字取自示例项目):`ic_color_palette` / `ic_brightness_auto` / `ic_light_mode` / `ic_dark_mode`。
+- **状态栏/导航栏图标归属(关键设计)**:`AVBoxTheme` 新增 `manageStatusBarIcons: Boolean = true` —— 默认按**解析后的应用主题**决定图标深浅(深浅模式覆盖系统时也不会出现"深色图标压在深色栏上"),同时断言状态栏与导航栏;纯黑状态栏页面(详情页 / 直播页 / 播放器覆盖层 `ComposeVideoController`)传 `false`,继续由各自 Activity 恒白断言。`MainActivity.applyStatusBarAppearance()` 同步改为按 `AppThemeState.isDark(系统深浅)` 取值。
+- **与示例的差异(未做项)**:示例在 `Application.onCreate` 预加载全部 8 色 × 9 风格的预览配色;本实现改为**按需计算 + 缓存**(色卡在 `produceState` 里走 Default 调度器),首帧可能以当前配色占位一瞬。
+- **补丁①(2026-09-11,装机反馈截图:首个卡片离顶栏过近)**:顶部占位原照设置 tab 页规则给 `topBarHeight - 12dp`(设置页首个分组如此),结果「主题颜色」卡片几乎贴着「主题设置」标题。改为**二级页规则** `topBarHeight - 8dp + 28dp`(顶栏内容下沿 + 首卡间距 28dp),与栏目页(`topPadding + 28dp`)/ 搜索页 / 历史收藏一致。已 installDebug 装机。
+- **验证**:`:app:compileDebugKotlin`、`:app:assembleDebug` 均 BUILD SUCCESSFUL;真机待验(主题切换即时全局生效、色卡预览、取色器、深浅模式覆盖系统时的状态栏图标)。
+
+## 顶部应用栏无边框化(2026-09-11,三项决策经结构化提问确认)
+
+- **需求**:顶部应用栏改无边框、内容延伸到状态栏、带"渐变模糊",参考 `示例文件/android`。**用户决策**:①范围 = 4 个 tab(首页/历史/收藏/设置)+ 二级页(搜索/栏目/本地文件);②顶栏**随滚动滚走**(照搬示例项目 `exitUntilCollapsed` 语义);③"渐变模糊" = **渐变遮罩**(示例项目顶栏的实际做法,非真模糊 —— 真模糊只用在示例项目底部导航条,依赖 kyant backdrop 库,零新增依赖优先)。
+- **参考实现要点**(`示例文件/android`):顶栏容器透明(`containerColor/scrolledContainerColor = Transparent`)+ `Scaffold(contentWindowInsets = WindowInsets(0,0,0,0))` + 顶栏 `Modifier.windowInsetsPadding(statusBars)` + 内容 `contentPadding.top = padding.calculateTopPadding()` + `StatusBarScrim`(状态栏高 ×1.2,0.95→0.6→透明三档)。
+- **本项目落地**:
+  - 新组件 `ui/components/EdgeToEdgeTopBar.kt`:`rememberScrollAwayTopBarBehavior()`(M3 `TopAppBarDefaults.exitUntilCollapsedScrollBehavior`,需 `ExperimentalMaterial3Api`)、`rememberTopBarHeight(contentHeight = TopBarContentHeight/56dp)`(状态栏 inset + 顶栏内容高)、`ScrollAwayTopBar`(状态栏 padding + `onSizeChanged` 设 `state.heightOffsetLimit = -实测高` + `offset{}` 布局期读偏移,不触发重组)、`TopScrim`(渐变遮罩;无 pointerInput 不拦截触摸)。
+  - 页面统一结构:`Box(Modifier.fillMaxSize().nestedScroll(behavior.nestedScrollConnection)) { 滚动内容(contentPadding.top = topBarHeight + 原顶部留白); TopScrim(); ScrollAwayTopBar { 顶栏行(56dp / 水平 16dp) } }`。
+  - 接入:`MainScreen`(Scaffold `contentWindowInsets` 清零;底栏与手势条由 NavigationBar 自身承担)、`HomePage`(源胶囊 + 搜索钮作顶栏;直播 FAB 保持右下)、`HistoryPage`/`CollectPage`(大标题 + 管理控件作顶栏;加载/空态补 `padding(top = topBarHeight)` 保持居中观感)、`SettingsPage`(标题从滚动 Column 移入顶栏,内容首位插 `Spacer(topBarHeight)`,分组间距 28dp 不变)、`SearchActivity`(返回 + 搜索框作顶栏;**波浪线进度条与结果源筛选 chips 由固定改为 LazyColumn 首项**,随列表滚走)、`PartitionListActivity`(`VideoGrid` 新增 `topPadding: Dp` 参数,首卡间距 = topBarHeight + 28dp;加载/空态同上)、`LocalFileActivity`(标题 + 当前路径两行作顶栏,内容高 64dp;路径从"紧贴标题下方"改为顶栏第二行)。
+  - 配套 `MainActivity.applyStatusBarAppearance()`:状态栏图标按主题深浅取反(原恒深色)—— 内容延伸到状态栏后顶栏区域即页面色,深色主题须用白色图标;init / onResume 反复断言(系统会按主题重置)。
+  - **不在本次范围**:详情页 / 直播页(纯黑状态栏 + 播放器,属既有补丁⑤⑧设计)、播放器视频覆盖层。
+- **坑与注意**:①顶栏滚走依赖 nestedScroll 上报 —— 内容滚动容器必须位于挂了 `nestedScrollConnection` 的容器之内(`verticalScroll` / LazyColumn / LazyVerticalGrid 均可);②`heightOffsetLimit` 必须由顶栏实测高度设置,否则 M3 默认 0 = 顶栏不动;③**`onSizeChanged` 必须排在 `windowInsetsPadding(statusBars)` 之外(更外层)** —— inset 高度由 `windowInsetsPadding` 在本层叠加,写在其内层只能测到「内容高」,顶栏最多上移内容高、残留状态栏那一段压在状态栏上滚不干净;④`onSizeChanged` 写出前先判等,避免无限重组;⑤搜索页结果态原"固定进度条/chips"需移入列表,否则内容无法延伸到状态栏。
+- **补丁①(2026-09-11,装机反馈截图)**:修复「顶栏滚不干净、标题压在状态栏上」(现象 = 设置页滚动后「设置」标题停在状态栏那一条上,对照示例项目应为完全滚出)—— 即上述坑③,`ScrollAwayTopBar` 的 `onSizeChanged` 由 `windowInsetsPadding` 内层移到外层,收起上限由「内容高 56dp」修正为「状态栏 + 内容高」;已重新装机。
+- **全站审查 + 补丁⑤(2026-09-11,用户要求"审查是否还有需要修正的页面")**:
+  - 留白核对(首项距屏幕顶 = 状态栏 + X):首页 64(改造前 64 ✓)、历史/收藏 76(76 ✓)、设置 72(68,+4)、搜索未搜索 76(68,+8)、搜索结果 60/波浪线(52,+8)、栏目 76(68,+8)、本地文件 68(68 ✓);差异均来自"顶栏行 56dp 内内容垂直居中"(内容下移);≤8dp,判定可接受,不再逐页微调。
+  - **发现并修复|顶栏记账脱节**:`ScrollAwayTopBarState` 的 `scrolledPx` 是"内容累计滚动量"记账,**内容被程序整体替换**(切源 / 换目录 / 换筛选 / 新搜索)时列表位置重置到顶部,记账仍是旧值 → 顶栏停在屏幕外而内容已在顶部。修复 = ①新增 `reset()`(公开),在这 4 个场景显式调用(`HomePage` 切源、`LocalFileActivity` `LaunchedEffect(currentDir)`、`SearchActivity.submit()`、`PartitionListActivity` 筛选确认;⚠️ 局部函数 `submit` 只能捕获**先声明**的变量,`val scrollBehavior` 须移到 `submit` 之前);②`onPostScroll` 加**边界自愈**:`consumed.y == 0 && available.y > 0`(列表已无法向下滚 = 在顶部)且记账非零 → 归零。
+  - 其余核对项(加载/空态 `padding(top = topBarHeight)` 居中、滚出上限 = 实测顶栏总高、底部 padding、FAB、sheet 覆盖层)均正常。
+- **补丁④(2026-09-11,装机反馈:搜索结果页留白过大)**:现象 = 搜索框下方到进度条/chips/结果分区之间空一大块。根因 = ① 结果态 `contentPadding.top` 多给了 16dp(该 16dp 原是「列表首项与上方固定 chips 的间距」,chips 移入列表后由 `spacedBy(24dp)` 承担);② 进度条与筛选 chips 由固定布局改成两个列表 item 后,被 `spacedBy(24dp)` 额外拉开(原为紧邻,间距仅 12dp 内边距)。修复 = `contentPadding.top = topBarHeight - 8dp`(不加 16dp);**进度条 + chips 合并为一个前导 item**(`key = "search_leading"`,内部 Column 保持原 12dp/0dp 内边距关系),同时避免空态下多出一个空 item。
+- **补丁③(2026-09-11,装机反馈:首项卡片离顶部过远)**:现象 = 设置页首个分组被推远(比改造前多约 16dp)。根因 = 顶栏行统一 56dp、行内内容**垂直居中**会产生下行余量(标题 32dp → 12dp;40dp 控件 → 8dp),而内容留白按「整行高度」给,余量被重复计入。修复 = 内容留白改为「顶栏内容下沿」(整行高度 - 行内居中余量)+ 原留白:设置页 `topBarHeight - 12dp`、历史/收藏 `topBarHeight - 8dp + 28dp`、搜索页 `topBarHeight - 8dp(+16dp)`、栏目页 `topPadding = topBarHeight - 8dp`;首页(行内 8+40+8 显式 padding)与本地文件页(64dp 行内 60dp 内容)视觉本就与改造前一致,不动。⚠️ 顶栏整行高度仅用于滚动滚出上限(`ScrollAwayTopBar` 实测),内容留白需按「内容下沿」计算。
+- **补丁②(2026-09-11,装机反馈:轻滑一下顶栏就整体跑掉)**:现象 = 内容只滚了十几 dp,顶栏已完全消失(顶栏比内容先跑);对照示例项目应为内容滚多少顶栏移多少。根因 = M3 `TopAppBarScrollBehavior` 在 **fling 结束后按 velocity 吸附**(把 `heightOffset` 动画到完全收起/完全展开,javap 反编译 `ExitUntilCollapsedScrollBehavior$nestedScrollConnection$1` 确认其 `onPostFling` 读 velocity 后写 `setHeightOffset`),不是「跟随内容滚动量」。**修复 = 弃用 M3 behavior,改为自实现 `ScrollAwayTopBarState`**(`ui/components/EdgeToEdgeTopBar.kt`):`nestedScrollConnection.onPostScroll` 只读取 `consumed.y` 累计"内容净滚动量"(`scrolledPx`,向上滚为正),`offsetPx = (-scrolledPx).coerceIn(-高度, 0)`,**不消费滚动、无吸附**;`rememberScrollAwayTopBarBehavior()` 更名为 `rememberScrollAwayTopBarState()`。顶栏位置因此严格由内容滚动位置决定,滚过顶栏高度后再回滚也能正确还原。已重新装机。
+- **验证**:`:app:compileDebugKotlin -q` 退出码 0;`installDebug` BUILD SUCCESSFUL 26s 已装机(V2425A)。真机待验:①4 tab 顶栏随滚动滚走/回滚复位;②内容穿过顶部时在状态栏区域渐隐;③搜索页进度条/chips 随结果列表滚动;④深色主题下状态栏图标为白色。
+
+## 顶栏重做:M3 官方方案(2026-09-11 晚,自研记账两轮失联后用户拍板照示例)
+- **背景**:自研 `ScrollAwayTopBarState`(补丁②引入的 1:1 增量记账)产生两类装机 bug:①列表在顶部而顶栏 offset 残留 ≈ 状态栏高(标题停进状态栏区,盖住时钟);②列表滚到中间而顶栏完全没跟随(标题叠在内容上)。方向相反、概率出现——增量记账与列表真实位置是两套状态,程序性列表复位(不经 nested scroll)必然失联;旧自愈依赖用户手势、顶部哨兵(`topDetector` + snapshotFlow)也只覆盖"列表在顶"单一形态。**弃用自研,逐字照 `示例文件/android` 的 SettingsScreen/ThemeSettingsScreen 重做。**
+- **新组件** `AppTopBarScaffold`(`EdgeToEdgeTopBar.kt`,自研四符号全删):`exitUntilCollapsedScrollBehavior` + `Scaffold(nestedScroll, contentWindowInsets=0, containerColor 可传)` + `TopAppBar(windowInsets=0、statusBars padding、transparent)` + 内置 `TopScrim`;content 回调 `(topPadding, bottomPadding)` 且为 `BoxScope`(首页 FAB align 用)。`ScrollAwayTopBar`/`rememberTopBarHeight`/`rememberScrollAwayTopBarState` 不复存在;`TopScrim`/`TopBarActionBox` 保留。
+- **8 页迁移**:设置(纯标题)、主题设置/配置管理/栏目(返回钮;配置管理右上「添加订阅/删除」、栏目筛选钮走 actions 槽;栏目 containerColor=surfaceContainer 遮旧窗口背景)、历史/收藏(标题+管理钮 actions)、首页(源胶囊行进 titleContent、搜索圆钮进 actions、FAB 留 content 内 align)、搜索(SearchField 进 titleContent、返回钮 navigationIcon)。各页原显式 `scrollBehavior.reset()`(切源/新搜索/换筛选)删除——M3 behavior 官方管理无需手工归位。VideoGrid 的 scrollBehavior 参数随之删除。
+- **留白换算**:`topBarHeight` → content 回调 `topPadding`,相对差值不变(设置 -12、历史/收藏/配置/主题 -8+28、首页 +8、搜索/栏目 -8);M3 TopAppBar 高 64dp(自研 56),整体留白 +8dp,与示例一致。
+- **行为变化**:fling 吸附回归(当初补丁②否掉的"轻滑顶栏先跑"是 M3 官方行为,示例同款;用户为根除错位接受)。加载/空态 `padding(top = topPad)`、sheet 覆盖层、深色状态栏图标断言均不变。
+- **验证**:`compileDebugKotlin` 退出码 0;自研符号全工程 0 引用;read_lints 9 个文件无诊断;`installDebug` BUILD SUCCESSFUL 37s 已装机。真机待验:①滚动跟手与吸附观感;②两类错位是否根除;③各页留白/64dp 顶栏视觉;④首页胶囊/搜索钮、历史收藏管理钮、配置管理/栏目右上钮位置。
+
+## 选集网格两位集数溢出修复(2026-09-11,装机反馈;两轮定位后定稿)
+
+  - **现象**:详情页「选集 → 全部」弹窗里,`第10集 / 第20集 / 第22~26集` 这些格子的文字**横向来回滚动**,停在中间帧时显示成 `)集 第`、`0集 身` 等错位字符;第 1~9 集、第 11~19 集不滚。用户补充"只滚三次,之后就和别的集数一样完整显示"。
+  - **实测数据(用户截图逐像素量取;1260×2800 @ density 560 → 1dp = 3.5px)**:格中心间距 293.5px → 4 列格宽 **266px = 76dp**;文字墨迹宽 `第1集` 116px=33.1dp、`第9集` 123px=35.1dp、`第10集`~`第26集` **144~147px = 41~42dp**。
+  - **根因(第一轮判断有误,此处为更正结论)**:`DetailActivity` 选集网格采用 `GridCells.Fixed(4)`,label 上挂了 `Modifier.fillMaxWidth().basicMarquee()`。Material3 的 chip 内边距为 `FilterChipDefaults.ContentPadding = PaddingValues(horizontal = 8.dp)`(即左右各 8dp),故两位集数可用宽度约 **44dp** 而文字需 **41~42dp** —— **确实溢出约 2~3dp**。因此 `basicMarquee` 并非"误触发":它正确检测到了这 2~3dp 的溢出,只是以"横向滚动 + 滚满 `repeatCount`(默认 3)轮后停在中间帧"的形式表现,看起来像乱滚(用户观察到的"滚三次就停"即此)。⚠️ 第一轮结论曾误判为"文字远未超宽、属跑马灯误触发"(起因是把截图中一段非 chip 的像素跨度当成了 chip 宽度),改用省略号后立刻暴露成 `第2…`,才定位到真实原因。
+  - **修复(用户选定"折中"方案)**:①label 字号 `14sp → 13sp`(两位集数需宽降至约 39dp);②`contentPadding = PaddingValues(horizontal = 6.dp)`(相对默认 8dp 多出 4dp);合计余量约 9dp,两位集数完整显示;③**去掉 `basicMarquee()`,改用 `overflow = TextOverflow.Ellipsis`**(并删除已无引用的 import `androidx.compose.foundation.basicMarquee`),避免"差一点点就整行乱滚"的观感;超长文件名(如 `xxx.2024.EP01.1080p.mkv`)仍单行省略号截断。
+  - **教训**:①`basicMarquee` 不适合"仅差几 dp"的边界场景 —— 溢出量很小时滚动幅度极小,观感是"文字在抖/错位",不如省略号诚实稳定;跑马灯只应用于"确实超宽且必须看全"的场景。②排查像素问题**必须先确证所量跨度的归属**(chip?格?文字?),再据此下结论 —— 本轮一次误判即源于此。
+
+## 快搜功能删除(2026-09-09,用户要求)
+
+- **整链删除**:`FastSearchActivity.kt`/`FastSearchEngine.kt` 两文件、Manifest 声明、SearchActivity 页内「快搜」入口按钮、设置页「快搜」开关(SettingsState.fastSearchMode/FAST_SEARCH_MODE 读写)、Jump.kt 的 FAST_SEARCH_MODE 分支(jumpToDetail 源缺失回退与 jumpToSearch 均固定走 SearchActivity)、HawkConfig.FAST_SEARCH_MODE 常量。
+- **死代码连带清理**:SourceViewModel 的 quickSearchResult/detailFallbackSearchResult 两个 LiveData 及 getQuickSearch/getDetailFallbackSearch(无调用方无观察者)、xml()/json()/postEmptySearchResult/postSearchResult 中对应分支、两参 postEmptySearchResult 重载;RefreshEvent 的 TYPE_QUICK_SEARCH/SELECT/WORD/WORD_CHANGE/RESULT 五个零引用常量;SearchHelper.splitWords(仅快搜分词使用)。
+- **DetailActivity 兜底候选预填通道删除**:EXTRA_DETAIL_FALLBACK_CANDIDATES 常量与 initFromIntent 的 bundle 读取、cacheFallbackCandidates(仅快搜点击结果携带候选时使用);⚠️ 详情页换源/相关推荐的**自建聚合搜索保留不动**(EventBus TYPE_SEARCH_RESULT + fallbackCandidates,与快搜无关);SourceBean.quickSearch 源配置属性保留(isQuickSearch() 被换源过滤使用)。
+- **保留未动**:SearchReceiver/ServerEvent.SERVER_SEARCH 远程推送搜索(SearchActivity 自用);styles.xml→item_bg_selector_right→button_detail_quick_search 旧样式链(仍被存活对话框样式引用,与快搜页面无关)。
+- **行为变化**:jumpToSearch/jumpToDetail 源缺失时一律进普通搜索页;首页长按「搜索相似内容」同。搜索历史仍由 SearchActivity 写入。
+
+## 卡片点击分发 + 网盘目录下钻(2026-09-11,三项决策已经用户确认)
+
+- **背景**:用户 7 源配置混了三类语义 —— 影视源(`<9.10更新>修复文采 海绵`/`玩偶哥哥|4K弹幕`/`叨观荐影|预告片`/`聚剧|四盘`/`光影|不卡`)、网盘源(`📁我的云盘|我配置`,首页 = 「云盘配置」8 张动作卡)、音乐源(`🎙易听音乐|带歌词`,首页 = 歌手/榜单卡)。原实现「action 卡走 action,其余一律跳搜索」在音乐源与网盘目录卡上是错的(音乐卡搜出来的是别的影视源同名内容;`vod_tag=folder` 的目录卡被当影片)。
+- **调研先行(读上游源码)**:判定字段 = `Vod.isAction()`(action 非空)/ `Vod.isFolder()`(`vod_tag=="folder"` 或 `cate!=null`)/ `Class.isFolder()`(`type_flag=="1"`)/ `Site.isIndex()`(`indexs==1`);分发集中在 `示例文件/TV-fongmi/app/src/mobile/.../ui/fragment/TypeFragment.java:191-208`(TV 版同构,leanback HomeActivity:399-411);优先级 action > folder(openFolder 下钻) > index 站(跳搜索) > 默认详情页。**上游没有「音乐」概念** —— 音乐源卡片走默认分支进详情页,音频靠播放器 `onAudio()→setAudioOnly(true)`。
+- **决策(用户选定)**:①默认策略 = **保持搜索**(改动最小,兼容 2026-09-10 定稿);②切换入口 = **订阅源 sheet 行内标记**;③网盘目录下钻**本轮做,可递归**。
+- **落地**:新建 `ui/page/VodCardAction.kt`(`SourceCardPolicy` 枚举 + `VodCardTarget` 密封接口 + `VodCardPolicy`(Hawk `source_card_policy`,只登记 DETAIL 的源)+ `resolveVodCardTarget` + `Context.dispatchVodCardClick` + `openVodFolder`);`AbsJson.AbsJsonVod` 增 `cate` 字段并在 `toXmlVideo()` 归一到 `tag="folder"`;`PartitionListActivity` 增 `MODE_FOLDER` + `startForFolder(folderId, name)`(目录 id 当分类 id,复用 `PartitionListVM`;递归 = 逐级开页,返回键回上级)+ action 卡 Toast;`PartitionListVM` 增 `runAction` / `actionMessages` / `refresh`;`SettingsOptionRow` 增 `trailing` 插槽;`HawkConfig` 增 `SOURCE_CARD_POLICY`。首页与栏目二级页的卡片点击都改走分发器(搜索模式与搜索结果页保持进详情)。
+- **验证**:`:app:compileDebugKotlin -q` 退出码 0;read_lints 无诊断。
+- **真机验证点**:①「订阅源」sheet 里把「易听音乐」「我的云盘」标记切成「详情」;②音乐源点歌手卡应进详情页并自动播放;③网盘源点目录卡进目录页、再点下级目录继续下钻、返回键逐级回退、末级文件卡进详情;④网盘配置卡(action)仍是 Toast + 列表刷新;⑤影视源点卡片仍跳搜索(行为未变)。

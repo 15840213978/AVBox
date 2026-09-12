@@ -1,0 +1,148 @@
+package com.github.catvod.crawler.js;
+
+import android.util.Base64;
+
+import com.github.tvbox.osc.util.LOG;
+import com.github.tvbox.osc.util.OkGoHelper;
+import com.google.common.net.HttpHeaders;
+import com.lzy.okgo.OkGo;
+import com.whl.quickjs.wrapper.JSArray;
+import com.whl.quickjs.wrapper.JSObject;
+import com.whl.quickjs.wrapper.JSUtils;
+import com.whl.quickjs.wrapper.QuickJSContext;
+
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ThreadLocalRandom;
+
+import okhttp3.Call;
+import okhttp3.FormBody;
+import okhttp3.Headers;
+import okhttp3.MediaType;
+import okhttp3.MultipartBody;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.RequestBody;
+import okhttp3.Response;
+
+public class Connect {
+    static OkHttpClient client;
+    
+    public static Call to(String url, Req req) {
+        return to(url, req, "js_okhttp_tag");
+    }
+
+    /** BugReview #31:tag 可按爬虫隔离,避免搜索页 stopAll 误杀其他站点在途 JS 请求 */
+    public static Call to(String url, Req req, Object tag) {
+        client = OkGoHelper.getDefaultClient();
+        return client.newCall(getRequest(url, req, Headers.of(req.getHeader()), tag));
+    }    
+
+    public static JSObject success(QuickJSContext ctx, Req req, Response res) {
+        try {
+            JSObject jsObject = ctx.createNewJSObject();
+            JSObject jsHeader = ctx.createNewJSObject();
+            setHeader(ctx, res, jsHeader);
+            ctx.setProperty(jsObject, "headers", jsHeader);
+            if (req.getBuffer() == 0) ctx.setProperty(jsObject, "content", new String(res.body().bytes(), req.getCharset()));
+            if (req.getBuffer() == 1) {
+                JSArray array = ctx.createNewJSArray();
+                byte[] bytes = res.body().bytes();
+                // BugReview #22:byte 直接 (int) 提升会把 >0x7F 的字节变负数(255→-1),
+                // 二进制响应(图片/密文/m3u8)数据损坏;& 0xFF 还原无符号值
+                for (int i = 0; i < bytes.length; i++) array.set(bytes[i] & 0xFF, i);
+                ctx.setProperty(jsObject, "content", array);
+            }
+            if (req.getBuffer() == 2) ctx.setProperty(jsObject, "content", Base64.encodeToString(res.body().bytes(), Base64.DEFAULT | Base64.NO_WRAP));
+            return jsObject;
+        } catch (Exception e) {
+            return error(ctx);
+        }
+    }
+
+    public static JSObject error(QuickJSContext ctx) {
+        JSObject jsObject = ctx.createNewJSObject();
+        JSObject jsHeader = ctx.createNewJSObject();
+        ctx.setProperty(jsObject, "headers", jsHeader);
+        ctx.setProperty(jsObject, "content", "");
+        return jsObject;
+    }
+
+    private static Request getRequest(String url, Req req, Headers headers, Object tag) {
+        if (req.getMethod().equalsIgnoreCase("post")) {
+            return new Request.Builder().url(url).tag(tag).headers(headers).post(getPostBody(req, headers.get(HttpHeaders.CONTENT_TYPE))).build();
+        } else if (req.getMethod().equalsIgnoreCase("header")) {
+            return new Request.Builder().url(url).tag(tag).headers(headers).head().build();
+        } else {
+            return new Request.Builder().url(url).tag(tag).headers(headers).get().build();
+        }
+    }
+
+    private static RequestBody getPostBody(Req req, String contentType) {
+        if (req.getData() != null && req.getPostType().equals("json")) return getJsonBody(req);
+        if (req.getData() != null && req.getPostType().equals("form")) return getFormBody(req);
+        if (req.getData() != null && req.getPostType().equals("form-data")) return getFormDataBody(req);
+        if (req.getBody() != null && contentType != null) return RequestBody.create(MediaType.get(contentType), req.getBody());
+        return RequestBody.create(null, "");
+    }
+
+    private static RequestBody getJsonBody(Req req) {
+        return RequestBody.create(MediaType.get("application/json"), req.getData().toString());
+    }
+
+    private static RequestBody getFormBody(Req req) {
+        FormBody.Builder formBody = new FormBody.Builder();
+        Map<String, String> params = Json.toMap(req.getData());
+        for (String key : params.keySet()) formBody.add(key, params.get(key));
+        return formBody.build();
+    }
+
+    private static RequestBody getFormDataBody(Req req) {
+        String boundary = "--dio-boundary-" + ThreadLocalRandom.current().nextInt(42949) + "" + ThreadLocalRandom.current().nextInt(67296);
+        MultipartBody.Builder builder = new MultipartBody.Builder(boundary).setType(MultipartBody.FORM);
+        Map<String, String> params = Json.toMap(req.getData());
+        for (String key : params.keySet()) builder.addFormDataPart(key, params.get(key));
+        return builder.build();
+    }
+
+    private static void setHeader(QuickJSContext ctx, Response res, JSObject object) {
+        for (Map.Entry<String, List<String>> entry : res.headers().toMultimap().entrySet()) {
+            if (entry.getValue().size() == 1) ctx.setProperty(object, entry.getKey(), entry.getValue().get(0));
+            if (entry.getValue().size() >= 2) ctx.setProperty(object, entry.getKey(), new JSUtils<String>().toArray(ctx, entry.getValue()));
+        }
+    }
+    public static void cancelByTag(Object tag) {
+        try {
+            if (client != null) {
+                for (Call call : client.dispatcher().queuedCalls()) {
+                    if (tag.equals(call.request().tag())) {
+                        call.cancel();
+                    }
+                }
+                for (Call call : client.dispatcher().runningCalls()) {
+                    if (tag.equals(call.request().tag())) {
+                        call.cancel();
+                    }
+                }
+            }
+            OkGo.getInstance().cancelTag(tag);
+            cancelDefaultClient(tag);
+        } catch (Exception e) {
+        }
+    }
+
+    private static void cancelDefaultClient(Object tag) {
+        OkHttpClient defaultClient = OkGoHelper.getDefaultClient();
+        if (defaultClient == null || tag == null) return;
+        for (Call call : defaultClient.dispatcher().queuedCalls()) {
+            if (tag.equals(call.request().tag())) {
+                call.cancel();
+            }
+        }
+        for (Call call : defaultClient.dispatcher().runningCalls()) {
+            if (tag.equals(call.request().tag())) {
+                call.cancel();
+            }
+        }
+    }
+}

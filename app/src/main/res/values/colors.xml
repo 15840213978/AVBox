@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- AppTheme(Manifest 主题) -->
+    <color name="color_6200EE">#6200EE</color>
+    <color name="color_3700B3">#3700B3</color>
+    <color name="color_03DAC5">#03DAC5</color>
+
+    <!-- 播放器容器加载提示色已于 2026-09-13 删除:它服务的 play_loading / play_load_error /
+         play_load_tip 三个提示 View 在 2026-09-11 移除(提示改由 Compose 覆盖层绘制,
+         状态走 PlayerTipBridge),此后 color_CCFFFFFF 无任何引用 -->
+
+    <!-- 字幕文本色(PlayContainer) -->
+    <color name="color_FFFFFF">#ffffffff</color>
+    <color name="color_FFB6C1">#FFB6C1</color>
+
+    <!-- 统一弹窗调色板(Compose 播放器 UI;改这里全局生效) -->
+    <color name="dialog_panel_bg">#D91D202A</color>
+    <color name="dialog_panel_stroke">#33FFFFFF</color>
+    <color name="dialog_control_bg">#80353744</color>
+    <color name="dialog_control_bg_focused">#CC1890FF</color>
+    <color name="dialog_control_stroke">#22FFFFFF</color>
+    <color name="dialog_control_stroke_focused">#CC02F8E1</color>
+    <color name="dialog_text_primary">#FFFFFFFF</color>
+    <color name="dialog_text_hint">#80FFFFFF</color>
+</resources>

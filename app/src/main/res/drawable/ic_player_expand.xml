@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 详情页播放区全屏入口：四角展开图标（参考 bilibili 详情页设计） -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M4,4 h6 v2 H6 v4 H4 Z M14,4 h6 v6 h-2 V6 h-4 Z M4,14 h2 v4 h4 v2 H4 Z M20,14 v6 h-6 v-2 h4 v-4 Z" />
+</vector>

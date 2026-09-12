@@ -1,0 +1,66 @@
+package com.github.tvbox.osc.ui.components
+
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.composed
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.Shape
+import com.github.tvbox.osc.ui.theme.cardContainer
+
+/**
+ * 骨架屏 shimmer(avbox-mobile-ui-spec §6,统一替代 LoadSir 加载态):
+ * 灰卡底色上扫过一道高光;[base]/[highlight] 默认取卡片容器色,可覆盖。
+ */
+fun Modifier.shimmer(
+    base: Color? = null,
+    highlight: Color = Color.White.copy(alpha = 0.15f),
+): Modifier = composed {
+    val baseColor = base ?: MaterialTheme.colorScheme.cardContainer
+    val transition = rememberInfiniteTransition(label = "shimmer")
+    val progress by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1200, easing = LinearEasing),
+        ),
+        label = "shimmerProgress",
+    )
+    drawWithCache {
+        val bandWidth = size.width
+        val startX = -bandWidth + 2f * bandWidth * progress
+        val brush = Brush.linearGradient(
+            colors = listOf(baseColor, highlight, baseColor),
+            start = Offset(startX, 0f),
+            end = Offset(startX + bandWidth, size.height),
+        )
+        onDrawBehind { drawRect(brush) }
+    }
+}
+
+/** 骨架占位块,配合 [shimmer] 使用 */
+@Composable
+fun SkeletonBox(
+    modifier: Modifier = Modifier,
+    shape: Shape = RectangleShape,
+) {
+    Box(
+        modifier = modifier
+            .clip(shape)
+            .background(MaterialTheme.colorScheme.cardContainer)
+            .shimmer(),
+    )
+}

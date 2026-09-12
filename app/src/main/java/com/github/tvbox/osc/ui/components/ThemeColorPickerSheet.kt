@@ -1,0 +1,209 @@
+package com.github.tvbox.osc.ui.components
+
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.drag
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.material3.Button
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.dp
+import kotlin.math.atan2
+import kotlin.math.cos
+import kotlin.math.sin
+import kotlin.math.sqrt
+
+/**
+ * 颜色选择器(2026-09-11,照搬 `示例文件/android` 的 ColorPickerDialog):
+ * Compose 自绘 HSV 色轮 + 亮度滑块 + 初始/当前色对比,返回所选颜色 ARGB Int。
+ */
+@Composable
+fun ThemeColorPickerSheet(
+    title: String,
+    initialColor: Int,
+    onConfirm: (Int) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val initialHsv = remember(initialColor) {
+        FloatArray(3).also { android.graphics.Color.colorToHSV(initialColor, it) }
+    }
+    var hsv by remember { mutableStateOf(initialHsv.copyOf()) }
+    val currentColor = remember(hsv) { android.graphics.Color.HSVToColor(hsv) }
+
+    AVBoxBottomSheet(onDismissRequest = onDismiss, title = title) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp)
+                .padding(bottom = 16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            HueSatWheelPicker(hsv = hsv, onHsvChanged = { hsv = it })
+            Spacer(Modifier.height(12.dp))
+
+            Text(
+                text = "亮度 " + (hsv[2] * 100f).toInt() + "%",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Slider(
+                value = hsv[2],
+                onValueChange = { v -> hsv = floatArrayOf(hsv[0], hsv[1], v) },
+                valueRange = 0f..1f,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(12.dp))
+
+            ColorCompareRow(initialColor = initialColor, currentColor = currentColor)
+            Spacer(Modifier.height(16.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End,
+            ) {
+                TextButton(onClick = onDismiss) { Text("取消") }
+                Spacer(Modifier.width(8.dp))
+                Button(onClick = { onConfirm(currentColor) }) { Text("确定") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ColorCompareRow(initialColor: Int, currentColor: Int) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceEvenly,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        ColorPreviewColumn(label = "初始颜色", color = initialColor)
+        ColorPreviewColumn(label = "当前颜色", color = currentColor)
+    }
+}
+
+@Composable
+private fun ColorPreviewColumn(label: String, color: Int) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(label, style = MaterialTheme.typography.bodySmall)
+        Spacer(Modifier.height(4.dp))
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .background(Color(color), MaterialTheme.shapes.small),
+        )
+    }
+}
+
+/**
+ * HSV 色轮选择器:Canvas 自绘色相/饱和度圆盘 + 选择圆圈。
+ * 圆盘角度 → H(0-360),半径 → S(0-1,中心为 0,边缘为 1)。
+ */
+@Composable
+private fun HueSatWheelPicker(
+    hsv: FloatArray,
+    onHsvChanged: (FloatArray) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val wheelSize = 240.dp
+    val density = LocalDensity.current
+    val wheelSizePx = with(density) { wheelSize.toPx() }
+    val radiusPx = wheelSizePx / 2f
+
+    val indicatorOffset = remember(hsv) {
+        val angleRad = Math.toRadians(hsv[0].toDouble())
+        val r = hsv[1] * radiusPx
+        Offset(
+            (radiusPx + r * cos(angleRad)).toFloat(),
+            (radiusPx + r * sin(angleRad)).toFloat(),
+        )
+    }
+
+    Canvas(
+        modifier = modifier
+            .size(wheelSize)
+            .pointerInput(Unit) {
+                // ⚠️ 用 awaitEachGesture 而非 detectDragGestures:后者超过 touch slop 才触发,纯点击不更新 hsv
+                awaitEachGesture {
+                    val down = awaitFirstDown()
+                    updateHsvFromTouch(down.position, radiusPx, hsv, onHsvChanged)
+                    drag(down.id) { change ->
+                        updateHsvFromTouch(change.position, radiusPx, hsv, onHsvChanged)
+                        change.consume()
+                    }
+                }
+            },
+    ) {
+        val center = Offset(radiusPx, radiusPx)
+        // 色相圆盘:sweepGradient 一次绘出 360° 色相(起点 3 点钟方向,与 atan2 角度起点对齐)
+        drawCircle(
+            brush = Brush.sweepGradient(
+                colors = listOf(
+                    Color.Red, // 0°
+                    Color.Yellow, // 60°
+                    Color.Green, // 120°
+                    Color.Cyan, // 180°
+                    Color.Blue, // 240°
+                    Color.Magenta, // 300°
+                    Color.Red, // 360° 闭合
+                ),
+                center = center,
+            ),
+        )
+        // 饱和度模拟:中心白(S=0)→ 边缘原色(S=1),径向渐变叠加
+        drawCircle(
+            brush = Brush.radialGradient(
+                colors = listOf(Color.White, Color.White.copy(alpha = 0f)),
+                center = center,
+                radius = radiusPx,
+            ),
+        )
+        drawCircle(color = Color.White, radius = 10f, center = indicatorOffset, style = Stroke(width = 3f))
+        drawCircle(color = Color.Black, radius = 10f, center = indicatorOffset, style = Stroke(width = 1f))
+    }
+}
+
+/**
+ * 触摸坐标 → HSV(距圆心距离 → S,角度 → H)。
+ * ⚠️ 当前亮度为 0(BLACK)时自动提升到 1,让首次点色轮立即看到真实颜色。
+ */
+private fun updateHsvFromTouch(
+    offset: Offset,
+    radiusPx: Float,
+    currentHsv: FloatArray,
+    onHsvChanged: (FloatArray) -> Unit,
+) {
+    val cx = offset.x - radiusPx
+    val cy = offset.y - radiusPx
+    val r = sqrt(cx * cx + cy * cy).coerceAtMost(radiusPx)
+    val s = (r / radiusPx).coerceIn(0f, 1f)
+    var h = Math.toDegrees(atan2(cy.toDouble(), cx.toDouble())).toFloat()
+    if (h < 0f) h += 360f
+    val v = if (currentHsv[2] <= 0f) 1f else currentHsv[2]
+    onHsvChanged(floatArrayOf(h, s, v))
+}
