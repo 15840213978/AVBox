@@ -5,7 +5,7 @@ compileSdk = "37"
 minSdk = "24"
 targetSdk = "37"
 kotlin = "2.4.20"
-ksp = "2.3.11"
+ksp = "2.3.12"
 # app
 nanohttpd = "2.3.1"
 cling = "2.1.2"
@@ -13,14 +13,14 @@ cdiApi = "1.2"
 javaxInject = "1"
 javaxAnnotationApi = "1.3.2"
 javaxServletApi = "3.1.0"
-androidxAppcompat = "1.3.0"
-androidxMedia = "1.2.1"
-androidxConstraintlayout = "2.0.4"
+androidxAppcompat = "1.8.0"
+androidxMedia = "1.8.0"
+androidxConstraintlayout = "2.2.2"
 androidxLifecycle = "2.2.0"
-androidxRecyclerview = "1.2.1"
+androidxRecyclerview = "1.4.0"
 okhttp = "5.5.0"
-room = "3.0.2"
-androidxSqlite = "2.7.0"
+room = "3.0.3"
+androidxSqlite = "2.7.1"
 okio = "3.18.2"
 # ⚠️ gson 不要升到 2.13+:Hawk 2.0.1(上游停更)的 HawkConverter 用匿名 TypeToken 捕获类型变量,
 # Gson 2.13 起直接禁止该写法 → List/Map/Set 类型的 Hawk 读取抛 IllegalArgumentException 并被静默吞掉
@@ -33,8 +33,8 @@ hawk = "2.0.1"
 danmakuFlameMaster = "0.9.25"
 okgo = "3.0.4"
 xxPermissions = "28.3"
-jsoup = "1.14.1"
-commonsIo = "2.11.0"
+jsoup = "1.23.2"
+commonsIo = "2.22.0"
 juniversalchardet = "1.0.3"
 # zxing:爬虫 jar 运行期要用 com.google.zxing.*(生成二维码),宿主源码"零引用"属正常,勿当孤儿依赖删。
 zxingCore = "3.5.4"
@@ -43,15 +43,17 @@ zxingCore = "3.5.4"
 desugarJdkLibs = "2.1.5"
 # ⚠️ 不要给宿主加 slf4j(2026-09-12 实测,已加过又撤回):爬虫 jar 已把 slf4j-api shade 进混淆包,
 # 宿主提供标准绑定时类型不匹配 → IncompatibleClassChangeError;什么都不加时它正常回落到 NOP。
-# player: media3 1.11.0 + jellyfin ffmpeg 软解 1.9.0+1(上游最高,未跟进 1.11);
-# 已 javap 核对 DecoderAudioRenderer/SimpleDecoder 等抽象方法签名一致,兼容(2026-09-13)。
-media3 = "1.11.0"
+# player: media3 1.11.1 + jellyfin ffmpeg 软解 1.9.0+1(上游最高,未跟进 1.11);
+# 已 javap 核对 DecoderAudioRenderer/SimpleDecoder 等抽象方法签名一致,兼容(2026-09-13,1.11.1 为 1.11.0 补丁版,ABI 不变)。
+media3 = "1.11.1"
 media3FfmpegDecoder = "1.9.0+1"
-androidxAnnotation = "1.3.0"
+androidxAnnotation = "1.10.0"
 dkplayerUi = "3.3.7"
 quickjsWrapper = "3.2.3"
 composeBom = "2026.09.00"
-material3 = "1.5.0-alpha23"
+# material3 必须留在 1.5.0 通道:项目用了 ContainedLoadingIndicator / rememberBottomSheetState /
+# Modifier.pullToRefresh 等 expressive API(@ExperimentalMaterial3ExpressiveApi),1.4.0 稳定版没有。
+material3 = "1.5.0-alpha28"
 androidxActivityCompose = "1.13.0"
 androidxLifecycleRuntime = "2.11.0"
 androidxCoreSplashscreen = "1.2.0"

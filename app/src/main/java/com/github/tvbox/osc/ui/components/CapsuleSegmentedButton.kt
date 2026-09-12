@@ -22,6 +22,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.ToggleButton
 import androidx.compose.material3.ToggleButtonDefaults
+import androidx.compose.material3.ToggleButtonShapes
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -168,13 +169,15 @@ private fun <T> CapsuleToggleButton(
             onCheckedChange = onCheckedChange,
             modifier = segmentModifier,
             // 三段形状统一为全圆角:与轨道同心,同时关掉 M3 默认的按压形变(分段选中态不宜变形)
-            shapes = ToggleButtonDefaults.shapes(
+            // (material3 1.5.0-alpha28:工厂 ToggleButtonDefaults.shapes 移除,改为直接构造 ToggleButtonShapes)
+            shapes = ToggleButtonShapes(
                 shape = TrackShape,
                 pressedShape = TrackShape,
                 checkedShape = TrackShape,
             ),
             // 未选中 → 透明(与轨道融合);选中/文字/禁用色沿用 M3 默认
-            colors = ToggleButtonDefaults.toggleButtonColors(containerColor = Color.Transparent),
+            // (material3 1.5.0-alpha28:toggleButtonColors 更名为 colors)
+            colors = ToggleButtonDefaults.colors(containerColor = Color.Transparent),
             // 透明容器上保留默认阴影会留一圈灰边,故关掉
             elevation = null,
             contentPadding = TrackContentPadding,
