@@ -1,38 +1,15 @@
-<<<<<<<<<<<<<<json接口示例>>>>>>>>>>>>>
-# TVBox
+# AVBox
+- 基于 https://github.com/q215613905/TVBoxOS
+- 参考了 https://github.com/FongMi/TV
 
-=== Source Code - Editing the app default settings ===
-
-    //searchable:搜索开关	        0:关闭 1:启用
-    //filterable:首页可选	        0:否 1:是
-    //playerType:播放器类型	        0:系统 1:IJK 2:EXO
-    //采集接口类型		        0:xml 1:json 3:jar 4:remote
-    //parses解析类型		        0:嗅探,自带播放器 1:解析,返回直链
-    //直播参数说明                   ua:用户自定义ua epg:节目网址 logo:台标网址
-    
-    {
-	"spider": "./your.jar",
-	"wallpaper": "./api/img",
-	"sites": [],
-	"parses": [],
-	"hosts": [
-		"cache.ott.ystenlive.itv.cmvideo.cn=base-v4-free-mghy.e.cdn.chinamobile.com",
-		"cache.ott.bestlive.itv.cmvideo.cn=ip"
-	],
-	"lives": [],
-	"rules": [],
-	"doh": [
-		{
-			"name": "騰訊",
-			"url": "https://doh.pub/dns-query"
-		},
-		{
-			"name": "阿里",
-			"url": "https://dns.alidns.com/dns-query"
-		},
-		{
-			"name": "360",
-			"url": "https://doh.360.cn/dns-query"
-		}
-	]
-    }
+# 声明
+- AVBox只是个空壳播放器：
+- 不内置任何影视、直播、频道、节目单或订阅服务。
+- 不提供任何视频内容、下载内容或版权资源。
+- 项目开发者不对用户的使用行为承担任何法律责任。
+- 用户应在遵守其所在国家或地区法律法规的前提下使用本软件。
+- 本项目是基于技术学习和交流为目开发的开源软件。
+- 本软件只提供聚合展示功能、所有资源来自网上，软件不参与任何内置，制作、上传、储存、下载等内容，也不接受任何捐赠、打赏、付费等谋利行为，软件仅供开源学习参考，请于安装后24小时内删除。
+打包分发请保留出处
+https://github.com/CatVodTVOfficial/TVBoxOSC
+https://github.com/q215613905/TVBoxOS
