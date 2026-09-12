@@ -37,6 +37,8 @@ import com.github.tvbox.osc.player.state.PlayerUiState
 @Composable
 fun PlayerTopBar(state: PlayerUiState, actions: PlayerActions) {
     val anyVisible = state.topLeftVisible || state.topRightVisible
+    // 左右边距按窗口宽度分档（竖屏预览 16dp / 横屏全屏与平板 24dp，见 playerEdgePadding）
+    val edge = playerEdgePadding()
     Box(Modifier.fillMaxWidth()) {
         if (anyVisible) {
             // scrim 渐变（黑 55% → 透明），替代旧实现"无背景白字压画面"
@@ -54,8 +56,8 @@ fun PlayerTopBar(state: PlayerUiState, actions: PlayerActions) {
             Modifier
                 .fillMaxWidth()
                 .padding(
-                    start = 16.dp,
-                    end = 16.dp,
+                    start = edge,
+                    end = edge,
                     top = 12.dp,
                     bottom = playerDim(R.dimen.vs_5),
                 )

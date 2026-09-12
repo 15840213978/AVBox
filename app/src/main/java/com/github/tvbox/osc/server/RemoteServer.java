@@ -27,6 +27,7 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.Inet4Address;
+import java.net.Inet6Address;
 import java.net.InetAddress;
 import java.net.NetworkInterface;
 import java.net.SocketException;
@@ -43,6 +44,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import fi.iki.elonen.NanoHTTPD;
+import okio.Buffer;
 
 /**
  * @author pj567
@@ -158,9 +160,11 @@ public class RemoteServer extends NanoHTTPD {
                     }
                 } else if (fileName.equals("/dns-query")) {
                     String name = session.getParms().get("name");
-                    byte[] rs = null;
+                    byte[] rs = new byte[0];
                     try {
-                        rs = OkGoHelper.dnsOverHttps.lookupHttpsForwardSync(name);
+                        if (OkGoHelper.dnsOverHttps != null && !TextUtils.isEmpty(name)) {
+                            rs = buildDnsResponse(name, OkGoHelper.dnsOverHttps.lookup(name));
+                        }
                     } catch (Throwable th) {
                         rs = new byte[0];
                     }
@@ -372,4 +376,43 @@ public class RemoteServer extends NanoHTTPD {
         return info.toString();
     }
 
+    /** 把 DoH 解析结果编码为合法的 DNS 应答报文(单条 question + 全部 A/AAAA 答案) */
+    private static byte[] buildDnsResponse(String hostname, java.util.List<InetAddress> addresses) {
+        boolean ipv6 = false;
+        for (InetAddress address : addresses) {
+            if (address instanceof Inet6Address) {
+                ipv6 = true;
+                break;
+            }
+        }
+        // 无地址时回 SERVFAIL(rCode=2),避免返回空报文
+        int rCode = addresses.isEmpty() ? 2 : 0;
+        Buffer buffer = new Buffer();
+        buffer.writeShort(0); // ID
+        buffer.writeShort(0x8180 | rCode); // 标准响应 + 递归可用
+        buffer.writeShort(1); // QDCOUNT
+        buffer.writeShort(addresses.size()); // ANCOUNT
+        buffer.writeShort(0); // NSCOUNT
+        buffer.writeShort(0); // ARCOUNT
+        for (String label : hostname.split("\\.")) {
+            byte[] raw = label.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            buffer.writeByte(raw.length);
+            buffer.write(raw);
+        }
+        buffer.writeByte(0); // 名字结束
+        buffer.writeByte(ipv6 ? 0x00 : 0x01);
+        buffer.writeByte(0x1c);
+        buffer.writeShort(1); // CLASS_IN
+        for (InetAddress address : addresses) {
+            buffer.writeByte(0xc0);
+            buffer.writeByte(0x0c); // 名字指针 → 指向 question 中的名字
+            buffer.writeByte(0x00);
+            buffer.writeByte(0x1c); // TYPE: AAAA(6,16 字节)
+            buffer.writeShort(1); // CLASS_IN
+            buffer.writeInt(60); // TTL 60s
+            buffer.writeShort(16);
+            buffer.write(address.getAddress());
+        }
+        return buffer.readByteString().toByteArray();
+    }
 }

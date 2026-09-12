@@ -22,12 +22,6 @@ android {
         ndk {
             abiFilters += setOf("arm64-v8a")
         }
-        // 指定 Room 的 Schema 导出位置
-        javaCompileOptions {
-            annotationProcessorOptions {
-                argument("room.schemaLocation", "$projectDir/schemas")
-            }
-        }
     }
 
     packaging {
@@ -100,6 +94,11 @@ kotlin {
     }
 }
 
+// 指定 Room 的 Schema 导出位置（Room 3 走 KSP 通道）
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
+}
+
 // APK 按 AVBox_<buildType>.apk 命名(替代 AGP 9 已移除的 applicationVariants 旧 API)
 androidComponents {
     onVariants { variant ->
@@ -122,11 +121,13 @@ dependencies {
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.media)
     implementation(libs.okhttp)
-    annotationProcessor(libs.androidx.room.compiler)
+    implementation(libs.okhttp.dnsoverhttps)
+    // Room 3：仅支持 KSP 处理器，且必须搭配 SQLite driver
+    ksp(libs.androidx.room.compiler)
     implementation(libs.androidx.room.runtime)
+    implementation(libs.androidx.sqlite.bundled)
     implementation(libs.okio)
     implementation(libs.gson)
-    implementation(libs.picasso)
     implementation(libs.autosize)
     implementation(libs.xstream) {
         // 排除与 Android 平台冲突的 xmlpull/xpp3(平台自带 kxml2 实现,R8 亦要求排除)

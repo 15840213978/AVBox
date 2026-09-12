@@ -155,6 +155,7 @@ public class PlayContainer extends FrameLayout implements CustomAdapt {
     /** 由 Compose 宿主在页面可见时调用(对应旧 Fragment onResume/onHiddenChanged(false)) */
     public void hostResume() {
         exitingPreview = false;
+        if (mController != null) mController.setLifecyclePaused(false);
         if (mVideoView != null && lifecyclePaused) {
             lifecyclePaused = false;
             mVideoView.resume();
@@ -165,6 +166,10 @@ public class PlayContainer extends FrameLayout implements CustomAdapt {
     public void hostPause() {
         if (mVideoView != null && !exitingPreview && !hasAudioOnlyPlayback()) {
             lifecyclePaused = mVideoView.isPlaying();
+            // 退后台不显示暂停浮层(2026-09-13):否则这一瞬间画出的"暂停"浮层会被系统任务快照
+            // (后台管理卡片)拍进去,看起来像"一退后台就被暂停了"(实际回前台会自动续播)。
+            // 回前台由 hostResume 复位;用户手动暂停后回前台,暂停浮层照常出现。
+            if (mController != null) mController.setLifecyclePaused(true);
             mVideoView.pause();
         }
     }
@@ -565,6 +570,15 @@ public class PlayContainer extends FrameLayout implements CustomAdapt {
             public void setAllowSwitchPlayer(boolean isAllow){allowSwitchPlayer=isAllow;}
         });
         mVideoView.setVideoController((BaseVideoController) mController);
+    }
+
+    /**
+     * 详情页投屏入口(2026-09-13):复用播放器底栏「投屏」的同一条链路 ——
+     * 同一个投屏面板(CastSheet,Dialog)、同一套 DLNA/TVBox 扫描与投送逻辑。
+     * 无可投地址时内部已有 Toast 提示。
+     */
+    public void showCast() {
+        showCastDialog();
     }
 
     private void showCastDialog() {

@@ -1,6 +1,7 @@
 package com.github.tvbox.osc.player.ui
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -32,6 +34,7 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.key.Key
@@ -41,6 +44,7 @@ import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -48,16 +52,22 @@ import com.github.tvbox.osc.R
 import com.github.tvbox.osc.api.ApiConfig
 import com.github.tvbox.osc.player.state.PlayerActions
 import com.github.tvbox.osc.player.state.PlayerUiState
+import xyz.doikki.videoplayer.player.VideoView
 import xyz.doikki.videoplayer.util.PlayerUtils.stringForTime
 
 /** SeekBar max 照搬旧布局 android:max="1000" */
 private const val SEEK_MAX = 1000
 
+/** 预览态（竖屏详情页）进度行播放/暂停钮的触摸盒尺寸：与详情页右下角全屏入口同款 40dp 盒 / 22dp 图形 */
+private val PreviewPlayPauseBox = 40.dp
+
 /**
  * 底部菜单（图二布局：进度行在上、菜单行在下）：
  * - 菜单用 FlowRow 自动铺开（SpaceBetween），不再横向滚动；已裁剪 下一集/上一集/重置/屏显
  *   （上/下一集移至中央控制组，重置经片头/片尾长按可达）；
- * - 全控件距屏边缘 ≥16dp；
+ * - 左右边距按窗口宽度分档（compact 16dp / ≥600dp 24dp，`playerEdgePadding()`）；上下边距 10dp / 16dp；
+ * - 预览态（竖屏详情页）进度行左侧多一颗播放/暂停钮（2026-09-13 用户要求），与进度条、
+ *   详情页右下角全屏入口共用同一水平中心线；
  * - 按钮可见性全部由 PlayerUiState 衍生规则驱动。
  */
 @OptIn(ExperimentalLayoutApi::class)
@@ -69,6 +79,16 @@ fun PlayerBottomBar(
     modifier: Modifier = Modifier,
 ) {
     if (!state.controlsVisible) return
+    // 左右边距按窗口宽度分档（竖屏预览 16dp / 横屏全屏与平板 24dp，见 playerEdgePadding）
+    val edge = playerEdgePadding()
+    // 预览态进度行左侧多了播放/暂停钮（40dp 触摸盒，行高因此变高）：底距改成
+    // `16dp + vs_30/2 - 40dp/2`（与详情页右下角全屏入口的 bottom 偏移同一式子，见 DetailActivity 注释），
+    // 使「暂停钮 / 进度条 / 全屏钮」共用同一水平中心线，且进度条中心线位置与改动前一致。
+    val bottomPad = if (state.previewMode) {
+        16.dp + playerDim(R.dimen.vs_30) / 2 - PreviewPlayPauseBox / 2
+    } else {
+        16.dp
+    }
     Column(
         modifier
             .fillMaxWidth()
@@ -79,14 +99,17 @@ fun PlayerBottomBar(
                     1f to Color.Black.copy(alpha = 0.72f),
                 )
             )
-            .padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 16.dp)
+            .padding(start = edge, end = edge, top = 10.dp, bottom = bottomPad)
     ) {
-        // —— 进度行（时间 - 进度条 - 总时长，横竖屏同款） ——
+        // —— 进度行（时间 - 进度条 - 总时长，横竖屏同款；预览态左侧多一颗播放/暂停钮） ——
         // 预览态右侧预留 44dp 给详情页右下角全屏入口图标，进度行与其融合不重叠
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(end = if (state.previewMode) 44.dp else 0.dp),
         ) {
+            if (state.previewMode) {
+                PreviewPlayPauseButton(state, actions)
+            }
             // 时间按内容自适应完整显示（照搬哔哩哔哩），进度条 weight 占据剩余宽度
             Text(
                 text = stringForTime(state.seekPreviewOrPosition),
@@ -229,6 +252,37 @@ fun PlayerBottomBar(
                 }
             }
         }
+    }
+}
+
+/**
+ * 预览态（竖屏详情页）进度行左侧的播放/暂停钮（2026-09-13 用户要求）：
+ * - 触摸盒 40dp、图形 22dp、白色 90% —— 与详情页右下角全屏入口完全同款（该入口 = 40dp 盒 + 9dp padding + 90% 白 tint），
+ *   二者分列进度条左右两端且同一水平中心线；左侧边距与全屏入口的右侧边距一致（都取 `playerEdgePadding()`）。
+ * - 图标状态判定与中央控制组一致：`BUFFERING` / `BUFFERED` 也算“播放中”——dkplayer 缓冲结束停在
+ *   `STATE_BUFFERED` 不回 `STATE_PLAYING`，只判 `STATE_PLAYING` 会让图标反显（实际在播却显示“播放”）。
+ */
+@Composable
+private fun PreviewPlayPauseButton(state: PlayerUiState, actions: PlayerActions) {
+    val playing = state.playState == VideoView.STATE_PLAYING ||
+            state.playState == VideoView.STATE_BUFFERING ||
+            state.playState == VideoView.STATE_BUFFERED
+    Box(
+        modifier = Modifier
+            .size(PreviewPlayPauseBox)
+            .pointerInput(Unit) {
+                detectTapGestures(onTap = { actions.onPlayPauseClicked() })
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        Image(
+            painter = painterResource(
+                if (playing) R.drawable.player_ic_pause else R.drawable.player_ic_play
+            ),
+            contentDescription = if (playing) "暂停" else "播放",
+            colorFilter = ColorFilter.tint(Color.White.copy(alpha = 0.9f)),
+            modifier = Modifier.size(22.dp),
+        )
     }
 }
 

@@ -133,9 +133,12 @@ class PlayerUiState {
     val danmuSearchBtnVisible: Boolean get() = landscape && danmuSearchAvailable
     val castBtnVisible: Boolean get() = landscape && android.os.Build.VERSION.SDK_INT >= 30
 
-    /** 暂停浮层可见（旧实现：paused 且底栏隐藏时显示） */
+    /** 退后台暂停标记(2026-09-13,见 PlayerControlApi.setLifecyclePaused):此暂停不画暂停浮层 */
+    var lifecyclePaused: Boolean by mutableStateOf(false)
+
+    /** 暂停浮层可见（旧实现：paused 且底栏隐藏时显示；生命周期暂停不算 —— 否则退后台瞬间的浮层会被系统任务快照拍进"后台管理"卡片） */
     val pauseOverlayVisible: Boolean
-        get() = playState == VideoView.STATE_PAUSED && !controlsVisible
+        get() = playState == VideoView.STATE_PAUSED && !controlsVisible && !lifecyclePaused
 
     /** 当前时间行文本位置：拖拽/按键步进中显示预览位置，否则显示真实播放位置 */
     val seekPreviewOrPosition: Int

@@ -4,6 +4,7 @@ package com.github.tvbox.osc.ui.activity
 
 import android.annotation.SuppressLint
 import android.content.pm.ActivityInfo
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Handler
@@ -24,7 +25,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -73,6 +73,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -185,6 +186,8 @@ class LivePlayActivity : BaseActivity() {
     private var snapshotVisible by mutableStateOf(false)
     private var snapshotBitmap by mutableStateOf<Bitmap?>(null)
     private var fullScreen by mutableStateOf(false)
+    /** 旋转过渡态(2026-09-13 方案 A):已下发方向切换、等系统旋转落地,布局形态延后切换(见 isFullBox) */
+    private var rotating by mutableStateOf(false)
     private var overlayVisible by mutableStateOf(false)
     private var isBackState by mutableStateOf(false) // 旧 isBack(回看中)
     private var epgSheetVisible by mutableStateOf(false)
@@ -405,6 +408,8 @@ class LivePlayActivity : BaseActivity() {
 
     fun applyFullscreen(full: Boolean) {
         if (fullScreen == full) return
+        // 目标方向与实际方向不一致 → 进旋转过渡态:布局形态等落地再切(方案 A)
+        rotating = (full != (resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE))
         fullScreen = full
         requestedOrientation = if (full) {
             ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
@@ -421,6 +426,22 @@ class LivePlayActivity : BaseActivity() {
             controller.show(WindowInsetsCompat.Type.systemBars())
             controller.isAppearanceLightStatusBars = false
         }
+    }
+
+    /** 旋转落地回调(2026-09-13 方案 A 的"落地"信号):清过渡态,布局形态在这一帧才真正切换 */
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        rotating = false
+    }
+
+    /**
+     * 当前布局形态是否为「全屏铺满」——与 Compose 侧([LiveScreen]/[LiveReadyContent]/[PlayerArea])的判断必须一致。
+     * 过渡期跟随**当前方向**(横屏=全屏样、竖屏=直播竖屏样),旋转落地后才切到目标态 [fullScreen]。
+     * 兜底:万一系统没下发 onConfigurationChanged,形态退化为"当前方向的自然形态",不会卡死。
+     */
+    fun isFullBox(): Boolean {
+        val landNow = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+        return if (rotating) landNow else fullScreen
     }
 
     // ============================================================
@@ -2079,7 +2100,8 @@ class LivePlayActivity : BaseActivity() {
 
     @Composable
     private fun LiveScreen(activity: LivePlayActivity) {
-        val background = if (activity.fullScreen) Color.Black else MaterialTheme.colorScheme.surfaceContainer
+        // 背景色跟随实际形态(方案 A):过渡期不再当帧变黑/变浅,避免半新半旧
+        val background = if (activity.isFullBox()) Color.Black else MaterialTheme.colorScheme.surfaceContainer
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -2161,10 +2183,18 @@ class LivePlayActivity : BaseActivity() {
 
     @Composable
     private fun LiveReadyContent(activity: LivePlayActivity) {
+        // 播放区形态 = activity.isFullBox()(方案 A:过渡期跟随实际方向);
+        // 竖屏高度 = 短边 × 16:9 并钳制在 [150dp, 长边/2](方案 B,与详情页同一套算法)
+        val configuration = LocalConfiguration.current
+        val shortEdge = minOf(configuration.screenWidthDp, configuration.screenHeightDp).dp
+        val longEdge = maxOf(configuration.screenWidthDp, configuration.screenHeightDp).dp
+        val previewHeight = (shortEdge * 9f / 16f)
+            .coerceAtLeast(150.dp)
+            .coerceAtMost(maxOf(150.dp, longEdge / 2))
         Column(modifier = Modifier.fillMaxSize()) {
             PlayerArea(
                 activity = activity,
-                modifier = if (activity.fullScreen) {
+                modifier = if (activity.isFullBox()) {
                     Modifier.fillMaxSize()
                 } else {
                     // 状态栏区域纯黑（背景画在 statusBarsPadding 外圈），播放器紧贴其下（对齐详情页补丁⑤）
@@ -2172,10 +2202,10 @@ class LivePlayActivity : BaseActivity() {
                         .fillMaxWidth()
                         .background(Color.Black)
                         .statusBarsPadding()
-                        .aspectRatio(16f / 9f)
+                        .height(previewHeight)
                 },
             )
-            if (!activity.fullScreen) {
+            if (!activity.isFullBox()) {
                 ChannelInfoSection(activity)
                 ChannelListSection(activity, Modifier.weight(1f))
             }
@@ -2246,8 +2276,8 @@ class LivePlayActivity : BaseActivity() {
             if (activity.isBackState && activity.overlayVisible) {
                 TimeshiftBar(activity, Modifier.align(Alignment.BottomCenter))
             }
-            // 竖屏:常驻角标入口(节目单/设置)
-            if (!activity.fullScreen) {
+            // 竖屏:常驻角标入口(节目单/设置);形态判定走 isFullBox(过渡期跟随实际方向)
+            if (!activity.isFullBox()) {
                 PlayerCornerButtons(activity, Modifier.align(Alignment.TopEnd))
             } else if (activity.overlayVisible) {
                 // 全屏:返回按钮(浮层随交互显隐)

@@ -75,6 +75,13 @@ public interface PlayerControlApi {
 
     void hidePauseRoot();
 
+    /**
+     * 生命周期暂停标记(2026-09-13):退后台暂停(hostPause)时置位、回前台(hostResume)复位。
+     * 用于**抑制暂停浮层** —— 否则退后台那一瞬间会画出"暂停"浮层,被系统任务快照
+     * (后台管理卡片)拍进去,观感是"一退到后台就被暂停了"(实际回前台会自动续播)。
+     */
+    void setLifecyclePaused(boolean paused);
+
     void resetSpeed();
 
     boolean onBackPressed();

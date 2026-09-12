@@ -349,3 +349,101 @@ interface 'com.github.catvod.spider.merge.Pu' in call to
 - **落地**:新建 `ui/page/VodCardAction.kt`(`SourceCardPolicy` 枚举 + `VodCardTarget` 密封接口 + `VodCardPolicy`(Hawk `source_card_policy`,只登记 DETAIL 的源)+ `resolveVodCardTarget` + `Context.dispatchVodCardClick` + `openVodFolder`);`AbsJson.AbsJsonVod` 增 `cate` 字段并在 `toXmlVideo()` 归一到 `tag="folder"`;`PartitionListActivity` 增 `MODE_FOLDER` + `startForFolder(folderId, name)`(目录 id 当分类 id,复用 `PartitionListVM`;递归 = 逐级开页,返回键回上级)+ action 卡 Toast;`PartitionListVM` 增 `runAction` / `actionMessages` / `refresh`;`SettingsOptionRow` 增 `trailing` 插槽;`HawkConfig` 增 `SOURCE_CARD_POLICY`。首页与栏目二级页的卡片点击都改走分发器(搜索模式与搜索结果页保持进详情)。
 - **验证**:`:app:compileDebugKotlin -q` 退出码 0;read_lints 无诊断。
 - **真机验证点**:①「订阅源」sheet 里把「易听音乐」「我的云盘」标记切成「详情」;②音乐源点歌手卡应进详情页并自动播放;③网盘源点目录卡进目录页、再点下级目录继续下钻、返回键逐级回退、末级文件卡进详情;④网盘配置卡(action)仍是 Toast + 列表刷新;⑤影视源点卡片仍跳搜索(行为未变)。
+
+## 播放器覆盖层左右边距分档(2026-09-13,用户定稿)
+
+- **诉求**:用户问「播放器控件距屏边缘多少 / 16dp 是否合适 / 大厂怎么设计 / 横屏是否该改 24dp」。核查原值 = 16dp(`PlayerTopBar` Row `start/end`、`PlayerBottomBar` Column `start/end`、锁屏钮 `end`),属 M3 compact 标准;但横屏画布宽已到 M3 的 expanded 档(测机 `screenWidthDp ≈ 930~1070`),16dp 仅占屏宽 **1.5%**,而竖屏预览态同样 16dp 占 **3.3%** —— 同一套控件两个方向观感差一倍。
+- **定稿规则(用户确认)**:`playerEdgePadding()`(`player/ui/PlayerOverlay.kt`)= `screenWidthDp >= 600 ? 24.dp : 16.dp`,对齐 M3 窗口分档惯例(compact 16dp / medium 及以上 24dp);横屏 24dp 同时覆盖横屏挖孔落在左/右边缘的系统 safeInset(实测档位约 12~15dp)。
+- **落点(用户指定范围,仅这 5 处)**:`PlayerTopBar` Row 左右、`PlayerBottomBar` Column 左右(含 KDoc 更新)、`PlayerLayers` 锁屏钮右。**未动**:顶栏顶 12dp、底栏下 16dp、进度条触摸高 `vs_30`、底栏菜单按钮高度、中央控制组与各提示浮层(居中,与边缘无关)。
+- **本轮否决的两个改动**:①底栏菜单按钮行整体加高到 48dp —— 进度行在菜单行**之上**,行高增加会把进度条顶高 20~40dp(超过屏高 1/5),且按压高亮药丸会从 ≈28dp 变 48dp,破坏既定「轻量化文字条目」观感;②进度行与菜单行换序(进度条贴底、菜单行在上)= B 站/YouTube/media3 官方的排列,属结构性改造,超出本轮范围,待用户决定。
+- **参考基线(实测 media3 1.9.0 官方 styled controller,解本机 AAR `res/values/values.xml` + `exo_player_control_view.xml`)**:底栏高 **60dp**、进度条触摸高 **48dp**、进度条距底 **52dp**(轨道中心 ≈76dp)、底栏 `marginTop` 10dp、时间文本左右 padding 10dp、控件组左右外边距 **0dp**(贴边)。即官方思路 =「触摸目标够大 + 内部控制间距」,而不是整组内容从屏幕边缩进。
+- **⚠️ 排查结论(避免误判)**:边距与「边缘手势带」无关 —— dkplayer `PlayerUtils.isEdge()`(`player/src/main/java/xyz/doikki/videoplayer/util/PlayerUtils.java:162`)对**四边各 40dp** 内的触摸直接忽略,视频手势(亮度/音量/拖动/快滑)在该带内本就不响应;而覆盖层按钮是 Compose 控件自带 `pointerInput`,不受 `isEdge` 影响,放 16dp 同样可点。
+- **验证**:`.\gradlew :app:installDebug --console=plain` → BUILD SUCCESSFUL(1m 3s),已安装到 `V2425A - 16`。
+- **待办(用户尚未确认)**:覆盖层触摸目标统一到 48dp(锁屏钮 24dp、进度条 ≈24dp、菜单按钮 ≈28dp 均低于 M3 下限);若要同时保观感,需先决定是否把进度行移到菜单行**下方**贴底。
+
+## 亮度/音量手势提示改为 M3 surface 药丸(2026-09-13,用户要求,附截图对比)
+
+- **诉求(用户原文+截图)**:「手势控制音量和亮度出现的透明圆角胶囊改成和控制进度一样的风格,半透明的 material surface」——图1 = 现状(`音量0%`:深灰底 #6C3D3D3D + 2dp 白描边 + 固定 200x100mm 大框,居中白字);图2 = 目标(seek 提示的 M3 药丸:半透明白/浅 surface、无描边、贴合内容)。
+- **落地(`PlayerLayers.kt` 单文件)**:`PlayerSlideHint` 改为复用 `HintPill` 构造 —— 居中放置,HintPill 提供「`shadow(4.dp, 圆角50)` + `surfaceContainer.copy(alpha = 0.9f)` + `padding(vs_20/vs_10)`」;文字由 `Color.White` 改 `MaterialTheme.colorScheme.onSurface`,字号仍 `ts_30`(与 seek 提示一致)。**尺寸由内容自适应**(「亮度50%」/「音量50%」),不再固定 200x100mm —— 与 seek 提示形态统一。
+- **连带清理**:删除仅此处使用的 `PillBg` 常量,及随之失引的 import `foundation.border` / `layout.height`(`width`、`PillShape` 仍被 Spacer/HintPill 使用,保留);文件头视觉注释从「照搬 shape_user_focus(#6C3D3D3D + 白描边)」改为「提示类浮层统一 M3 surface 药丸」。
+- **未动**:暂停浮层中央播放圆钮(Black 35% 圆底,功能按钮非提示)、长按倍速浮层(`0x66000000` + 12dp 圆角,用户未提)、直播页手势提示(`LivePlayActivity` 内 `gestureHintText`,现为 Black 60% + 10dp 圆角 —— 与点播页不同源,若需统一需另开一轮)。
+- **验证**:`.\gradlew :app:installDebug --console=plain` → BUILD SUCCESSFUL(24s),已装 `V2425A - 16`;read_lints 无诊断。
+
+## 竖屏详情页:进度行播放/暂停钮 + 双击暂停(2026-09-13,用户附截图要求)
+
+- **诉求(用户原文)**:「影视详情竖屏界面下在播放器区域进度条的左边加上暂停按钮,同时把暂停按钮、进度条和全屏按钮的高度调整到同一水平」「竖屏详情页面应该支持双击播放器区域两次把视频暂停」。
+- **落地 1 - 暂停钮(`PlayerBottomBar.kt`)**:预览态(`state.previewMode`)进度行行首插入 `PreviewPlayPauseButton` —— 触摸盒 **40dp**、`player_ic_pause/play` 图形 **22dp**、`ColorFilter.tint(White 90%)`,与详情页右下角全屏入口(`DetailActivity`:40dp 盒 + 9dp padding + 90% 白 tint = 22dp 图形)完全同款;点击走 `actions.onPlayPauseClicked()`(带 500ms 防抖);图标状态判定含 `BUFFERING/BUFFERED`(同 `PlayerCenterControls`,dkplayer 缓冲结束停在 STATE_BUFFERED)。
+- **落地 2 - 三者同一水平线(关键计算)**:行高从 `vs_30`(≈24dp)变 40dp(按钮盒决定),若底距仍 16dp 则行中心上移 8dp、与全屏入口错位。故预览态底距改为 `16dp + playerDim(vs_30)/2 - 40dp/2`(= **DetailActivity 全屏入口 `bottom` 偏移的同一式子**) → 行中心 = 16 + vs_30/2,与全屏入口中心、以及**改动前进度条的中心线完全一致**(进度条只是被 40dp 盒垂直居中,自身位置未动)。⚠️ 两处式子必须同步改。
+- **落地 3 - 双击暂停(`ComposeVideoController.kt`)**:`onDoubleTap` 去掉 `if (previewMode) return false` 提前返回(守卫 `isDoubleTapTogglePlayEnabled && !isLocked() && isInPlaybackState()` 保留),`onTouch` 的预览态分支注释同步更新。**副作用(固有)**:GestureDetector 语义下单击显隐要等双击窗口超时(~300ms)才 `onSingleTapConfirmed`;预览态滑动/长按仍不响应。
+- **验证**:`.\gradlew :app:installDebug --console=plain` → BUILD SUCCESSFUL(35s),已装 `V2425A - 16`;read_lints 无诊断。
+- **真机验证点**:①竖屏详情页播放中呼出控制条 → 左下角出现暂停图标,与进度条、右下角全屏图标同一水平线;②点它切换暂停/播放且图标随状态变化(缓冲中显示暂停图标);③双击播放区暂停/播放;④单击仍能显隐控制条(会晚 ~300ms);⑤左右边距:暂停钮左边距 = 全屏钮右边距 = `playerEdgePadding()`;⑥横屏全屏不受影响(无该按钮)。
+
+## 全屏/退出全屏旋转过渡修复 A+B(2026-09-13,用户报"16:9 视频突然拉伸铺满全屏再变竖屏")
+
+- **定位(纯代码审查结论)**:`DetailActivity.applyFullscreen` 立即翻转 `vm.fullScreen` → `DetailScreen` 当帧按 `if (full) fillMaxSize() else fillMaxWidth+statusBarsPadding+aspectRatio(16/9)` 换形态,而系统旋转要 200~500ms 才落地;`AndroidManifest` 对 DetailActivity 声明 `configChanges="orientation|screenSize"`(不重建),**全项目没有任何 `onConfigurationChanged`**(grep 确认 0 处)。故过渡期在**旧方向的窗口**里渲染**新方向的形态**:①横屏→竖屏:16:9 在横屏窗口里装不下(宽推高 = 1.25×屏高)→ Compose `aspectRatio` 退化成按高定尺寸(≈2108×1186,还减去刚显示的状态栏)、靠 Column 左对齐 → "视频缩小 + 跳";②竖屏→横屏:当帧 `fillMaxSize()` 在竖屏窗口 = 整块竖屏 → "黑屏 + 中间小视频";③`画面缩放=填充(MATCH_PARENT)` 时 `MeasureHelper` 直接取容器尺寸 → **真的拉伸变形**(这是"拉伸铺满"最直接的来源);④连带 `setPreviewMode`/字幕字号当帧跳。同批核查了上游 fongmi(`示例文件/TV-fongmi`):`changeHeight()` = 短边×比例 + `clamp(150dp, 屏高/2)` 且 land/fullscreen/PiP 直接 return;进出全屏只改 `mBinding.video` 的 LayoutParams + 横屏时 `ChangeBounds` 150ms;`onConfigurationChanged` 只做自动旋转与沉浸重断言、不门控布局——**它的几何在任何方向都合法,所以不需要门控**。
+- **落地 A(形态跟随实际方向,门控切换时机)**:`DetailViewModel.rotating: MutableStateFlow<Boolean>`,在 `setFullScreen()` 里按 `playContainerRef.resources.configuration.orientation` 与目标方向比较置位;`DetailActivity.onConfigurationChanged` 清位并 `syncFullBoxSideEffects()`;`isFullBox()` = `if (rotating) !landNow else fullScreen`(与 `DetailScreen` 的 `fullBox` 同一判定);`DetailScreen` 把播放器 Box、加载覆盖层、右下角全屏入口、页面内容四处从 `full` 换成 `fullBox`。直播页同套:`LivePlayActivity.rotating` + `isFullBox()`,替换 `LiveScreen` 背景、`LiveReadyContent` 的 PlayerArea/频道区、`PlayerArea` 的角标分支(逻辑分支 `onSingleTap`/返回/`hideSysBar` 仍用 `fullScreen`)。
+- **落地 B(几何钳制)**:预览态播放区高度由 `aspectRatio(16/9)` 改为显式高度 `短边 × 16:9` + `coerceAtLeast(150dp).coerceAtMost(max(150.dp, 长边/2))`(取 `LocalConfiguration.screenWidthDp/HeightDp`,短边=竖屏宽、长边/2=高度上限,均与方向无关),点播/直播两处同算法。**未做**:B 的"切换动画"部分(Compose 里会给 `AndroidView` 逐帧 resize 触发 SurfaceView 重设尺寸,且动画发生在旋转之后、反而把注意力吸到那一跳上;fongmi 需要动画是因为它在错误方向切形态,我们已用 A 消除了那次错误切换)——如仍想要,加 `Modifier.animateContentSize()` 一行即可试。
+- **无额外延迟(用户追问已答复)**:`full` 目标态仍当帧翻转(沉浸切换/返回键/按钮反馈零延迟),**只有"形态采纳"落在旋转落地那一帧**,而那几百毫秒正是系统旋转动画本身,不会出现"点了没反应"。多连点安全:`rotating` 每次按「目标 ≠ 当前方向」重算,不是恒置位;回调缺失时退化为"当前方向的自然形态",不卡死。
+- **验证**:`.\gradlew :app:installDebug --console=plain` → BUILD SUCCESSFUL(38s),已装 `V2425A - 16`;read_lints 无诊断。
+- **真机验证点**:①竖屏详情页点右下角全屏:点击后画面**不动**,屏幕旋过去即铺满(不再有"竖屏整屏黑一下");②横屏按返回退出:画面保持全屏样转回竖屏,落地即变顶部 16:9 + 下方内容(不再"缩小靠左上跳");③预览态播放区高度与改动前一致(竖屏仍是满宽 16:9);④直播页同样两条路径;⑤`画面缩放=填充` 下也不再出现拉伸变形。
+
+## 首页订阅源胶囊宽度 +20dp(2026-09-13,用户要求)
+
+- **改动**:`HomePage.kt` 顶栏订阅源胶囊 `widthIn(max = 220.dp)` → **240dp**(2026-09-12 曾按用户要求由"占满顶栏剩余宽度"收到 220dp,本次再放 20dp)。胶囊仍是 `widthIn(max)` + 内容自适应,故**源名短于上限时宽度不变**,只有超长名(如「玩偶哥哥|4K弹幕」)会多显示 20dp 内容;注释与 spec §4.1 胶囊描述同步更新(不填固定宽度,避免短名胶囊被撑长)。
+- **验证**:`.\gradlew :app:installDebug --console=plain` → BUILD SUCCESSFUL(29s),已装 `V2425A - 16`。
+- **备注**:若用户本意是"无论源名长短,胶囊整体都宽 20dp"(即水平内边距 12dp → 22dp),改 padding 即可;两者语义不同,当前按"宽度上限 +20dp"落地。
+
+## 退后台暂停浮层污染任务快照修复(2026-09-13,用户报"退出应用后后台管理里显示暂停状态")
+
+- **现象与定位**:用户截图 = 后台管理(最近任务)卡片里,预览态播放器中央出现播放 ▶ 图标、左上出现 `pauseTitle` 标题(看起来"被暂停了"),但从后台返回会**自动续播**。根因链:`DetailActivity.onPause()` → `PlayContainer.hostPause()`(退后台自动暂停,`lifecyclePaused = isPlaying()` 记下并 `mVideoView.pause()`)→ `VideoView` 置 `STATE_PAUSED` → `ComposeVideoController.onPlayStateChanged` 收起底栏 → `PlayerUiState.pauseOverlayVisible` = `paused && !controlsVisible` 成立 → 画出暂停浮层 → **系统任务快照(在退后台瞬间抓取)把这一帧拍下**,于是卡片长期显示"暂停";而 `hostResume()` 会 `mVideoView.resume()` 自动续播,所以"实际没暂停"。即:暂停浮层没有区分**生命周期暂停**与**用户暂停**。
+- **修复**:`PlayerControlApi` 新增 `setLifecyclePaused(boolean)` → `ComposeVideoController` 写入 `PlayerUiState.lifecyclePaused`(新增 Compose state);`pauseOverlayVisible` 追加 `&& !lifecyclePaused`;`PlayContainer.hostPause()` 在暂停前调用 `setLifecyclePaused(true)`,`hostResume()` 复位 false。两处写入同在退后台那一帧内完成,浮层不会先画后收(no flash)。手动暂停后进后台仍照实显示(回前台 `hostResume` 复位后浮层照常)。`hidePauseRoot()` 注释同步说明(它仍是空实现,浮层纯派生)。
+- **验证**:`.\gradlew :app:installDebug --console=plain` → BUILD SUCCESSFUL(30s),已装 `V2425A - 16`。
+- **真机验证点**:①播放中点 Home → 最近任务卡片里播放器区应只有视频帧(无 ▶ 图标、无左上标题);②返回应用自动续播;③手动暂停后点 Home → 卡片不显示暂停浮层,返回后视频仍处暂停且浮层正常出现;④耳机/后台音频场景(音频模式 `hasAudioOnlyPlayback`)不受影响。
+
+## 竖屏详情页标题行增加投屏入口(2026-09-13,用户要求)
+
+- **需求**:竖屏详情页收藏图标左边加一个投屏控件,图标用 `.tubiao/投屏.svg`,点击**复用播放器界面的投屏 dialog**。
+- **素材**:`.tubiao/投屏.svg`(24px / viewBox `0 -960 960 960` 单 path)→ `res/drawable/ic_detail_cast.xml`,按项目约定加 `<group android:translateY="960">` 平移、`fillColor="#FFFFFFFF"`(由 `Icon` tint 着色)。
+- **入口**(`DetailContent` 标题行,收藏钮左侧):`IconButton { Icon(painter = ic_detail_cast, contentDescription = "投屏", tint = onSurfaceVariant, size = 24dp) }` → `activity.playContainer?.showCast()`;`PlayContainer` 新增公开方法 `showCast()` 直接转调私有 `showCastDialog()`,**与播放器底栏「投屏」完全同一条链路**(构造 `CastVideo` → `uiState.setCastSheet(CastSheetState(...))` → `PlayerOverlay` 的 `CastSheet`)。面板本身是 `Dialog`(独立窗口),故在竖屏详情页触发也能全屏弹出,不受播放器区域裁剪影响;无可投地址时沿用内部 Toast「暂无可投屏播放地址」。
+- **验证**:`.\gradlew :app:installDebug --console=plain` → BUILD SUCCESSFUL(28s),已装 `V2425A - 16`。
+- **真机验证点**:①竖屏详情页标题行右侧出现「投屏 | 收藏」两枚图标钮,投屏在左;②点击弹出与播放器「投屏」一致的设备面板(标题「投屏到设备」、刷新/取消、DLNA/TVBox 扫描);③选中设备投屏成功后播放器自动暂停(`onCastSuccess` → `mVideoView.pause()`);④未取到播放地址时给 Toast 而非空白面板。
+
+## 依赖升级:OkHttp 3.12.11 → 5.5.0 + Okio 2.8.0 → 3.18.2(2026-09-13,用户要求)
+
+- **版本**:`gradle/libs.versions.toml` 的 `okhttp = "5.5.0"`、`okio = "3.18.2"`(实际解析:okhttp 5.5.0 + okhttp-android(Android 变体 AAR) + okhttp-dnsoverhttps 5.5.0 + okio-jvm 3.18.2;OkGo 3.0.4 / Picasso 2.71828 / coil-network-okhttp 请求的 3.x~4.12.0 全部提升到 5.5.0,均编译与运行通过)。**升级 5.x 的直接收益:官方 3.18.1 有 base64 padding 缺陷,3.18.2 修复**。
+- **fork 移除(关键)**:删除仓库内 fork 的 `app/src/main/java/okhttp3/dnsoverhttps/`(`DnsOverHttps.java`/`DnsRecordCodec.java`/`BootstrapDns.java`)—— 该 fork 依赖 OkHttp 3.x 内部结构(自定义 `lookupHttpsForwardSync`),而 OkHttp 5 的 `Dns` 接口新增了嵌套类型 `Dns.Request`/`Dns.Callback`/`onRecords`,fork 的 `implements Dns` 会**继承这些嵌套类型并遮蔽同名导入**(`okhttp3.Request`/`okhttp3.Callback`),Java 侧报"不兼容的类型: okhttp3.Dns.Request 无法转换为 okhttp3.Request"等 8 处错误,且继续维护需要 Guava 化的 PublicSuffixDatabase 兜底(内部 API 不稳定)。
+- **改用官方构件**:`libs.versions.toml` 新增 `okhttp-dnsoverhttps = { group/name 同版本 ref }`,`app/build.gradle.kts` 加 `implementation(libs.okhttp.dnsoverhttps)`;`OkGoHelper` 的 import 不变(包名相同 `okhttp3.dnsoverhttps.DnsOverHttps`),仅 Builder 放宽:`DnsOverHttps.Builder().client(dohClient).url(HttpUrl.get(dohUrl)).bootstrapDnsHosts(...)`;官方 Builder 要求 **url 非空** ⇒ `dohUrl` 为空(关闭 DoH)时直接 `dnsOverHttps = null`(调用方 `OkDns`/`CustomDns` 已判空回落 `Dns.SYSTEM`)。
+- **本地 `/dns-query` 端点重写**(`RemoteServer.java`):原 `lookupHttpsForwardSync`(返回拼接的 A+AAAA 原始响应)随 fork 消失。新实现 `buildDnsResponse(hostname, addresses)` 用 Okio 手写合法 DNS 应答(ID=0,flags `0x8180|rCode`,单 question + 全部 A/AAAA 答案,TTL 60s,无地址回 SERVFAIL);取地址走官方 `dnsOverHttps.lookup(name)`。⚠️ 该端点全工程无内部调用方(仅有服务端实现),如外部有依赖此接口的客户端需回归。
+- **未改动**:`OkDns.lookup`/`CustomDns.lookup`/`OkHttp.string` 等调用点全部兼容(`Dns.lookup` 在 5.x 仍保留为同步便捷入口)。
+- **验证**:`:app:compileDebugKotlin` + `:app:compileDebugJavaWithJavac` BUILD SUCCESSFUL;`assembleDebug`/`assembleRelease`(R8)`installDebug` BUILD SUCCESSFUL;真机 `V2425A` 冷启动进首页正常、外部 443 连接建立(网络栈可用)、首页数据正常加载(截图确认)。proguard 现有 `-keep class okhttp3.**` 覆盖新构件。
+
+## 依赖升级:Room 2.3.0 → Room 3.0.2(androidx.room3 新命名空间)(2026-09-13,用户要求)
+
+- **关键前提**:Room 3 **换命名空间**,不是同坐标升版本 —— `androidx.room:room-runtime/room-compiler` → `androidx.room3:room3-runtime/room3-compiler:3.0.2`;AndroidX 构件在 **Google Maven**(不是 Maven Central);`androidx.room` 组最高仅 2.8.5,3.x 只在 `androidx.room3` 组下(3.0.2/3.0.3 正式版)。用户提示看 `示例文件/android` 定位到本项目的参照用法。
+- **构建改动**:`libs.versions.toml` 坐标换 room3 + 新增 `androidxSqlite = "2.7.0"`(`androidx.sqlite:sqlite-bundled`);`app/build.gradle.kts` 的 `annotationProcessor(room.compiler)` → **`ksp(...)`**(app 早已应用 KSP 插件,注释里写明"备用接入"正好用上)、新增 `implementation(libs.androidx.sqlite.bundled)`、schema 导出从 `javaCompileOptions.annotationProcessorOptions` 改为**顶层** `ksp { arg("room.schemaLocation", "$projectDir/schemas") }`(放 defaultConfig 里无效)。
+- **代码改动(8 个文件)**:import `androidx.room.` → `androidx.room3.`(批量替换);`AppDataManager` 加 `.setDriver(new BundledSQLiteDriver())`(Room 3 必须显式指定 driver,不再走 SupportSQLite);删除 5 个从未启用的 `Migration` 死代码 + 死 `Callback`(Room 3 里 `Migration.onMigrate()`/`RoomDatabase.Callback.onCreate()` 都是 **suspend + SQLiteConnection** 参数,Java 无法实现);`isOpen()` 三处判空改 `== null`/`!= null`(Room 3 移除 `RoomDatabase.isOpen()`,仅剩 internal `isOpenInternal$room3_runtime()`)。
+- **实测结论(重要)**:Room 3 **支持 Java 源** —— 3 个 Java Entity、3 个 Java DAO(同步方法,非 suspend)、`@Database` 全部经 KSP 编译通过;`Room.databaseBuilder(Context, Class<T>, String)` 静态重载保留;`setJournalMode/allowMainThreadQueries` 仍在 Builder 上。**上层 `RoomDataManger`/`CacheManager` 与所有业务调用方零改动**。
+- **验证**:编译 + installDebug 成功;真机冷启动正常;`databases/tvbox.v3.db.lck` 出现(= Room 3 连接池打开旧库成功,identity 校验通过)、db 本体时间戳未变(只读打开)。**真机已验证**(用户确认):历史/收藏 DAO 读写正常。
+
+## 依赖升级:media3 1.9.0 → 1.11.0(2026-09-13,用户要求)
+
+- **版本与约束**:`libs.versions.toml` media3 = "1.11.0"(最新稳定版已到 1.11.1);**jellyfin `media3-ffmpeg-decoder` 上游最高仍 1.9.0+1**(其 POM 编译基线 media3 1.9.0,2025-12 后未跟进)→ 保持 1.9.0+1,toml 注释写明"先保持,需实测 AC3/EAC3 软解路径"。
+- **ABI 静态核对(预编译扩展 jar 与新版本的核心风险,结论:兼容)**:javap 对比 —— `DecoderAudioRenderer` 的 3 个抽象方法(`supportsFormatInternal(Format)`/`createDecoder(Format, CryptoConfig)`/`getOutputFormat(T)`)签名一字不差;ffmpeg 用到的两个构造器(`(Handler, AudioRendererEventListener, AudioProcessor...)`、`(Handler, AudioRendererEventListener, AudioSink)`)在 1.11.0 均存在;`SimpleDecoder` 的 4 个抽象方法(`createInputBuffer`/`createOutputBuffer`/`createUnexpectedDecodeException`/`decode`)一致。
+- **预载现状**:1.11.0 的 `source/preload` 包仍是 `DefaultPreloadManager`/`BasePreloadManager`/`PreCacheHelper`,**仍无 `DiskPreloadManager`** —— 与 1.9.0 时代的结论一致,项目自实现的"共享 SimpleCache 写盘+播放读盘"预载方案不受影响,无需改动。
+- **验证**:compileDebugKotlin/Java + installDebug 成功;真机冷启动进首页正常。AC3/EAC3/DTS 软解路径未实测(用户找不到此类片源),以静态 ABI 核对为准放行;`libs.versions.toml` 注释已同步更新为"已核对兼容"并精简全文注释(zxing/desugar/slf4j 三处长注释只留结论)。
+
+## 依赖清理:移除 Picasso(2026-09-13,用户要求)
+
+- **依据**:项目零业务使用(仅 `OkGoHelper.initPicasso()` 兜底,注释自认是给 Spider jar 用的)+ 参照工程 FongMi 不用 + **设备上真实第三方 jar 常量池扫描不引用它**(该 jar 自带依赖并混淆,只裸引用框架类)→ 判定兜底无实际需求。
+- **改动**:`OkGoHelper` 删 `initPicasso()` 与两个 import(`Bitmap`/`Picasso`);`setMaxRequestsPerHost(10)` 非 Picasso 专属(作用于共享 defaultClient)迁到 `init()` 内 build 之后保留;`libs.versions.toml` 删 `picasso` 版本+库定义;`app/build.gradle.kts` 删依赖。
+- **验证**:编译 + installDebug + 冷启动首页正常;`debugRuntimeClasspath` 依赖树已无 picasso。
+- **同轮评估(OkGo,未执行)**:3.0.4 上游停更(2017 后无版本)且针对 OkHttp 3.8.1 编译,跑在 5.5.0 上属"跨大版本字节码"隐患;逐类扫描仅 `HttpLoggingInterceptor` 引用 `okhttp3/internal.*`,其余公开 API 5.5.0 全有,实测正常。移除=重写 15+ 文件(SourceViewModel/SubtitleViewModel/JsLoader/JarLoader/PlayContainer/各 Activity 等)的网络调用、tag 取消、AbsCallback 转换,列为独立待办。
+
+## 缺陷修复:gson 升级导致 Hawk 集合数据全部读不出(2026-09-13,用户报告)
+
+- **现象**:配置管理页添加源后只显示最后添加的一个(旧的被替换),退出重进列表空白;用户疑为 Room 3 升级所致(实测无关——源列表存 Hawk,不经 Room)。
+- **根因**:**Gson 2.13+ 禁止匿名 TypeToken 捕获类型变量**(`IllegalArgumentException: TypeToken type argument must not contain a type variable`),而 Hawk 2.0.1(停更)的 `HawkConverter.toList/toSet/toMap` 正是该写法 → 所有 List/Map/Set 键的 Hawk 读取抛异常并被**静默吞掉**(`DefaultHawkFacade.get` catch 后返回默认值)。`saveSubscribe` 的"读-改-写"在读空时把已有列表覆盖成只剩新项,造成二次丢失。触发点 = gson 2.10.1 → 2.14.0 升级。
+- **证据链**:Hawk2.xml 快照 diff(键全变、subscribe_list 变短)→ 探针日志(`contains=true/rawSize=NULL/putOk=true/readBack=NULL` + `Hawk.get -> Converter failed`)→ 本地 Gson 复刻测试(2.14.0 FAIL / 2.10.1 OK)。
+- **处置**:先实现并验证了 Hawk 兼容补丁(`HawkCompatConverter` 改用 `TypeToken.getParameterized(...)`,已证实修复且旧数据恢复),**用户最终选择回退 gson 到 2.10.1**,补丁与全部临时诊断日志(LOG 前缀/LogInterceptor/ConfigManagePage 探针)已删除;`libs.versions.toml` 的 gson 行保留"不可升 2.13+"的约束注释。
+- **验证**:回退版装机 → 配置管理页截图 4 个源完整显示;依赖树 gson 2.10.1 ✅。
+- **可复用经验**:Hawk 静默失败(`put` 返 false 不抛、`get` 失败返默认值)→ 集合读写异常无提示;升级与停更库(Hawk)共存的依赖(gson)前必须核对兼容性;`Hawk.init(ctx).setLogInterceptor()` 是定位 Hawk 内部链路问题的利器。

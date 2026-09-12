@@ -2,14 +2,12 @@ package com.github.tvbox.osc.player.ui
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -40,10 +38,11 @@ import com.github.tvbox.osc.player.state.PlayerUiState
 /**
  * 浮层组（照搬旧 tv_pause_container / tv_slide_progress_text / tv_progress_container /
  * loading / tv_play_load_net_speed / tv_back / tv_lock / play_speed_3_container）。
- * 视觉：圆角药丸背景照搬 shape_user_focus（#6C3D3D3D + 白描边）。
+ * 视觉：提示类浮层（seek 提示 / 亮度音量提示）统一为 M3 surface 药丸 —— 半透明
+ * `surfaceContainer`(90%) + 4dp 轻投影、无描边、内容自适应（2026-09-13 用户定稿，
+ * 废弃旧 shape_user_focus 的深灰底 #6C3D3D3D + 白描边 + 固定 200x100mm）。
  */
 
-private val PillBg = Color(0x6C3D3D3D)
 private val PillShape = RoundedCornerShape(50)
 
 @Composable
@@ -105,23 +104,20 @@ fun PlayerPauseLayer(state: PlayerUiState, actions: PlayerActions) {
     }
 }
 
-/** 亮度/音量提示（中央 200x100 药丸，替代旧 msg 100/101 + tv_slide_progress_text） */
+/**
+ * 亮度/音量提示（中央药丸，替代旧 msg 100/101 + tv_slide_progress_text）。
+ * 2026-09-13 用户定稿：**样式与 seek 提示（[PlayerSeekHint]）完全同款** —— 复用 [HintPill]
+ * （半透明 `surfaceContainer` 90% + 轻投影、无描边），尺寸由内容自适应（不再固定 200x100mm），
+ * 文字色 `onSurface`。
+ */
 @Composable
 fun PlayerSlideHint(state: PlayerUiState) {
     if (!state.slideHintVisible) return
     Box(Modifier.fillMaxSize()) {
-        Box(
-            Modifier
-                .align(Alignment.Center)
-                .width(playerDim(R.dimen.vs_200))
-                .height(playerDim(R.dimen.vs_100))
-                .background(PillBg, PillShape)
-                .border(2.dp, Color.White, PillShape),
-            contentAlignment = Alignment.Center,
-        ) {
+        HintPill(modifier = Modifier.align(Alignment.Center)) {
             Text(
                 text = state.slideHintText,
-                color = Color.White,
+                color = MaterialTheme.colorScheme.onSurface,
                 fontSize = playerTextSize(R.dimen.ts_30),
             )
         }
@@ -203,6 +199,8 @@ fun PlayerLockButton(state: PlayerUiState, actions: PlayerActions) {
         LockVisibility.GONE -> return
         LockVisibility.HIDDEN, LockVisibility.SHOWN -> {
             val shown = state.lockState == LockVisibility.SHOWN
+            // 右边距跟随 window 分档（竖屏预览 16dp / 横屏全屏与平板 24dp，见 playerEdgePadding）
+            val edge = playerEdgePadding()
             Box(Modifier.fillMaxSize()) {
                 Image(
                     painter = painterResource(
@@ -212,7 +210,7 @@ fun PlayerLockButton(state: PlayerUiState, actions: PlayerActions) {
                     alpha = if (shown) 1f else 0f,
                     modifier = Modifier
                         .align(Alignment.CenterEnd)
-                        .padding(end = 16.dp, bottom = playerDim(R.dimen.vs_30))
+                        .padding(end = edge, bottom = playerDim(R.dimen.vs_30))
                         .size(24.dp)
                         .then(
                             if (shown) {

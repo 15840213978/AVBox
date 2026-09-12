@@ -4,7 +4,7 @@ chaquopy = "17.0.0"
 compileSdk = "37"
 minSdk = "24"
 targetSdk = "37"
-kotlin = "2.4.10"
+kotlin = "2.4.20"
 ksp = "2.3.11"
 # app
 nanohttpd = "2.3.1"
@@ -18,14 +18,17 @@ androidxMedia = "1.2.1"
 androidxConstraintlayout = "2.0.4"
 androidxLifecycle = "2.2.0"
 androidxRecyclerview = "1.2.1"
-okhttp = "3.12.11"
-room = "2.3.0"
-okio = "2.8.0"
+okhttp = "5.5.0"
+room = "3.0.2"
+androidxSqlite = "2.7.0"
+okio = "3.18.2"
+# ⚠️ gson 不要升到 2.13+:Hawk 2.0.1(上游停更)的 HawkConverter 用匿名 TypeToken 捕获类型变量,
+# Gson 2.13 起直接禁止该写法 → List/Map/Set 类型的 Hawk 读取抛 IllegalArgumentException 并被静默吞掉
+# (表现为"写入成功、重进即丢",2026-09-13 实测)。要升级须同时引入 Hawk 兼容 Converter。
 gson = "2.10.1"
-picasso = "2.71828"
 autosize = "1.2.1"
-xstream = "1.4.15"
-eventbus = "3.2.0"
+xstream = "1.4.21"
+eventbus = "3.3.1"
 hawk = "2.0.1"
 danmakuFlameMaster = "0.9.25"
 okgo = "3.0.4"
@@ -33,33 +36,27 @@ xxPermissions = "28.3"
 jsoup = "1.14.1"
 commonsIo = "2.11.0"
 juniversalchardet = "1.0.3"
-# zxing:宿主必须向动态加载的爬虫 jar 提供 com.google.zxing.*(jar 运行期生成二维码)。
-# 宿主源码里静态"零引用"属于正常现象,不可据此判定为孤儿依赖删除,否则爬虫 jar 会 NoClassDefFoundError 崩溃。
+# zxing:爬虫 jar 运行期要用 com.google.zxing.*(生成二维码),宿主源码"零引用"属正常,勿当孤儿依赖删。
 zxingCore = "3.5.4"
-# 脱糖(core library desugaring):minSdk 24 下把 java.time / java.util.stream / java.nio.file 等 JDK 库 API
-# 在编译期改写为 j$ 实现,避免低版本设备 NoClassDefFoundError。选 nio 变体(含 java.nio.file 支持),
-# 与参考工程 fongmi 的 desugar_jdk_libs_nio 对齐;D8 按实际引用按需打包,无引用时几乎不增体积。
+# 脱糖:minSdk 24 下把 java.time / java.util.stream / java.nio.file 改写为 j$ 实现(防低版本 NoClassDefFoundError);
+# 选 nio 变体(对齐参考工程 fongmi),D8 按需打包。
 desugarJdkLibs = "2.1.5"
-# ⚠️ 不要给宿主加 slf4j(2026-09-12 实测结论,已加过又撤回):爬虫 jar 把 slf4j-api shade 进了自己的
-# 混淆包(merge.mu = LoggerFactory、merge.Pu = ILoggerFactory),运行期会去宿主找 org.slf4j.impl.StaticLoggerBinder。
-# 宿主「没有」绑定时它内部回落到 NOP,属于正常降级;宿主「提供」标准绑定(api+nop)时,拿回的
-# org.slf4j.helpers.NOPLoggerFactory 实现的是未混淆的 org.slf4j.ILoggerFactory,与 jar 的 merge.Pu 不兼容
-# → IncompatibleClassChangeError(jar 的日志/配置引导路径报错)。证据:logs/logcat_full_20260912_232710.txt
-# 另注:静态审计看到 jar 常量池引用 org.slf4j.* 并不代表宿主应当提供它 —— 这条只有跑起来才能证伪。
-# player: media3 1.9.0 与 jellyfin media3-ffmpeg-decoder 1.9.0+1 的构建基线一致,不可单独升级
-media3 = "1.9.0"
+# ⚠️ 不要给宿主加 slf4j(2026-09-12 实测,已加过又撤回):爬虫 jar 已把 slf4j-api shade 进混淆包,
+# 宿主提供标准绑定时类型不匹配 → IncompatibleClassChangeError;什么都不加时它正常回落到 NOP。
+# player: media3 1.11.0 + jellyfin ffmpeg 软解 1.9.0+1(上游最高,未跟进 1.11);
+# 已 javap 核对 DecoderAudioRenderer/SimpleDecoder 等抽象方法签名一致,兼容(2026-09-13)。
+media3 = "1.11.0"
 media3FfmpegDecoder = "1.9.0+1"
 androidxAnnotation = "1.3.0"
-dkplayerUi = "3.3.5"
+dkplayerUi = "3.3.7"
 quickjsWrapper = "3.2.3"
-composeBom = "2026.08.00"
+composeBom = "2026.09.00"
 material3 = "1.5.0-alpha23"
 androidxActivityCompose = "1.13.0"
 androidxLifecycleRuntime = "2.11.0"
 androidxCoreSplashscreen = "1.2.0"
 coil = "3.6.2"
 materialKolor = "5.0.1"
-# 液态玻璃导航栏(io.github.kyant0):backdrop 纯 Compose 实现背景采样 blur(API 31+)/lens(API 33+),capsule 连续曲率胶囊形状
 backdrop = "2.0.1"
 capsule = "2.1.3"
 
@@ -77,11 +74,12 @@ androidx-constraintlayout = { group = "androidx.constraintlayout", name = "const
 androidx-lifecycle-extensions = { group = "androidx.lifecycle", name = "lifecycle-extensions", version.ref = "androidxLifecycle" }
 androidx-recyclerview = { group = "androidx.recyclerview", name = "recyclerview", version.ref = "androidxRecyclerview" }
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
-androidx-room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "room" }
-androidx-room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
+okhttp-dnsoverhttps = { group = "com.squareup.okhttp3", name = "okhttp-dnsoverhttps", version.ref = "okhttp" }
+androidx-room-runtime = { group = "androidx.room3", name = "room3-runtime", version.ref = "room" }
+androidx-room-compiler = { group = "androidx.room3", name = "room3-compiler", version.ref = "room" }
+androidx-sqlite-bundled = { group = "androidx.sqlite", name = "sqlite-bundled", version.ref = "androidxSqlite" }
 okio = { group = "com.squareup.okio", name = "okio", version.ref = "okio" }
 gson = { group = "com.google.code.gson", name = "gson", version.ref = "gson" }
-picasso = { group = "com.squareup.picasso", name = "picasso", version.ref = "picasso" }
 autosize = { group = "me.jessyan", name = "autosize", version.ref = "autosize" }
 xstream = { group = "com.thoughtworks.xstream", name = "xstream", version.ref = "xstream" }
 eventbus = { group = "org.greenrobot", name = "eventbus", version.ref = "eventbus" }

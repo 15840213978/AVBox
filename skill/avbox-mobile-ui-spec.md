@@ -56,7 +56,7 @@
 
 ### 4.1 首页 tab(定稿)
 
-- **顶部区**(随内容滚动,不固定):左侧**订阅源胶囊**(圆角 20dp `cardContainer`,站点头像 / 接口 logo 兜底 + 源名 + ArrowDropDown;点击弹「订阅源」bottom sheet = 设置页卡位风格源列表 + 末组「配置接口」入口,2026-09-10 由源 chips 行收敛而来)+ 右侧搜索图标圆钮(40dp 正圆 `surfaceBright` → SearchActivity);**直播入口 = 右下角图标 FAB**(`ic_live_fab.xml`,源 `.tubiao/直播fab.svg`,2026-09-12 由 `Icons.Filled.LiveTv` 换成项目图标;原行首 chips 入口废止);切源后内容流整体刷新。
+- **顶部区**(随内容滚动,不固定):左侧**订阅源胶囊**(圆角 20dp `cardContainer`,站点头像 / 接口 logo 兜底 + 源名 + ArrowDropDown,**宽度随源名自适应、上限 240dp**〔2026-09-12 由"占满剩余宽度"改为上限 220dp,2026-09-13 用户要求"宽度增加 20dp"→ 240dp〕;点击弹「订阅源」bottom sheet = 设置页卡位风格源列表 + 末组「配置接口」入口,2026-09-10 由源 chips 行收敛而来)+ 右侧搜索图标圆钮(40dp 正圆 `surfaceBright` → SearchActivity);**直播入口 = 右下角图标 FAB**(`ic_live_fab.xml`,源 `.tubiao/直播fab.svg`,2026-09-12 由 `Icons.Filled.LiveTv` 换成项目图标;原行首 chips 入口废止);切源后内容流整体刷新。
 - **内容流(2026-09-09 定稿,2026-09-10 补 Hero)**:LazyColumn 分区列表;首项 = **Hero 大卡轮播**(推荐前 5 部,Loading 态即用骨架占位首项防滚动锚点漂移)+ 推荐分区(Hero 已展示的前 5 部去重);其余分区 = 当前源的**全部分类**,每区 = 大号粗体标题行 + LazyRow 卡片行;标题行右侧**「全部 >」入口**(bodyMedium onSurfaceVariant + KeyboardArrowRight 18dp 胶囊,原 Tune 筛选控件已删)→ `PartitionListActivity` 二级页(3 列海报网格,全量分页 + Tune 筛选 sheet,FilterSheet 已移至 ui/components 复用);搜索结果源分区右侧同样「全部 >」(携带结果 JSON 进同一二级页,无筛选)。首页加载看门狗 45s 超时转「加载失败 + 重试」(2026-09-11)。
 - **分类隐藏**:设置 tab"首页分类显示"勾选管理,按 源+分类名 存 Hawk;隐藏的不加载不渲染。
 - **卡片(最终版)**:2:3 海报、圆角 16dp、底部黑色渐变 scrim;白色粗体标题(16sp,titleLarge 就地覆盖;2026-09-09 由 18sp 调整,用户定稿)+ 名称下方年份行(≈14sp,白 70%,year>0 才显示;2026-09-09 由「年/地区/类型」拼接改为仅年份,vodMeta 删除);**无评分角标**(用户已否决);长按→收藏/操作菜单。该组件三处共用:首页内容流 / 详情页相关推荐 / 搜索结果卡。
@@ -96,15 +96,19 @@
 
 ### 4.4 详情 / 播放页(2026-09-07 实施,2026-09-11/12 补丁定稿)
 
-- 竖屏布局:顶部 16:9 播放器(内嵌播放,点全屏进横屏沉浸)→ 标题/年份/评分 → 简介可展开 → 选集横向行(表头右侧「倒序/正序」+「全部」两个 `PillAction`,「全部」→ 分季+网格 bottom sheet,当前集高亮)→ 换源行 → 相关推荐。
+- 竖屏布局:顶部 16:9 播放器(内嵌播放,点全屏进横屏沉浸)→ **标题行(右侧 = 投屏图标 + 收藏图标,2026-09-13)**→ 年份/来源 → 简介可展开 → 选集横向行(表头右侧「倒序/正序」+「全部」两个 `PillAction`,「全部」→ 分季+网格 bottom sheet,当前集高亮)→ 换源行 → 相关推荐。
 - **选集行不要重复「全部」入口(2026-09-12)**:表头已有「全部」药丸钮,chips 行末尾**不再挂**第二颗「全部」chip —— 同一动作两个入口既冗余又挤占横向空间(用户截图反馈后删除 `EpisodeRow` 里 `item(key = "all")` 那段)。
 - **状态栏区 = 纯黑**(2026-09-07 用户改选),播放器紧贴其下;状态栏图标强制白色且需**反复断言**(系统会按主题重设,见 §6.6)。
 - **chips 分区行**(「清晰度」/「线路」)= `surfaceBright` 圆角卡片(圆角 16dp、距屏 6dp、卡内 vertical 12dp、标题 start 16 / bottom 8、chips 行 contentPadding 16),**宽度必须与「选集」卡对齐**(`ChipRow` 的 `Column` 与 `LazyRow` 各加 `fillMaxWidth()`,否则仅两条线路时卡片明显变窄)。
 - **选集网格**(`全部` sheet):自适应多列网格 + 稳定定位当前集;格子 label 13sp + `contentPadding` 水平 6dp + `TextOverflow.Ellipsis`;**不要用 `basicMarquee`** —— 仅差几 dp 的溢出会表现成"文字乱滚/错位"。
 - **换源行 / 播放容器 / 帧率的硬约束见 §6.1**(点击即停 + 失败回滚原源 + 进度继承 + Exo 帧率匹配必须保持关闭)。
-- 播放手势:已有手势保留;**新增长按 2 倍速**(移动端惯例)、亮度/音量/进度手势指示器、全屏拖动进度预览。
-- DLNA 投屏保留:播放页右上按钮 → 设备列表 bottom sheet。**同一 sheet 内也扫描局域网 TVBox 设备**(`RemoteTVBox.searchAvalible`),选中即 `post("http://<host>/action")` 推送;**扫描到 / 投屏成功时都要记住 host**(`RemoteTVBox.setAvalible` → Hawk `REMOTE_TVBOX`),因为 `PlayerHelper` 的 **13 号「RemoteTVBox 播放器」**(把 TVBox 当外部播放器用,`RemoteTVBox.run`)与它的可用性判定都依赖这个值 —— 2026-09-13 修复:Compose 迁移时漏掉了这次写入,导致该播放器恒不可用;同时 `PlayerHelper.invalidatePlayersExistInfo()` 必须跟着调用(该可用性表是**进程级缓存**,不重置则本次进程内不会重新计算)。
+- 播放手势:已有手势保留;**新增长按 2 倍速**(移动端惯例)、亮度/音量/进度手势指示器、全屏拖动进度预览。**亮度/音量手势提示(2026-09-13 用户定稿)**:与 seek 提示**同款 M3 surface 药丸** —— 复用 `PlayerLayers.HintPill`(半透明 `surfaceContainer` 90% + 4dp 投影、无描边、尺寸内容自适应,文字 `onSurface`/`ts_30`),废弃旧 `shape_user_focus` 的深灰底(#6C3D3D3D)+ 白描边 + 固定 200x100mm 尺寸。
+- DLNA 投屏保留:**入口两处、链路同一套** —— ①播放器底栏「投屏」(`PlayerActions.onCastClicked`);②**竖屏详情页标题行投屏图标**(2026-09-13 用户要求,图标取 `.tubiao/投屏.svg` → `drawable/ic_detail_cast.xml`,`IconButton` tint `onSurfaceVariant` 24dp,置于收藏图标左侧),点击走 `PlayContainer.showCast()` → 与 ① 完全同一条 `showCastDialog()` 链路(同一个 `CastSheet` Dialog 面板、同一套 DLNA/TVBox 扫描与投送、无可投地址时的 Toast 也一样)。**同一 sheet 内也扫描局域网 TVBox 设备**(`RemoteTVBox.searchAvalible`),选中即 `post("http://<host>/action")` 推送;**扫描到 / 投屏成功时都要记住 host**(`RemoteTVBox.setAvalible` → Hawk `REMOTE_TVBOX`),因为 `PlayerHelper` 的 **13 号「RemoteTVBox 播放器」**(把 TVBox 当外部播放器用,`RemoteTVBox.run`)与它的可用性判定都依赖这个值 —— 2026-09-13 修复:Compose 迁移时漏掉了这次写入,导致该播放器恒不可用;同时 `PlayerHelper.invalidatePlayersExistInfo()` 必须跟着调用(该可用性表是**进程级缓存**,不重置则本次进程内不会重新计算)。
 - 弹幕开关/字幕/倍速/音轨 → 播放器设置统一 bottom sheet。
+- **退后台不显示暂停浮层(2026-09-13 修)**:退后台自动暂停(`DetailActivity.onPause` → `HostPause()`)时经 `PlayerControlApi.setLifecyclePaused(true)` 抑制暂停浮层 —— `PlayerUiState.pauseOverlayVisible` 判定追加 `&& !lifecyclePaused`。原因:退后台那一瞬间会画出"暂停"浮层(标题 + 中央播放图标),被系统**任务快照**(后台管理卡片)拍进去,观感是"一退到后台就被暂停了",而回前台 `hostResume()` 会自动续播 → 快照与实际状态不符。回前台复位该标记;用户手动暂停后进后台再回前台,暂停浮层照常出现。
+- **全屏/退出全屏的旋转过渡(2026-09-13,A+B 方案,防"先变形再转屏")**:播放器区形态**禁止直接用目标态 `full`/`fullScreen` 驱动布局**,一律走形态判定 —— 点播 = `DetailActivity.isFullBox()` / `DetailScreen` 的 `fullBox`(`if (rotating) 当前是否横屏 else full`)+ `DetailViewModel.rotating`;直播 = `LivePlayActivity.isFullBox()` + `rotating`。置位规则:`setFullScreen/applyFullscreen` 里「目标方向 ≠ 当前方向」→ `rotating = true`,**`onConfigurationChanged` 清位**;过渡期形态跟随**当前方向**(横屏=全屏样、竖屏=预览样),旋转落地那一帧才切到目标形态(与系统旋转同帧)。⚠️ **改播放页布局时必须用 `isFullBox()`/`fullBox`**,否则重现:横屏窗口里算竖屏 16:9 盒(高 = 宽×9/16 ≈ 1.25×屏高 → Compose 退化成按高定尺寸、视频缩小靠左上)与竖屏窗口里直接 `fillMaxSize`(黑屏几百 ms)。连带项:预览态覆盖层 `setPreviewMode` 与字幕 0.6 倍字号也改由形态驱动(`syncFullBoxSideEffects`),不在过渡期当帧跳。**方案 B(几何钳制,对齐 fongmi `changeHeight`)**:预览态播放区高度 = `短边 × 16:9` 再 `coerceAtLeast(150dp).coerceAtMost(max(150dp, 长边/2))`(与窗口方向无关,永远合法);全屏形态 = `fillMaxSize()`。兜底:若 ROM 不下发 `onConfigurationChanged`,`rotating` 卡 true 时形态退化为"当前方向的自然形态",不会卡死。
+- **预览态进度行播放/暂停钮 + 双击暂停(2026-09-13 定稿)**:竖屏详情页进度行 = `[播放/暂停钮][当前时间][进度条][总时长]`,按钮 = `PlayerBottomBar.PreviewPlayPauseButton`(触摸盒 40dp / 图形 22dp / 白色 90%,与右下角全屏入口 `DetailActivity` 完全同款;图标状态判定含 `BUFFERING/BUFFERED`,同中央控制组)。**三者(暂停钮/进度条/全屏钮)水平中心线统一**为「距播放区底 16dp + `vs_30`/2」—— 故预览态底栏底距 = `16dp + vs_30/2 - 40dp/2`(与全屏入口 `bottom` 偏移同一式子,**改一边必须同步另一边**,进度条中心线位置不变)。**预览态双击播放区 = 暂停/播放**(`ComposeVideoController.onDoubleTap` 不再对 previewMode 提前返回);⚠️ 副作用:单击显隐需等双击窗口超时(~300ms),属双击功能的固有代价;滑动/长按在预览态仍不响应。
+- **播放器覆盖层左右边距(2026-09-13 定稿)**:= `playerEdgePadding()`(`player/ui/PlayerOverlay.kt`)= `screenWidthDp >= 600 ? 24dp : 16dp`(M3 窗口分档惯例:compact 16dp / medium 及以上 24dp —— 横屏画布已到 expanded 档,16dp 只占屏宽 1.5% 而竖屏占 3.3%;24dp 同时覆盖横屏挖孔落在左/右边缘的 safeInset)。落点 = 顶栏 Row 左右 / 底栏 Column 左右 / 锁屏钮右(`PlayerTopBar`/`PlayerBottomBar`/`PlayerLayers`);顶栏顶 12dp、底栏下 16dp 不变。⚠️ 与边缘手势带无关:dkplayer `PlayerUtils.isEdge()` 已忽略四边各 40dp 内的视频手势。**触摸目标(锁屏钮 24dp、进度条 `vs_30`≈24dp、菜单按钮≈28dp)仍低于 M3 的 48dp,待决见 §7**。
 
 ### 4.5 直播页(2026-09-08 实施定稿)
 
@@ -208,6 +212,7 @@
 - ~~检查更新/关于页的呈现形式~~(Step 2 已确认:检查更新做占位行「当前已是最新版本」,关于沿用旧 AboutDialog;完整更新逻辑待接入更新源时实现)
 - ~~历史/收藏 tab 的具体视觉~~(Step 2 已确认,见 §4.2)
 - 首页品牌色板(非动态取色时 Android <12 用的 fallback 色值)
+- 播放器覆盖层触摸目标统一到 48dp(锁屏钮 24dp / 进度条 `vs_30`≈24dp / 底栏菜单按钮≈28dp)。**前置决策**:进度行在菜单行之上,直接加高行高会把进度条顶高 20~40dp;若要两全,需先把进度行移到菜单行**下方**贴底(对齐 B 站/YouTube,以及 media3 官方:底栏 60dp、进度条触摸高 48dp、距底 52dp),再放大触摸目标。
 
 ## 8. 历史归档索引(`history/`,按需检索)
 

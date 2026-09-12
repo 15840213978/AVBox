@@ -4,6 +4,7 @@ package com.github.tvbox.osc.ui.activity
 
 import android.content.Intent
 import android.content.pm.ActivityInfo
+import android.content.res.Configuration
 import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
@@ -21,7 +22,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -255,15 +255,41 @@ class DetailActivity : BaseActivity() {
         val container = playContainer
         if (container != null) {
             container.setAutoSwitchLineEnabled(!full)
-            container.setPreviewMode(!full)
         }
-        toggleSubtitleTextSize()
+        // 预览态覆盖层与字幕字号不再跟 full 当帧切:统一由"实际形态"驱动(syncFullBoxSideEffects),
+        // 旋转过渡期保持原样、落地(onConfigurationChanged)后再同步,避免半新半旧
+        syncFullBoxSideEffects()
     }
 
-    /** 预览态字幕按 0.6 倍缩放(旧 toggleSubtitleTextSize) */
-    private fun toggleSubtitleTextSize() {
+    /** 旋转落地回调(2026-09-13 方案 A 的"落地"信号):清过渡态 + 把随形态联动的东西同步过来 */
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        vm.rotating.value = false
+        syncFullBoxSideEffects()
+    }
+
+    /**
+     * 当前布局形态是否为「全屏铺满」——与 [DetailScreen] 的 `fullBox` 必须同一判定。
+     * 过渡期(rotating)跟随**当前方向**:横屏=全屏样、竖屏=预览样;旋转落地后才切到目标态 [fullScreen]。
+     * 这样横屏窗口里永远不会去算竖屏的预览盒(反之亦然)。
+     * 兜底:万一系统没下发 onConfigurationChanged,形态退化为"当前方向的自然形态",不会卡死。
+     */
+    fun isFullBox(): Boolean {
+        val landNow = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+        return if (vm.rotating.value) !landNow else fullScreen
+    }
+
+    /** 随形态联动的非布局项:预览态覆盖层(底栏菜单行/预览暂停钮/边距)与预览字幕 0.6 倍 */
+    private fun syncFullBoxSideEffects() {
+        val preview = !isFullBox()
+        playContainer?.setPreviewMode(preview)
+        applySubtitleTextSize(preview)
+    }
+
+    /** 预览态字幕按 0.6 倍缩放(旧 toggleSubtitleTextSize;2026-09-13 改为按实际形态传参,由 syncFullBoxSideEffects 调用) */
+    private fun applySubtitleTextSize(preview: Boolean) {
         var size = SubtitleHelper.getTextSize(this)
-        if (!fullScreen) size = (size * 0.6).toInt()
+        if (preview) size = (size * 0.6).toInt()
         EventBus.getDefault().post(RefreshEvent(RefreshEvent.TYPE_SUBTITLE_SIZE_CHANGE, size))
     }
 
@@ -304,6 +330,8 @@ class DetailViewModel : ViewModel() {
     /** vodInfo 为可变 Java bean,字段变化以 revision 触发重组 */
     val revision = MutableStateFlow(0)
     val fullScreen = MutableStateFlow(false)
+    /** 旋转过渡态:已下发方向切换、等系统旋转落地(布局形态延后切换,见 DetailActivity.isFullBox) */
+    val rotating = MutableStateFlow(false)
     /** 播放请求信号:容器就绪后由 UI 消费发起 setData */
     val playSignal = MutableStateFlow(0)
     val collected = MutableStateFlow(false)
@@ -392,6 +420,9 @@ class DetailViewModel : ViewModel() {
     }
 
     fun setFullScreen(full: Boolean) {
+        // 目标方向与实际方向不一致 → 进入旋转过渡态:布局形态等落地再切(方案 A,见 isFullBox)
+        val landNow = playContainerRef?.resources?.configuration?.orientation == Configuration.ORIENTATION_LANDSCAPE
+        rotating.value = (full != landNow)
         fullScreen.value = full
     }
 
@@ -1108,10 +1139,25 @@ class DetailViewModel : ViewModel() {
 fun DetailScreen(activity: DetailActivity, vm: DetailViewModel) {
     val pageState by vm.pageState.collectAsState()
     val full by vm.fullScreen.collectAsState()
+    val rotating by vm.rotating.collectAsState()
     val revision by vm.revision.collectAsState()
     val playSignal by vm.playSignal.collectAsState()
     val toast by vm.toastEvent.collectAsState()
     val finish by vm.finishEvent.collectAsState()
+
+    // 播放器区形态(2026-09-13 方案 A,与 DetailActivity.isFullBox() 同一判定):
+    // 旋转过渡期跟随**实际方向**(横屏=全屏样、竖屏=预览样),旋转落地后才切到目标态 full ——
+    // 否则会在横屏窗口里算出竖屏的 16:9 盒(高度超屏 → 视频缩小/跳动),或在竖屏窗口里直接铺满(黑屏几百 ms)
+    val configuration = LocalConfiguration.current
+    val isLandscapeNow = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val fullBox = if (rotating) isLandscapeNow else full
+    // 预览态播放区高度(2026-09-13 方案 B,对齐 fongmi changeHeight):短边 × 16:9,并钳制在 [150dp, 长边/2],
+    // 与当前窗口方向无关 —— 即使形态被切,几何也永远是合法小矩形(不再"宽推高 → 高度超过屏幕")
+    val shortEdge = minOf(configuration.screenWidthDp, configuration.screenHeightDp).dp
+    val longEdge = maxOf(configuration.screenWidthDp, configuration.screenHeightDp).dp
+    val previewBoxHeight = (shortEdge * 9f / 16f)
+        .coerceAtLeast(150.dp)
+        .coerceAtMost(maxOf(150.dp, longEdge / 2))
 
     // 容器随首次组合创建;Activity 重建(configChanges 之外)时 remember 重置,自动重建并补播
     val container = remember { activity.ensurePlayContainer().also { vm.playContainerRef = it } }
@@ -1143,15 +1189,15 @@ fun DetailScreen(activity: DetailActivity, vm: DetailViewModel) {
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.surfaceContainer),
     ) {
-        // 顶部 16:9 播放器:全屏时占满整屏;竖屏状态栏区域纯黑、播放器紧贴其下(§4.4 补丁⑤)
+        // 顶部 16:9 播放器:全屏形态占满整屏;预览形态高度由 previewBoxHeight 显式给出(方案 B)
         Box(
-            modifier = if (full) {
+            modifier = if (fullBox) {
                 Modifier.fillMaxSize().background(Color.Black)
             } else {
                 Modifier.fillMaxWidth()
                     .background(Color.Black)
                     .statusBarsPadding()
-                    .aspectRatio(16f / 9f)
+                    .height(previewBoxHeight)
                     .background(Color.Black)
             },
         ) {
@@ -1159,7 +1205,7 @@ fun DetailScreen(activity: DetailActivity, vm: DetailViewModel) {
                 factory = { container },
                 modifier = Modifier.fillMaxSize(),
             )
-            if (pageState is DetailViewModel.PageState.Loading && !full) {
+            if (pageState is DetailViewModel.PageState.Loading && !fullBox) {
                 Box(
                     modifier = Modifier.fillMaxSize().background(Color.Black),
                     contentAlignment = Alignment.Center,
@@ -1176,7 +1222,7 @@ fun DetailScreen(activity: DetailActivity, vm: DetailViewModel) {
             PlayerTipOverlay()
             // 竖屏预览态:不再盖透明点击层(此前 clickable 层会拦掉下方控制器全部触摸,
             // 导致中央三键/底栏点不动),单击显隐改由 ComposeVideoController 预览态手势处理
-            if (!full) {
+            if (!fullBox) {
                 // 右下角全屏入口(未全屏时常驻,贴右下角,预览态进度行右侧已预留空间不重叠)。
                 // 垂直位置与进度条水平线对齐:底栏进度行中心 = 列 bottomPadding(16dp) + 进度条
                 // Canvas 高(playerDim(vs_30))/2;图标盒 40dp 取半 20dp,故 bottom = 16 + vs_30/2 - 20
@@ -1194,7 +1240,7 @@ fun DetailScreen(activity: DetailActivity, vm: DetailViewModel) {
             }
         }
 
-        if (!full) {
+        if (!fullBox) {
             when (val state = pageState) {
                 is DetailViewModel.PageState.Loading -> {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -1256,7 +1302,7 @@ private fun DetailContent(activity: DetailActivity, vm: DetailViewModel, revisio
                     .background(MaterialTheme.colorScheme.surfaceBright, RoundedCornerShape(16.dp))
                     .padding(horizontal = 16.dp, vertical = 12.dp)
             ) {
-                // 标题 + 收藏
+                // 标题 + 投屏 + 收藏
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = info.name ?: "TVBox",
@@ -1266,6 +1312,16 @@ private fun DetailContent(activity: DetailActivity, vm: DetailViewModel, revisio
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),
                     )
+                    // 投屏(2026-09-13 用户要求):图标取 .tubiao/投屏.svg;点击复用播放器「投屏」面板
+                    // (PlayContainer.showCast → CastSheet,Dialog 弹窗 + DLNA/TVBox 扫描投送全同一条链路)
+                    IconButton(onClick = { activity.playContainer?.showCast() }) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_detail_cast),
+                            contentDescription = "投屏",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(24.dp),
+                        )
+                    }
                     IconButton(onClick = { vm.toggleCollect() }) {
                         // 未收藏＝描边星，已收藏＝实心星＋主题色（描边 tint 对空心图标不直观，用户反馈）
                         AnimatedContent(

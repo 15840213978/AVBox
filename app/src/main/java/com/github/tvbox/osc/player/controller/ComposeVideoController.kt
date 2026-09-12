@@ -438,7 +438,8 @@ class ComposeVideoController @JvmOverloads constructor(
     }
 
     override fun onDoubleTap(e: MotionEvent): Boolean {
-        if (previewMode) return false
+        // 预览态（竖屏详情页）同样支持双击暂停/播放（2026-09-13 用户要求；旧版此态只放行单击显隐）。
+        // ⚠️ GestureDetector 语义下单击显隐要等双击窗口超时（~300ms）才确认，是双击功能的固有代价。
         if (isDoubleTapTogglePlayEnabled && !isLocked() && isInPlaybackState()) {
             mControlWrapper?.togglePlay()
         }
@@ -462,8 +463,8 @@ class ComposeVideoController @JvmOverloads constructor(
     override fun onTouch(v: View, event: MotionEvent): Boolean {
         if (previewMode) {
             // 预览态（竖屏详情页）：详情页透明点击层已移除，触摸直接落到控制器；
-            // 仅放行单击显隐（onSingleTapConfirmed → toggleControls），
-            // 滑动/双击/长按等其余手势在预览态不响应（对齐旧版预览态行为）
+            // 放行单击显隐（onSingleTapConfirmed → toggleControls）与双击暂停/播放（onDoubleTap）；
+            // 滑动/长按等其余手势在预览态不响应（对齐旧版预览态行为）
             return gestureDetector?.onTouchEvent(event) ?: false
         }
         if (isLocked()) {
@@ -827,8 +828,15 @@ class ComposeVideoController @JvmOverloads constructor(
         isGestureEnabled = gestureEnabled
     }
 
-    /** 暂停浮层由 pauseOverlayVisible 派生（paused 且底栏隐藏），无需直接隐藏 */
+    /**
+     * 暂停浮层由 pauseOverlayVisible 派生（paused 且底栏隐藏），无需直接隐藏。
+     * 退后台暂停另经 [setLifecyclePaused] 抑制浮层（避免被系统任务快照拍出"已暂停"假象）。
+     */
     override fun hidePauseRoot() = Unit
+
+    override fun setLifecyclePaused(paused: Boolean) {
+        state.lifecyclePaused = paused
+    }
 
     override fun resetSpeed() {
         skipEnd = true

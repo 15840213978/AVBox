@@ -174,6 +174,16 @@ internal fun playerTextSize(@DimenRes id: Int): TextUnit {
 }
 
 /**
+ * 播放器覆盖层控件距屏幕边缘的距离（2026-09-13 用户定稿，spec §4.4）：
+ * 按窗口宽度分档 —— compact（screenWidthDp < 600，竖屏详情页预览态）16dp；
+ * medium/expanded（横屏全屏、平板、折叠展开）24dp（对齐 M3 窗口分档惯例：compact 16dp / medium 及以上 24dp）。
+ * 备注：边距与手势带无关 —— dkplayer 的 `PlayerUtils.isEdge()` 已忽略四边各 40dp 内的视频手势。
+ */
+@Composable
+internal fun playerEdgePadding(): Dp =
+    if (LocalConfiguration.current.screenWidthDp >= 600) 24.dp else 16.dp
+
+/**
  * 竖屏补偿：AutoSize 按屏宽适配（BaseActivity design 1280dp），竖屏时“宽度”变短边，
  * density 缩为横屏的 宽/高 倍，所有 mm 尺寸物理上同步缩水（旧 XML 竖屏同样如此）。
  * 这里乘以 屏高px/屏宽px（= 横屏 density / 竖屏 density），使竖屏与横屏物理观感一致。

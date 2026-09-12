@@ -155,11 +155,12 @@ fun HomePage(vm: HomeViewModel, bottomPadding: Dp = 0.dp) {
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                // 订阅源胶囊:宽度随源名自适应、上限 220dp(2026-09-12 用户要求"不需要那么长"),
-                // 不再占满顶栏剩余宽度;源名超长在 220dp 内省略号截断
+                // 订阅源胶囊:宽度随源名自适应、上限 240dp
+                // (2026-09-12 由"占满剩余宽度"改为上限 220dp;2026-09-13 用户要求"宽度增加 20dp" → 240dp),
+                // 不再占满顶栏剩余宽度;源名超长在该宽度内省略号截断
                 Row(
                     modifier = Modifier
-                        .widthIn(max = 220.dp)
+                        .widthIn(max = 240.dp)
                         .clip(RoundedCornerShape(20.dp))
                         .background(MaterialTheme.colorScheme.cardContainer)
                         .heightIn(min = 40.dp)

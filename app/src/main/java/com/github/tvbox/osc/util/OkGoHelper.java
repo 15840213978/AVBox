@@ -1,7 +1,5 @@
 package com.github.tvbox.osc.util;
 
-import android.graphics.Bitmap;
-
 import androidx.annotation.NonNull;
 
 import com.github.tvbox.osc.api.ApiConfig;
@@ -20,7 +18,6 @@ import com.lzy.okgo.https.HttpsUtils;
 import com.lzy.okgo.interceptor.HttpLoggingInterceptor;
 import com.lzy.okgo.model.HttpHeaders;
 import com.orhanobut.hawk.Hawk;
-import com.squareup.picasso.Picasso;
 
 import java.io.File;
 import java.net.InetAddress;
@@ -48,6 +45,7 @@ import okhttp3.HttpUrl;
 import okhttp3.OkHttp;
 import okhttp3.OkHttpClient;
 import okhttp3.dnsoverhttps.DnsOverHttps;
+
 import xyz.doikki.videoplayer.exo.ExoMediaSourceHelper;
 
 
@@ -239,7 +237,9 @@ public class OkGoHelper {
 //        if (!dohUrl.isEmpty()) is_doh = true;
 //        LOG.i("echo-initDnsOverHttps dohUrl:"+dohUrl);
 //        LOG.i("echo-initDnsOverHttps ips:"+ips);
-        dnsOverHttps = new DnsOverHttps.Builder().client(dohClient).url(dohUrl.isEmpty() ? null : HttpUrl.get(dohUrl)).bootstrapDnsHosts((ips!=null && !dohUrl.equals("https://doh.pub/dns-query"))?DohIps(ips):null).build();
+        // 官方 okhttp-dnsoverhttps 的 Builder 要求 url 非空 ⇒ "关闭" 时直接置空实例(调用方已判空回落到 Dns.SYSTEM)
+        dnsOverHttps = dohUrl.isEmpty() ? null
+                : new DnsOverHttps.Builder().client(dohClient).url(HttpUrl.get(dohUrl)).bootstrapDnsHosts((ips != null && !dohUrl.equals("https://doh.pub/dns-query")) ? DohIps(ips) : null).build();
     }
 
     // 自定义 DNS 解析器
@@ -368,6 +368,8 @@ public class OkGoHelper {
         HttpHeaders.setUserAgent("okhttp/" + OkHttp.VERSION);
 
         OkHttpClient okHttpClient = builder.build();
+        // 原在 initPicasso 内设置(非 Picasso 专属):提升每主机并发上限
+        okHttpClient.dispatcher().setMaxRequestsPerHost(10);
         OkGo.getInstance().setOkHttpClient(okHttpClient);
 
         defaultClient = okHttpClient;
@@ -377,7 +379,6 @@ public class OkGoHelper {
         noRedirectClient = builder.build();
 
         initExoOkHttpClient();
-        initPicasso(okHttpClient);
     }
 
     public static synchronized void reloadDns() {
@@ -418,15 +419,6 @@ public class OkGoHelper {
         initExoOkHttpClient();
         Parser.resetHttpClient();
         com.github.catvod.net.OkHttp.resetClient();
-    }
-
-    /** Picasso 单例仅为 Spider jar 父委托兜底(第三方 Spider 可能直接调 Picasso);框架内图片已全部走 Glide/Coil */
-    static void initPicasso(OkHttpClient client) {
-        client.dispatcher().setMaxRequestsPerHost(10);
-        Picasso picasso = new Picasso.Builder(App.getInstance())
-                .defaultBitmapConfig(Bitmap.Config.RGB_565)
-                .build();
-        Picasso.setSingletonInstance(picasso);
     }
 
     private static synchronized void setOkHttpSsl(OkHttpClient.Builder builder) {
