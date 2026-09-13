@@ -115,9 +115,6 @@
 #okio
 -dontwarn okio.**
 -keep class okio.**{*;}
-#loadsir
--dontwarn com.kingja.loadsir.**
--keep class com.kingja.loadsir.** {*;}
 #gson
 # Gson specific classes
 -dontwarn sun.misc.**
