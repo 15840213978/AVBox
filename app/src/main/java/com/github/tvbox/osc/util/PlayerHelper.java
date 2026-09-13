@@ -14,7 +14,7 @@ import com.github.tvbox.osc.player.thirdparty.MXPlayer;
 import com.github.tvbox.osc.player.thirdparty.ReexPlayer;
 import com.github.tvbox.osc.player.thirdparty.RemoteTVBox;
 import com.github.tvbox.osc.player.thirdparty.VlcPlayer;
-import com.orhanobut.hawk.Hawk;
+import com.github.tvbox.osc.util.KV;
 
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -34,10 +34,10 @@ public class PlayerHelper {
         updateCfg(videoView,playerCfg,-1);
     }
     public static void updateCfg(VideoView videoView, JSONObject playerCfg,int forcePlayerType) {
-        int playerType = Hawk.get(HawkConfig.PLAY_TYPE, 2);
-        int renderType = Hawk.get(HawkConfig.PLAY_RENDER, 1);
-        String ijkCode = Hawk.get(HawkConfig.IJK_CODEC, "硬解码");
-        int scale = Hawk.get(HawkConfig.PLAY_SCALE, 0);
+        int playerType = KV.get(HawkConfig.PLAY_TYPE, 2);
+        int renderType = KV.get(HawkConfig.PLAY_RENDER, 1);
+        String ijkCode = KV.get(HawkConfig.IJK_CODEC, "硬解码");
+        int scale = KV.get(HawkConfig.PLAY_SCALE, 0);
         try {
             playerType = playerCfg.getInt("pl");
             renderType = playerCfg.getInt("pr");
@@ -96,7 +96,7 @@ public class PlayerHelper {
     }
 
     public static void updateCfg(VideoView videoView) {
-        int playType = Hawk.get(HawkConfig.PLAY_TYPE, 2);
+        int playType = KV.get(HawkConfig.PLAY_TYPE, 2);
         PlayerFactory playerFactory;
         if (playType == 1) {
             playerFactory = new PlayerFactory<IjkMediaPlayer>() {
@@ -124,7 +124,7 @@ public class PlayerHelper {
         } else {
             playerFactory = ExoMediaPlayerFactory.create();
         }
-        int renderType = Hawk.get(HawkConfig.PLAY_RENDER, 1);
+        int renderType = KV.get(HawkConfig.PLAY_RENDER, 1);
         RenderViewFactory renderViewFactory = null;
         switch (renderType) {
             case 0:
@@ -174,7 +174,7 @@ public class PlayerHelper {
         }
         if (view.isRtmpForced()) return;
         LOG.i("echo-rtmp-force-ijk: " + url);
-        IJKCode codec = ApiConfig.get().getIJKCodec(Hawk.get(HawkConfig.IJK_CODEC, "硬解码"));
+        IJKCode codec = ApiConfig.get().getIJKCodec(KV.get(HawkConfig.IJK_CODEC, "硬解码"));
         view.forceIjkFactory(new PlayerFactory<IjkMediaPlayer>() {
             @Override
             public IjkMediaPlayer createPlayer(Context context) {

@@ -13,7 +13,7 @@ import com.github.tvbox.osc.util.DanmuHelper;
 import com.github.tvbox.osc.util.HawkConfig;
 import com.github.tvbox.osc.util.LOG;
 import com.github.catvod.crawler.js.Trans;
-import com.orhanobut.hawk.Hawk;
+import com.github.tvbox.osc.util.KV;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -65,17 +65,17 @@ public class DanmakuApi {
     }
 
     public static boolean isUseDefault() {
-        return Hawk.get(USE_DEFAULT_KEY, false);
+        return KV.get(USE_DEFAULT_KEY, false);
     }
 
     public static void setUseDefault(boolean useDefault) {
-        Hawk.put(USE_DEFAULT_KEY, useDefault);
-        if (useDefault) Hawk.put(HawkConfig.DANMU_API, "");
+        KV.put(USE_DEFAULT_KEY, useDefault);
+        if (useDefault) KV.put(HawkConfig.DANMU_API, "");
     }
 
     public static void setCustomApi(String api) {
-        Hawk.put(USE_DEFAULT_KEY, false);
-        Hawk.put(HawkConfig.DANMU_API, api);
+        KV.put(USE_DEFAULT_KEY, false);
+        KV.put(HawkConfig.DANMU_API, api);
     }
 
     public static void search(String name, String episode, SearchCallback callback) {
@@ -422,7 +422,7 @@ public class DanmakuApi {
 
     private static String getApiUrl() {
         if (isUseDefault()) return BUILTIN_API;
-        String custom = Hawk.get(HawkConfig.DANMU_API, "");
+        String custom = KV.get(HawkConfig.DANMU_API, "");
         if (!TextUtils.isEmpty(custom)) return custom.trim();
         String config = ApiConfig.get().getDanmaku().trim();
         if (!TextUtils.isEmpty(config)) return config;

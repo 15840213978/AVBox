@@ -8,7 +8,7 @@ import androidx.compose.ui.graphics.Color
 import com.github.tvbox.osc.util.HawkConfig
 import com.materialkolor.PaletteStyle
 import com.materialkolor.dynamicColorScheme
-import com.orhanobut.hawk.Hawk
+import com.github.tvbox.osc.util.KV
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
@@ -18,7 +18,7 @@ import java.util.concurrent.ConcurrentHashMap
  *
  * 用单例而非 ViewModel/Hilt:主题是进程级状态(已组合的页面都要同步重组),
  * 且本项目无 DI 框架,与 [com.github.tvbox.osc.ui.page.AppBootstrap] 同风格。
- * 持久化走 Hawk —— 设置页写、全 App 读。
+ * 持久化走 KV —— 设置页写、全 App 读。
  */
 object AppThemeState {
 
@@ -28,31 +28,31 @@ object AppThemeState {
     val config: ThemeConfig get() = current
 
     private fun load(): ThemeConfig = ThemeConfig(
-        source = Hawk.get(HawkConfig.THEME_SOURCE, ThemeSource.SYSTEM),
-        mode = Hawk.get(HawkConfig.THEME_MODE, ThemeMode.FOLLOW_SYSTEM),
-        seedArgb = Hawk.get(HawkConfig.THEME_SEED, DefaultSeedArgb),
+        source = KV.get(HawkConfig.THEME_SOURCE, ThemeSource.SYSTEM),
+        mode = KV.get(HawkConfig.THEME_MODE, ThemeMode.FOLLOW_SYSTEM),
+        seedArgb = KV.get(HawkConfig.THEME_SEED, DefaultSeedArgb),
         // 枚举名被持久化,历史值可能失效(升级/改名),解析失败回默认风格
-        style = runCatching { PaletteStyle.valueOf(Hawk.get(HawkConfig.THEME_PALETTE_STYLE, "")) }
+        style = runCatching { PaletteStyle.valueOf(KV.get(HawkConfig.THEME_PALETTE_STYLE, "")) }
             .getOrDefault(DefaultPaletteStyle),
     )
 
     fun setSource(source: Int) {
-        Hawk.put(HawkConfig.THEME_SOURCE, source)
+        KV.put(HawkConfig.THEME_SOURCE, source)
         current = current.copy(source = source)
     }
 
     fun setMode(mode: Int) {
-        Hawk.put(HawkConfig.THEME_MODE, mode)
+        KV.put(HawkConfig.THEME_MODE, mode)
         current = current.copy(mode = mode)
     }
 
     fun setSeed(argb: Int) {
-        Hawk.put(HawkConfig.THEME_SEED, argb)
+        KV.put(HawkConfig.THEME_SEED, argb)
         current = current.copy(seedArgb = argb)
     }
 
     fun setStyle(style: PaletteStyle) {
-        Hawk.put(HawkConfig.THEME_PALETTE_STYLE, style.name)
+        KV.put(HawkConfig.THEME_PALETTE_STYLE, style.name)
         current = current.copy(style = style)
     }
 

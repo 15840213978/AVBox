@@ -73,7 +73,7 @@ private const val DisabledAlpha = 0.45f
 /**
  * 主题设置页(2026-09-11,照搬 `示例文件/android` 的主题设置页):
  * 自定义主题开关 / 深浅模式 / 预设色卡 / 自定义种子色(取色器)/ 配色风格,
- * 配置读写走 [AppThemeState](Hawk 持久化 + 全局可观察),改动即时全局生效。
+ * 配置读写走 [AppThemeState](KV 持久化 + 全局可观察),改动即时全局生效。
  *
  * 未走 ViewModel:主题是进程级单例状态,页面只做"读状态 + 下发 intent",
  * 加一层 VM 只是转发(同 [MainScreen] 直接读 AppBootstrap 的既有风格)。

@@ -11,7 +11,7 @@ import com.github.tvbox.osc.util.FileUtils;
 import com.github.tvbox.osc.util.HawkConfig;
 import com.github.tvbox.osc.util.LOG;
 import com.github.tvbox.osc.util.MD5;
-import com.orhanobut.hawk.Hawk;
+import com.github.tvbox.osc.util.KV;
 
 import java.io.File;
 import java.net.URI;
@@ -73,7 +73,7 @@ public class IjkMediaPlayer extends IjkPlayer {
         mMediaPlayer.setOption(tv.danmaku.ijk.media.player.IjkMediaPlayer.OPT_CATEGORY_FORMAT, "dns_cache_timeout", -1);
         mMediaPlayer.setOption(tv.danmaku.ijk.media.player.IjkMediaPlayer.OPT_CATEGORY_FORMAT,"safe",0);
 
-        if(Hawk.get(HawkConfig.PLAYER_IS_LIVE, false)){
+        if(KV.get(HawkConfig.PLAYER_IS_LIVE, false)){
             LOG.i("echo-type-直播");
             mMediaPlayer.setOption(tv.danmaku.ijk.media.player.IjkMediaPlayer.OPT_CATEGORY_PLAYER, "max_cached_duration", 300);
             mMediaPlayer.setOption(tv.danmaku.ijk.media.player.IjkMediaPlayer.OPT_CATEGORY_FORMAT, "flush_packets", 1);
@@ -103,7 +103,7 @@ public class IjkMediaPlayer extends IjkPlayer {
                     break;
 
                 case CACHE_VIDEO:
-                    if (Hawk.get(HawkConfig.IJK_CACHE_PLAY, false)) {
+                    if (KV.get(HawkConfig.IJK_CACHE_PLAY, false)) {
                         String cachePath = FileUtils.getCachePath() + "/ijkcaches/";
                         File cacheFile = new File(cachePath);
                         if (!cacheFile.exists()) cacheFile.mkdirs();
@@ -122,7 +122,7 @@ public class IjkMediaPlayer extends IjkPlayer {
 
                 case M3U8:
                     // 直播且是ijk的时候自动自动走代理解决DNS
-                    if (Hawk.get(HawkConfig.PLAYER_IS_LIVE, false) ) {
+                    if (KV.get(HawkConfig.PLAYER_IS_LIVE, false) ) {
                         URI uri = new URI(path);
                         String host = uri.getHost();
                         if(ITV_TARGET_DOMAIN.equalsIgnoreCase(host))path = ControlManager.get().getAddress(true) + "proxy?go=live&type=m3u8&url="+ URLEncoder.encode(path,"UTF-8");

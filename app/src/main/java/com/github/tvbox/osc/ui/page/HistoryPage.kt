@@ -70,7 +70,7 @@ import com.github.tvbox.osc.ui.components.LoadStateBox
 import com.github.tvbox.osc.ui.theme.cardContainer
 import com.github.tvbox.osc.util.HawkConfig
 import com.github.tvbox.osc.util.HistoryHelper
-import com.orhanobut.hawk.Hawk
+import com.github.tvbox.osc.util.KV
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
@@ -110,7 +110,7 @@ class HistoryViewModel : ViewModel() {
         if (items.value.isEmpty()) loading.value = true
         if (scrollToTop) placementAnim.value = false
         viewModelScope.launch(Dispatchers.IO) {
-            val limit = HistoryHelper.getHisNum(Hawk.get(HawkConfig.HISTORY_NUM, 0))
+            val limit = HistoryHelper.getHisNum(KV.get(HawkConfig.HISTORY_NUM, 0))
             val list = RoomDataManger.getAllVodRecord(limit)
             list.forEach { if (!it.playNote.isNullOrEmpty()) it.note = "上次看到" + it.playNote }
             items.value = list

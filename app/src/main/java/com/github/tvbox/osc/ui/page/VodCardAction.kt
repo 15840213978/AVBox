@@ -5,13 +5,13 @@ import android.widget.Toast
 import com.github.tvbox.osc.bean.Movie
 import com.github.tvbox.osc.ui.activity.PartitionListActivity
 import com.github.tvbox.osc.util.HawkConfig
-import com.orhanobut.hawk.Hawk
+import com.github.tvbox.osc.util.KV
 
 /**
  * 源级卡片点击策略(2026-09-11 用户定稿):
  * SEARCH = 带标题跳搜索页聚合搜索(默认,兼容 2026-09-10 定稿「点卡片不再直接进详情」);
  * DETAIL = 直接进详情页播放(音乐源 / 网盘源这类"点开即播"的源)。
- * 音乐与影视在数据里没有区分字段,只能按源定策略;按 sourceKey 存 Hawk,订阅源 sheet 行内切换。
+ * 音乐与影视在数据里没有区分字段,只能按源定策略;按 sourceKey 存 KV,订阅源 sheet 行内切换。
  */
 enum class SourceCardPolicy(val label: String) {
     SEARCH("搜索"),
@@ -36,12 +36,12 @@ sealed interface VodCardTarget {
     data class Detail(val video: Movie.Video) : VodCardTarget
 }
 
-/** 源级策略读写:只登记 DETAIL 的源,缺省即 SEARCH(避免在 Hawk 里堆一份全量空表) */
+/** 源级策略读写:只登记 DETAIL 的源,缺省即 SEARCH(避免在 KV 里堆一份全量空表) */
 object VodCardPolicy {
     private const val VALUE_DETAIL = "detail"
 
     private fun readMap(): HashMap<String, String> =
-        Hawk.get(HawkConfig.SOURCE_CARD_POLICY, HashMap<String, String>())
+        KV.get(HawkConfig.SOURCE_CARD_POLICY, HashMap<String, String>())
 
     fun policyOf(sourceKey: String?): SourceCardPolicy {
         if (sourceKey.isNullOrEmpty()) return SourceCardPolicy.SEARCH
@@ -52,7 +52,7 @@ object VodCardPolicy {
         if (sourceKey.isNullOrEmpty()) return
         val map = readMap()
         if (policy == SourceCardPolicy.DETAIL) map[sourceKey] = VALUE_DETAIL else map.remove(sourceKey)
-        Hawk.put(HawkConfig.SOURCE_CARD_POLICY, map)
+        KV.put(HawkConfig.SOURCE_CARD_POLICY, map)
     }
 }
 

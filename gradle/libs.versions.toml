@@ -2,6 +2,10 @@
 agp = "9.3.2"
 chaquopy = "17.0.0"
 compileSdk = "37"
+# NDK:本模块不编译原生代码,声明它只为让 AGP 找到 llvm-strip —— 否则 strip(DebugSymbols)
+# 任务会因缺少工具而"原样拷贝",未剥离符号的 .so 直接进 APK(如 androidx.sqlite:sqlite-bundled
+# 带来的 libsqliteJni.so,arm64 下单文件 1.25MB)。版本取本机已安装的稳定版。
+ndk = "27.2.12479018"
 minSdk = "24"
 targetSdk = "37"
 kotlin = "2.4.20"
@@ -22,14 +26,16 @@ okhttp = "5.5.0"
 room = "3.0.3"
 androidxSqlite = "2.7.1"
 okio = "3.18.2"
-# ⚠️ gson 不要升到 2.13+:Hawk 2.0.1(上游停更)的 HawkConverter 用匿名 TypeToken 捕获类型变量,
-# Gson 2.13 起直接禁止该写法 → List/Map/Set 类型的 Hawk 读取抛 IllegalArgumentException 并被静默吞掉
-# (表现为"写入成功、重进即丢",2026-09-13 实测)。要升级须同时引入 Hawk 兼容 Converter。
-gson = "2.10.1"
+# 背景:旧 Hawk 2.0.1(停更)用匿名 TypeToken 捕获类型变量推集合元素类型,在 gson 2.13+ 直接抛异常,
+# 故曾把 gson 锁在 2.10.1。2026-09-13 KV(MMKV)迁移完成、Hawk 与迁移代码全部移除后该约束消失 ——
+# KV 侧只使用稳定 API(`TypeToken.get(...)` / 显式 Type),不依赖任何 gson 内部实现。
+gson = "2.14.0"
 autosize = "1.2.1"
 xstream = "1.4.21"
 eventbus = "3.3.1"
-hawk = "2.0.1"
+# KV 存储(2026-09-13 起为唯一实现):mmap + protobuf 编码,单进程模式不加密(见 avbox-kv-mmkv-spec §4.4)
+mmkv = "2.4.2"
+junit = "4.13.2"
 danmakuFlameMaster = "0.9.25"
 okgo = "3.0.4"
 xxPermissions = "28.3"
@@ -85,7 +91,8 @@ gson = { group = "com.google.code.gson", name = "gson", version.ref = "gson" }
 autosize = { group = "me.jessyan", name = "autosize", version.ref = "autosize" }
 xstream = { group = "com.thoughtworks.xstream", name = "xstream", version.ref = "xstream" }
 eventbus = { group = "org.greenrobot", name = "eventbus", version.ref = "eventbus" }
-hawk = { group = "com.orhanobut", name = "hawk", version.ref = "hawk" }
+mmkv = { group = "com.tencent", name = "mmkv", version.ref = "mmkv" }
+junit = { group = "junit", name = "junit", version.ref = "junit" }
 danmaku-flame-master = { group = "com.github.ctiao", name = "DanmakuFlameMaster", version.ref = "danmakuFlameMaster" }
 okgo = { group = "com.lzy.net", name = "okgo", version.ref = "okgo" }
 xx-permissions = { group = "com.github.getActivity", name = "XXPermissions", version.ref = "xxPermissions" }

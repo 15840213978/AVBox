@@ -2,7 +2,7 @@ package com.github.tvbox.osc.util;
 
 import android.app.Activity;
 
-import com.orhanobut.hawk.Hawk;
+import com.github.tvbox.osc.util.KV;
 
 public class SubtitleHelper {
 
@@ -21,37 +21,37 @@ public class SubtitleHelper {
 
     public static int getTextSize(Activity activity) {
         int autoSize = getSubtitleTextAutoSize(activity);
-        int subtitleConfigSize = Hawk.get(HawkConfig.SUBTITLE_TEXT_SIZE, autoSize);
+        int subtitleConfigSize = KV.get(HawkConfig.SUBTITLE_TEXT_SIZE, autoSize);
         return subtitleConfigSize;
     }
 
     public static void setTextSize(int size) {
-        Hawk.put(HawkConfig.SUBTITLE_TEXT_SIZE, size);
+        KV.put(HawkConfig.SUBTITLE_TEXT_SIZE, size);
     }
 
     public static int getTimeDelay() {
-        int subtitleConfigTimeDelay = Hawk.get(HawkConfig.SUBTITLE_TIME_DELAY, 0);
+        int subtitleConfigTimeDelay = KV.get(HawkConfig.SUBTITLE_TIME_DELAY, 0);
         return subtitleConfigTimeDelay;
     }
 
     public static void setTimeDelay(int delay) {
-        Hawk.put(HawkConfig.SUBTITLE_TIME_DELAY, delay);
+        KV.put(HawkConfig.SUBTITLE_TIME_DELAY, delay);
     }
 
     public static int getExoSubtitleScale() {
-        return Hawk.get(HawkConfig.SUBTITLE_EXO_SCALE, 100);
+        return KV.get(HawkConfig.SUBTITLE_EXO_SCALE, 100);
     }
 
     public static void setExoSubtitleScale(int scale) {
-        Hawk.put(HawkConfig.SUBTITLE_EXO_SCALE, scale);
+        KV.put(HawkConfig.SUBTITLE_EXO_SCALE, scale);
     }
 
     public static float getExoSubtitlePosition() {
-        return Hawk.get(HawkConfig.SUBTITLE_EXO_POSITION, 0.0f);
+        return KV.get(HawkConfig.SUBTITLE_EXO_POSITION, 0.0f);
     }
 
     public static void setExoSubtitlePosition(float position) {
-        Hawk.put(HawkConfig.SUBTITLE_EXO_POSITION, position);
+        KV.put(HawkConfig.SUBTITLE_EXO_POSITION, position);
     }
 
 }

@@ -1,0 +1,109 @@
+name: Build Release APK
+
+# 手动触发:仓库 Actions 页 → Build Release APK → Run workflow,填版本号(如 v1.0.0)。
+# 与 build.yml 的区别:本工作流**建 Release 并上传 APK 资产**,build.yml 只上传 Actions artifact。
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version / tag (e.g. v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+      prerelease:
+        description: '标记为 Pre-release'
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: write
+
+# 仓库根目录就是 Gradle 根工程(android 源码不在子目录里)
+defaults:
+  run:
+    working-directory: .
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          # 不在这里开 gradle 缓存:下面 gradle/actions/setup-gradle@v5 已负责缓存,重复配置会互相干扰
+
+      # Chaquopy 需要一个"构建期 Python"来处理 pip 依赖;runner 自带版本不确定,
+      # 固定 3.10 以对齐 pyramid/build.gradle.kts 里 chaquopy { version = "3.10" } 的运行时。
+      - name: Set up Python 3.10 (Chaquopy build Python)
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.10'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v5
+
+      # compileSdk 37 / ndk 27.2.12479018 在 runner 预装的 SDK 里不一定有,显式装一次。
+      # 装完立刻校验:缺组件要在这里就失败,不要等 assembleRelease 跑几分钟才报错。
+      - name: Install required SDK/NDK & verify
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -name sdkmanager -type f | head -n1)"
+          [ -n "$SDKMANAGER" ] || { echo "::error::找不到 sdkmanager"; exit 1; }
+          yes | "$SDKMANAGER" --licenses > /dev/null || true
+          "$SDKMANAGER" "platforms;android-37" "ndk;27.2.12479018"
+          test -d "$SDK_ROOT/platforms/android-37" || { echo "::error::android-37 平台未安装"; exit 1; }
+          test -d "$SDK_ROOT/ndk/27.2.12479018" || { echo "::error::NDK 27.2.12479018 未安装"; exit 1; }
+          python3 -c "import sys; print('build python:', sys.version)"
+
+      - name: chmod gradlew
+        run: chmod +x gradlew
+
+      # 密钥库与签名口令本就随仓库入库(项目规范要求 .key/ 入库),故无需从 secrets 还原;
+      # 这里只做一次存在性/口令齐全校验,缺了就早失败,别等打完包才发现是未签名包。
+      - name: Verify signing material
+        run: |
+          test -f .key/app-release.jks || { echo "::error::缺少 .key/app-release.jks"; exit 1; }
+          for k in RELEASE_STORE_FILE RELEASE_KEY_ALIAS RELEASE_STORE_PASSWORD RELEASE_KEY_PASSWORD; do
+            grep -q "^$k=" gradle.properties || { echo "::error::gradle.properties 缺少 $k"; exit 1; }
+          done
+          ls -l .key/app-release.jks
+
+      - name: Build release APK
+        run: ./gradlew assembleRelease --no-daemon --stacktrace
+
+      - name: Rename & verify APK
+        id: apk
+        run: |
+          set -euo pipefail
+          SRC=app/build/outputs/apk/release/AVBox_release.apk
+          test -f "$SRC" || { echo "::error::未找到 $SRC"; exit 1; }
+
+          VERSION='${{ github.event.inputs.version }}'
+          OUT="AVBox_${VERSION}_arm64-v8a.apk"
+          cp "$SRC" "$OUT"
+
+          APKSIGNER="$(find "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/build-tools" -name apksigner -type f | sort -r | head -n1)"
+          echo "apksigner: $APKSIGNER"
+          if [ -n "$APKSIGNER" ]; then
+            "$APKSIGNER" verify --print-certs "$OUT" || { echo "::error::APK 签名校验失败"; exit 1; }
+          fi
+          echo "size: $(du -h "$OUT" | cut -f1)"
+          echo "path=$OUT" >> "$GITHUB_OUTPUT"
+
+      - name: Upload APK to Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ github.event.inputs.version }}
+          name: AVBox ${{ github.event.inputs.version }}
+          files: ${{ steps.apk.outputs.path }}
+          prerelease: ${{ github.event.inputs.prerelease == 'true' }}
+          fail_on_unmatched_files: true
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

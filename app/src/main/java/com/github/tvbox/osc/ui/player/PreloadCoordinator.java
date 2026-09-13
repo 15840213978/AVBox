@@ -15,7 +15,7 @@ import com.github.tvbox.osc.util.MD5;
 import com.github.tvbox.osc.util.thunder.Jianpian;
 import com.github.tvbox.osc.viewmodel.SourceViewModel;
 import com.github.tvbox.osc.player.PreloadManagerHolder;
-import com.orhanobut.hawk.Hawk;
+import com.github.tvbox.osc.util.KV;
 
 import org.json.JSONObject;
 
@@ -274,7 +274,7 @@ public final class PreloadCoordinator {
         }
         // M3U8 净化代理地址是动态 127.0.0.1 回填,预载链路拿不到,此类源排除(规格 §5.3)
         if (url.contains(".m3u8")
-                && Hawk.get(HawkConfig.M3U8_PURIFY, false)
+                && KV.get(HawkConfig.M3U8_PURIFY, false)
                 && !DefaultConfig.noAd(snapshot.playFlag)) {
             LOG.i("echo-preload-giveup: m3u8 purify on, url=" + url);
             gaveUp(snapshot);

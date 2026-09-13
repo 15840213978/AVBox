@@ -55,11 +55,19 @@ public class HawkConfig {
     public static final String LIVE_WEB_HEADER = "live_web_header";
     public static final String DEFAULT_LOAD_LIVE = "DEFAULT_LOAD_LIVE";
     public static final String SEARCH_HISTORY = "search_history";
+    // 搜索页热门榜缓存(原为 SearchActivity 内的字面量键,2026-09-13 KV 迁移时集中登记以便类型注册)
+    public static final String HOME_HOT = "home_hot";
+    public static final String HOME_HOT_DAY = "home_hot_day";
     /**
      * 无痕模式(2026-09-12):开启后**不写入**搜索历史与观看历史(含播放进度);
      * 手动收藏、以及删除/清空历史等用户主动操作不受影响。判定统一走 [HistoryHelper.isIncognito]
      */
     public static final String INCOGNITO = "incognito";
+    /**
+     * 禁用手势控制(2026-09-13):开启后播放器页面不再响应上下滑调节亮度/音量。
+     * 判定统一走 [com.github.tvbox.osc.util.GestureHelper.isControlDisabled],点播与直播两侧共用
+     */
+    public static final String GESTURE_CONTROL_DISABLED = "gesture_control_disabled";
     // 搜索线程数(2026-09-12,设置页滑块 16/32/48/64 四档):全站搜索源并发信号量许可数
     public static final String SEARCH_THREADS = "search_threads";
     public static final int SEARCH_THREADS_DEFAULT = 32;
@@ -89,6 +97,8 @@ public class HawkConfig {
     public static final String DANMU_SIZE_SCALE = "danmu_size_scale";
     public static final String DANMU_RANDOM_COLOR = "danmu_random_color";
     public static final String DANMU_API = "danmu_api";
+    /** 弹幕接口是否用内置默认(原为 DanmakuApi 内的字面量键,2026-09-13 KV 迁移时集中登记) */
+    public static final String DANMU_API_USE_DEFAULT = "danmu_api_use_default";
     // 源级卡片点击策略(2026-09-11):HashMap<sourceKey, "detail">,缺省即"搜索"
     public static final String SOURCE_CARD_POLICY = "source_card_policy";
     // 配置管理订阅源(2026-09-11):ArrayList<String>,每项 "名字\t链接"

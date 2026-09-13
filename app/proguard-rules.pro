@@ -84,8 +84,6 @@
     public <init>(android.content.Context, android.util.AttributeSet, int);
 }
 
--keep class com.orhanobut.hawk.** { *; }
-
 # 保留Parcelable序列化类不被混淆
 -keep class * implements android.os.Parcelable {
     public static final android.os.Parcelable$Creator *;
@@ -186,7 +184,7 @@
     public static **[] values();
     public static ** valueOf(java.lang.String);
 }
-# MaterialKolor PaletteStyle(主题设置页):枚举名被持久化到 Hawk,
+# MaterialKolor PaletteStyle(主题设置页):枚举名被持久化到 KV,
 # 上面的通用枚举规则只保留 valueOf/values 方法签名、不保留常量字段名,
 # 重命名后 PaletteStyle.valueOf(持久化名) 会抛 IllegalArgumentException(主题风格回落默认值)
 -keepclassmembers enum com.materialkolor.PaletteStyle {

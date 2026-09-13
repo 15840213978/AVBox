@@ -4,11 +4,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.github.tvbox.osc.util.HawkConfig
-import com.orhanobut.hawk.Hawk
+import com.github.tvbox.osc.util.KV
 
 /**
  * 液态玻璃导航栏状态(全局单例,2026-09-13 照搬 `示例文件/android` 的 LiquidGlassState):
- * 与 [AppThemeState] 同风格 —— 进程级单例 + Compose 可观察状态,Hawk 持久化。
+ * 与 [AppThemeState] 同风格 —— 进程级单例 + Compose 可观察状态,KV 持久化。
  * 必须单例:MainScreen(玻璃分支门控)与主题设置页共享同一实例,各自持有一份会导致开关失效(示例踩坑)。
  */
 object LiquidGlassState {
@@ -25,23 +25,23 @@ object LiquidGlassState {
     val config: LiquidGlassConfig get() = current
 
     private fun load(): LiquidGlassConfig = LiquidGlassConfig(
-        enabled = Hawk.get(HawkConfig.LIQUID_GLASS_ENABLED, true),
-        blurDp = Hawk.get(HawkConfig.LIQUID_GLASS_BLUR, DEFAULT_BLUR_DP),
-        distortionDp = Hawk.get(HawkConfig.LIQUID_GLASS_DISTORTION, DEFAULT_DISTORTION_DP),
+        enabled = KV.get(HawkConfig.LIQUID_GLASS_ENABLED, true),
+        blurDp = KV.get(HawkConfig.LIQUID_GLASS_BLUR, DEFAULT_BLUR_DP),
+        distortionDp = KV.get(HawkConfig.LIQUID_GLASS_DISTORTION, DEFAULT_DISTORTION_DP),
     )
 
     fun setEnabled(enabled: Boolean) {
-        Hawk.put(HawkConfig.LIQUID_GLASS_ENABLED, enabled)
+        KV.put(HawkConfig.LIQUID_GLASS_ENABLED, enabled)
         current = current.copy(enabled = enabled)
     }
 
     fun setBlurDp(dp: Float) {
-        Hawk.put(HawkConfig.LIQUID_GLASS_BLUR, dp)
+        KV.put(HawkConfig.LIQUID_GLASS_BLUR, dp)
         current = current.copy(blurDp = dp)
     }
 
     fun setDistortionDp(dp: Float) {
-        Hawk.put(HawkConfig.LIQUID_GLASS_DISTORTION, dp)
+        KV.put(HawkConfig.LIQUID_GLASS_DISTORTION, dp)
         current = current.copy(distortionDp = dp)
     }
 

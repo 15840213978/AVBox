@@ -1,7 +1,7 @@
 package com.github.tvbox.osc.bean;
 
 import com.github.tvbox.osc.util.HawkConfig;
-import com.orhanobut.hawk.Hawk;
+import com.github.tvbox.osc.util.KV;
 
 import java.text.ParsePosition;
 import java.text.SimpleDateFormat;

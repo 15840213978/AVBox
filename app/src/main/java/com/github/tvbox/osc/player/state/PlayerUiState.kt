@@ -79,8 +79,6 @@ class PlayerUiState {
     var backVisible: Boolean by mutableStateOf(false)
     /** 锁屏按钮可见性（照搬 showLockView 的三态） */
     var lockState: LockVisibility by mutableStateOf(LockVisibility.GONE)
-    /** 竖屏上下滑切集临时标题 3s */
-    var portraitEpisodeTitleTemp: Boolean by mutableStateOf(false)
 
     // —— 底部菜单（照搬 updatePortraitMenu / updatePlayerCfgView / hideLiveAboutBtn） ——
     var screenDisplayOn: Boolean by mutableStateOf(false)

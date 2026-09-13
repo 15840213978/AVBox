@@ -88,6 +88,15 @@ fun PreferenceSettingsScreen(onNavigateBack: () -> Unit, vm: SettingsViewModel =
                         onCheckedChange = { vm.put(HawkConfig.INCOGNITO, it) },
                     )
                 }
+                // 禁用手势控制(2026-09-13):开启后播放器不再响应上下滑调亮度/音量(单击/双击/横滑进度不受影响)
+                SettingsCard(SettingsCardPosition.MIDDLE) {
+                    SettingsSwitchRow(
+                        title = "禁用手势控制",
+                        subtitle = "开启后将禁用手势控制亮度和音量",
+                        checked = state.gestureControlDisabled,
+                        onCheckedChange = { vm.put(HawkConfig.GESTURE_CONTROL_DISABLED, it) },
+                    )
+                }
                 SettingsCard(SettingsCardPosition.MIDDLE) {
                     SettingsSwitchRow(
                         title = "弹幕开关",
@@ -102,7 +111,7 @@ fun PreferenceSettingsScreen(onNavigateBack: () -> Unit, vm: SettingsViewModel =
                         onClick = { danmuApiDialog = true },
                     )
                 }
-                // 长按倍速(2026-09-12):长按画面临时提速倍率,2x~10x 步长 1(9 档);松手落盘,长按触发时实时读 Hawk
+                // 长按倍速(2026-09-12):长按画面临时提速倍率,2x~10x 步长 1(9 档);松手落盘,长按触发时实时读 KV
                 SettingsCard(SettingsCardPosition.MIDDLE) {
                     SettingsSliderRow(
                         title = "长按倍速",

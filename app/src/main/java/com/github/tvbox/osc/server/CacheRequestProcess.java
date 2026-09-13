@@ -2,7 +2,7 @@ package com.github.tvbox.osc.server;
 
 import android.text.TextUtils;
 
-import com.orhanobut.hawk.Hawk;
+import com.github.tvbox.osc.util.KV;
 
 import java.util.Map;
 
@@ -23,12 +23,12 @@ public class CacheRequestProcess implements RequestProcess {
         String key = params.get("key");
         if (TextUtils.isEmpty(key)) return RemoteServer.createPlainTextResponse(NanoHTTPD.Response.Status.OK, "");
         String cacheKey = getKey(params.get("rule"), key);
-        if ("get".equals(action)) return RemoteServer.createPlainTextResponse(NanoHTTPD.Response.Status.OK, Hawk.get(cacheKey, ""));
+        if ("get".equals(action)) return RemoteServer.createPlainTextResponse(NanoHTTPD.Response.Status.OK, KV.get(cacheKey, ""));
         if ("set".equals(action)) {
             String value = params.get("value");
-            Hawk.put(cacheKey, value == null ? "" : value);
+            KV.put(cacheKey, value == null ? "" : value);
         }
-        if ("del".equals(action)) Hawk.delete(cacheKey);
+        if ("del".equals(action)) KV.delete(cacheKey);
         return RemoteServer.createPlainTextResponse(NanoHTTPD.Response.Status.OK, "OK");
     }
 

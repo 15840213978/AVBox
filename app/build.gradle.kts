@@ -11,6 +11,8 @@ plugins {
 android {
     namespace = "com.github.tvbox.osc"
     compileSdk = libs.versions.compileSdk.get().toInt()
+    // 见 libs.versions.toml 的 ndk 说明:仅用于启用 AGP 的 .so 符号剥离
+    ndkVersion = libs.versions.ndk.get()
 
     defaultConfig {
         applicationId = "com.github.avbox.osc"
@@ -135,7 +137,8 @@ dependencies {
         exclude(group = "xpp3", module = "xpp3_min")
     }
     implementation(libs.eventbus)
-    implementation(libs.hawk)
+    // KV 存储:MMKV(mmap + protobuf,单进程不加密);Hawk/Conceal 已于 2026-09-13 随迁移代码一并移除
+    implementation(libs.mmkv)
     implementation(libs.danmaku.flame.master)
 
     implementation(project(":player"))
@@ -172,4 +175,7 @@ dependencies {
 
     // 脱糖运行时库(由本模块打进 APK;库模块各自声明同名依赖以启用自身代码的脱糖)
     coreLibraryDesugaring(libs.desugar.jdk.libs)
+
+    // KV 编解码单测(纯 JVM,不需要 Robolectric):集合/嵌套泛型语义对齐是本次迁移最大风险点
+    testImplementation(libs.junit)
 }

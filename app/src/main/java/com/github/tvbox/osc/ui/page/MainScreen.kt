@@ -63,7 +63,7 @@ import com.github.tvbox.osc.util.AppManager
 import com.github.tvbox.osc.util.HawkConfig
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
-import com.orhanobut.hawk.Hawk
+import com.github.tvbox.osc.util.KV
 import kotlinx.coroutines.launch
 
 // 图标来自 .tubiao/*.svg 转换的 VectorDrawable(2026-09-09);选中/未选中态由 NavigationBarItem 自动着色
@@ -125,7 +125,7 @@ private fun MainContent() {
         AppBootstrap.state.collect { boot ->
             if (boot is AppBootstrap.Boot.Ready && !homeViewModel.defaultLiveLaunched) {
                 homeViewModel.defaultLiveLaunched = true
-                if (Hawk.get(HawkConfig.DEFAULT_LOAD_LIVE, false)) {
+                if (KV.get(HawkConfig.DEFAULT_LOAD_LIVE, false)) {
                     context.startActivity(Intent(context, LivePlayActivity::class.java))
                 }
             }

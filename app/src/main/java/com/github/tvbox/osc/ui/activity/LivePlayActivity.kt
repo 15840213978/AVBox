@@ -119,7 +119,7 @@ import com.google.gson.JsonObject
 import com.lzy.okgo.OkGo
 import com.lzy.okgo.callback.AbsCallback
 import com.lzy.okgo.model.Response
-import com.orhanobut.hawk.Hawk
+import com.github.tvbox.osc.util.KV
 import org.json.JSONArray
 import org.json.JSONException
 import org.json.JSONObject
@@ -292,11 +292,11 @@ class LivePlayActivity : BaseActivity() {
             }
         })
         epgStringAddress = getConfiguredEpgAddress()
-        Hawk.put(HawkConfig.NOW_DATE, FORMAT_DATE.format(Date()))
+        KV.put(HawkConfig.NOW_DATE, FORMAT_DATE.format(Date()))
         nowday = Date()
         epgDayPresented = FORMAT_DATE1.format(nowday)
         initVideoView()
-        Hawk.put(HawkConfig.PLAYER_IS_LIVE, true)
+        KV.put(HawkConfig.PLAYER_IS_LIVE, true)
         findViewById<ComposeView>(R.id.compose_view).setContent {
             // 纯黑状态栏页面:图标恒白由本页 init/沉浸退出逻辑断言,主题不接管
             AVBoxTheme(manageStatusBarIcons = false) {
@@ -320,7 +320,7 @@ class LivePlayActivity : BaseActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        Hawk.put(HawkConfig.PLAYER_IS_LIVE, false)
+        KV.put(HawkConfig.PLAYER_IS_LIVE, false)
         hideSwitchChannelSnapshot()
         mVideoView?.release()
         mVideoView = null
@@ -399,7 +399,7 @@ class LivePlayActivity : BaseActivity() {
             VideoView.STATE_PREPARING, VideoView.STATE_BUFFERING -> {
                 mHandler.postDelayed(
                     mConnectTimeoutChangeSourceRun,
-                    (Hawk.get(HawkConfig.LIVE_CONNECT_TIMEOUT, 1) + 1) * 5000L,
+                    (KV.get(HawkConfig.LIVE_CONNECT_TIMEOUT, 1) + 1) * 5000L,
                 )
             }
             else -> LOG.i("echo-Unexpected live_play state: $state")
@@ -465,7 +465,7 @@ class LivePlayActivity : BaseActivity() {
             currentChannelGroupIndex = channelGroupIndex
             currentLiveChannelIndex = liveChannelIndex
             currentLiveChannelItem = getLiveChannels(currentChannelGroupIndex)?.get(currentLiveChannelIndex)
-            Hawk.put(HawkConfig.LIVE_CHANNEL, currentLiveChannelItem?.channelName ?: "")
+            KV.put(HawkConfig.LIVE_CHANNEL, currentLiveChannelItem?.channelName ?: "")
         }
         channelName = currentLiveChannelItem
         currentLiveLookBackIndex = -1
@@ -556,7 +556,7 @@ class LivePlayActivity : BaseActivity() {
         currentLiveChangeSourceTimes++
         if (currentLiveChannelItem?.sourceNum == currentLiveChangeSourceTimes) {
             currentLiveChangeSourceTimes = 0
-            val next = getNextChannel(if (Hawk.get(HawkConfig.LIVE_CHANNEL_REVERSE, false)) -1 else 1)
+            val next = getNextChannel(if (KV.get(HawkConfig.LIVE_CHANNEL_REVERSE, false)) -1 else 1)
             playChannel(next[0], next[1], false)
         } else {
             playNextSource()
@@ -591,7 +591,7 @@ class LivePlayActivity : BaseActivity() {
             liveChannelIndex++
             if (liveChannelIndex >= (getLiveChannels(channelGroupIndex)?.size ?: 0)) {
                 liveChannelIndex = 0
-                if (Hawk.get(HawkConfig.LIVE_CROSS_GROUP, false)) {
+                if (KV.get(HawkConfig.LIVE_CROSS_GROUP, false)) {
                     do {
                         channelGroupIndex++
                         if (channelGroupIndex >= liveChannelGroupList.size) channelGroupIndex = 0
@@ -603,7 +603,7 @@ class LivePlayActivity : BaseActivity() {
         } else {
             liveChannelIndex--
             if (liveChannelIndex < 0) {
-                if (Hawk.get(HawkConfig.LIVE_CROSS_GROUP, false)) {
+                if (KV.get(HawkConfig.LIVE_CROSS_GROUP, false)) {
                     do {
                         channelGroupIndex--
                         if (channelGroupIndex < 0) channelGroupIndex = liveChannelGroupList.size - 1
@@ -890,7 +890,7 @@ class LivePlayActivity : BaseActivity() {
 
     private fun initLiveState() {
         refreshingLiveChannelList = false
-        val lastChannelName = pendingLiveRefreshChannelName ?: Hawk.get(HawkConfig.LIVE_CHANNEL, "")
+        val lastChannelName = pendingLiveRefreshChannelName ?: KV.get(HawkConfig.LIVE_CHANNEL, "")
         val sourceIndex = pendingLiveRefreshSourceIndex
         pendingLiveRefreshChannelName = null
         pendingLiveRefreshSourceIndex = -1
@@ -1030,7 +1030,7 @@ class LivePlayActivity : BaseActivity() {
             0 -> currentLiveChannelItem?.sourceIndex ?: -1
             1 -> livePlayerManager.livePlayerScale
             2 -> livePlayerManager.livePlayerType
-            3 -> Hawk.get(HawkConfig.LIVE_CONNECT_TIMEOUT, 1)
+            3 -> KV.get(HawkConfig.LIVE_CONNECT_TIMEOUT, 1)
             5 -> ApiConfig.getLiveGroupIndex()
             6 -> getCurrentLiveConfigIndex()
             else -> -1
@@ -1043,14 +1043,14 @@ class LivePlayActivity : BaseActivity() {
      * 由用户手动管理;当前使用中的配置(LIVE_API_URL)不可删除。
      */
     fun removeLiveConfigHistory(itemIndex: Int) {
-        val history = Hawk.get(HawkConfig.LIVE_API_HISTORY, ArrayList<String>())
+        val history = KV.get(HawkConfig.LIVE_API_HISTORY, ArrayList<String>())
         if (itemIndex < 0 || itemIndex >= history.size) return
-        if (history[itemIndex] == Hawk.get(HawkConfig.LIVE_API_URL, "")) {
+        if (history[itemIndex] == KV.get(HawkConfig.LIVE_API_URL, "")) {
             Toast.makeText(this, "当前使用中的配置不能删除", Toast.LENGTH_SHORT).show()
             return
         }
         history.removeAt(itemIndex)
-        Hawk.put(HawkConfig.LIVE_API_HISTORY, history)
+        KV.put(HawkConfig.LIVE_API_HISTORY, history)
         ApiConfig.get().refreshLiveApiHistoryItems()
         settingsVersion++
         Toast.makeText(this, "已从历史中删除", Toast.LENGTH_SHORT).show()
@@ -1058,10 +1058,10 @@ class LivePlayActivity : BaseActivity() {
 
     fun settingChecked(position: Int): Boolean {
         return when (position) {
-            0 -> Hawk.get(HawkConfig.LIVE_SHOW_TIME, false)
-            1 -> Hawk.get(HawkConfig.LIVE_SHOW_NET_SPEED, false)
-            2 -> Hawk.get(HawkConfig.LIVE_CHANNEL_REVERSE, false)
-            3 -> Hawk.get(HawkConfig.LIVE_CROSS_GROUP, false)
+            0 -> KV.get(HawkConfig.LIVE_SHOW_TIME, false)
+            1 -> KV.get(HawkConfig.LIVE_SHOW_NET_SPEED, false)
+            2 -> KV.get(HawkConfig.LIVE_CHANNEL_REVERSE, false)
+            3 -> KV.get(HawkConfig.LIVE_CROSS_GROUP, false)
             else -> false
         }
     }
@@ -1072,8 +1072,8 @@ class LivePlayActivity : BaseActivity() {
      */
     private fun getCurrentLiveConfigIndex(): Int {
         if (ApiConfig.isLiveFollowVod()) return 0
-        val history = Hawk.get(HawkConfig.LIVE_API_HISTORY, ArrayList<String>())
-        val index = history.indexOf(Hawk.get(HawkConfig.LIVE_API_URL, ""))
+        val history = KV.get(HawkConfig.LIVE_API_HISTORY, ArrayList<String>())
+        val index = history.indexOf(KV.get(HawkConfig.LIVE_API_URL, ""))
         return if (index < 0) -1 else index + 1
     }
 
@@ -1099,22 +1099,22 @@ class LivePlayActivity : BaseActivity() {
                 videoView.start()
             }
             3 -> { // 超时换源
-                if (position == Hawk.get(HawkConfig.LIVE_CONNECT_TIMEOUT, 1)) return
-                Hawk.put(HawkConfig.LIVE_CONNECT_TIMEOUT, position)
+                if (position == KV.get(HawkConfig.LIVE_CONNECT_TIMEOUT, 1)) return
+                KV.put(HawkConfig.LIVE_CONNECT_TIMEOUT, position)
             }
             4 -> { // 偏好设置
                 when (position) {
-                    0 -> Hawk.put(HawkConfig.LIVE_SHOW_TIME, !Hawk.get(HawkConfig.LIVE_SHOW_TIME, false)).also { showTime() }
-                    1 -> Hawk.put(HawkConfig.LIVE_SHOW_NET_SPEED, !Hawk.get(HawkConfig.LIVE_SHOW_NET_SPEED, false)).also { showNetSpeed() }
-                    2 -> Hawk.put(HawkConfig.LIVE_CHANNEL_REVERSE, !Hawk.get(HawkConfig.LIVE_CHANNEL_REVERSE, false))
-                    3 -> Hawk.put(HawkConfig.LIVE_CROSS_GROUP, !Hawk.get(HawkConfig.LIVE_CROSS_GROUP, false))
+                    0 -> KV.put(HawkConfig.LIVE_SHOW_TIME, !KV.get(HawkConfig.LIVE_SHOW_TIME, false)).also { showTime() }
+                    1 -> KV.put(HawkConfig.LIVE_SHOW_NET_SPEED, !KV.get(HawkConfig.LIVE_SHOW_NET_SPEED, false)).also { showNetSpeed() }
+                    2 -> KV.put(HawkConfig.LIVE_CHANNEL_REVERSE, !KV.get(HawkConfig.LIVE_CHANNEL_REVERSE, false))
+                    3 -> KV.put(HawkConfig.LIVE_CROSS_GROUP, !KV.get(HawkConfig.LIVE_CROSS_GROUP, false))
                 }
             }
             5 -> { // 多源切换
                 if (position == ApiConfig.getLiveGroupIndex()) return
                 val currentChannelName = getPreferredLiveRefreshChannelName()
                 val currentSourceIndex = getPreferredLiveRefreshSourceIndex()
-                val liveGroups = Hawk.get(HawkConfig.LIVE_GROUP_LIST, JsonArray())
+                val liveGroups = KV.get(HawkConfig.LIVE_GROUP_LIST, JsonArray())
                 if (liveGroups == null || position >= liveGroups.size()) return
                 liveConfigRequestId++
                 val livesOBJ = liveGroups.get(position).asJsonObject
@@ -1128,7 +1128,7 @@ class LivePlayActivity : BaseActivity() {
                 refreshLiveChannelListAndPlay(currentChannelName, currentSourceIndex)
             }
             6 -> { // 配置切换:第 0 项 =「跟随点播源」,其后为直播配置历史
-                val history = Hawk.get(HawkConfig.LIVE_API_HISTORY, ArrayList<String>())
+                val history = KV.get(HawkConfig.LIVE_API_HISTORY, ArrayList<String>())
                 val target: String
                 if (position == 0) {
                     if (ApiConfig.isLiveFollowVod()) return
@@ -1136,12 +1136,12 @@ class LivePlayActivity : BaseActivity() {
                 } else {
                     if (position - 1 >= history.size) return
                     target = history[position - 1]
-                    if (target == Hawk.get(HawkConfig.LIVE_API_URL, "")) return
+                    if (target == KV.get(HawkConfig.LIVE_API_URL, "")) return
                 }
                 val configChannelName = getPreferredLiveRefreshChannelName()
                 val configSourceIndex = getPreferredLiveRefreshSourceIndex()
                 val requestId = ++liveConfigRequestId
-                Hawk.put(HawkConfig.LIVE_API_URL, target)
+                KV.put(HawkConfig.LIVE_API_URL, target)
                 if (target.isNotEmpty()) HistoryHelper.setLiveApiHistory(target)
                 ApiConfig.get().invalidateLiveConfig()
                 ApiConfig.get().refreshLiveApiHistoryItems()
@@ -1177,7 +1177,7 @@ class LivePlayActivity : BaseActivity() {
 
     private fun getPreferredLiveRefreshChannelName(): String? {
         currentLiveChannelItem?.let { return it.channelName }
-        return Hawk.get(HawkConfig.LIVE_CHANNEL, "")
+        return KV.get(HawkConfig.LIVE_CHANNEL, "")
     }
 
     private fun getPreferredLiveRefreshSourceIndex(): Int {
@@ -1186,7 +1186,7 @@ class LivePlayActivity : BaseActivity() {
     }
 
     private fun liveWebHeader(): HashMap<String, String>? {
-        return Hawk.get(HawkConfig.LIVE_WEB_HEADER)
+        return KV.get(HawkConfig.LIVE_WEB_HEADER)
     }
 
     private fun liveChannelHeader(): HashMap<String, String>? {
@@ -1205,7 +1205,7 @@ class LivePlayActivity : BaseActivity() {
         catchup = null
         logoUrl = null
         val position = ApiConfig.getLiveGroupIndex()
-        val liveGroups = Hawk.get(HawkConfig.LIVE_GROUP_LIST, JsonArray())
+        val liveGroups = KV.get(HawkConfig.LIVE_GROUP_LIST, JsonArray())
         if (liveGroups == null || liveGroups.size() == 0 || position < 0 || position >= liveGroups.size()) {
             return
         }
@@ -1411,7 +1411,7 @@ class LivePlayActivity : BaseActivity() {
     }
 
     private fun showTime() {
-        showTimeOn = Hawk.get(HawkConfig.LIVE_SHOW_TIME, false)
+        showTimeOn = KV.get(HawkConfig.LIVE_SHOW_TIME, false)
         mHandler.removeCallbacks(mUpdateTimeRun)
         if (showTimeOn) mHandler.post(mUpdateTimeRun)
     }
@@ -1424,7 +1424,7 @@ class LivePlayActivity : BaseActivity() {
     }
 
     private fun showNetSpeed() {
-        showNetSpeedOn = Hawk.get(HawkConfig.LIVE_SHOW_NET_SPEED, false)
+        showNetSpeedOn = KV.get(HawkConfig.LIVE_SHOW_NET_SPEED, false)
         mHandler.removeCallbacks(mUpdateNetSpeedRun)
         if (showNetSpeedOn) mHandler.post(mUpdateNetSpeedRun)
     }
@@ -1605,7 +1605,7 @@ class LivePlayActivity : BaseActivity() {
     }
 
     private fun getConfiguredEpgAddress(): String {
-        val userEpgAddress: String = Hawk.get(HawkConfig.EPG_URL, "")
+        val userEpgAddress: String = KV.get(HawkConfig.EPG_URL, "")
         if (userEpgAddress.trim { it <= ' ' }.length >= 5) {
             return userEpgAddress.trim { it <= ' ' }
         }

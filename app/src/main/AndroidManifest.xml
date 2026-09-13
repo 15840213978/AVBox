@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-feature
         android:name="android.hardware.touchscreen"
@@ -18,13 +19,35 @@
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
     <!-- Android 11+ 全部文件访问(浏览/备份/局域网共享任意路径,无系统弹窗,跳转设置页授权) -->
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <!--
+        REQUEST_INSTALL_PACKAGES 保留(全项目零引用,属上游 TVBox 的历史遗留):一旦将来做
+        "应用内更新"就必须用它,且它有实际风险(可触发安装未知来源应用),留着请知悉 —— 不需要就删本行。
+        ACCESS_FINE_LOCATION / GET_TASKS 已于 2026-09-13 移除:DLNA 组播锁不需要定位,
+        GET_TASKS 在 Android 5+ 已废弃,两者全项目零引用。
+    -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <!-- Android 14+ 带类型前台服务必需：mediaPlayback 类型服务的专用权限 -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
-    <!-- Android 13+ 媒体通知需要运行时通知权限 -->
+    <!-- Android 13+ 通知为运行时权限:清单声明之外,还须 PermissionHelper.requestNotificationIfNeeded 显式申请 -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!--
+        2026-09-13 权限梳理(第二部分):删掉**依赖库清单**塞进来的无关权限。
+        这些是随库合并进来的,不删就会进最终 APK —— 其中 MOUNT 属系统级高权限,
+        上架会被追问用途,而本项目根本拿不到也用不到它。来源已用 manifest-merger 报告逐个核对:
+          MOUNT_UNMOUNT_FILESYSTEMS : com.lzy.net:okgo:3.0.4(系统签名权限,第三方应用纯噪声)
+          GET_TASKS                 : 上游 player 模块(Android 5+ 已废弃)
+          READ_PHONE_STATE          : 上游 player 模块(ScreenUtils 已改造为不需要电话权限)
+          ACCESS_FINE_LOCATION      : 上游/依赖(DLNA 组播锁不需要定位)
+        注意:READ/WRITE_EXTERNAL_STORAGE 不在此列 —— 它们由本清单**合法声明**并带 maxSdkVersion=32,
+        okgo 只是又声明了一遍(无 maxSdkVersion),清单合并会自动保留我们那份带上限的版本。
+        ⚠️ 依赖升级/替换后请复查本清单是否仍有对应来源(okgo 若将来被移除,这几条可一并删掉)。
+    -->
+    <uses-permission android:name="android.permission.MOUNT_UNMOUNT_FILESYSTEMS" tools:node="remove" />
+    <uses-permission android:name="android.permission.GET_TASKS" tools:node="remove" />
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" tools:node="remove" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" tools:node="remove" />
 
     <application
         android:name=".base.App"

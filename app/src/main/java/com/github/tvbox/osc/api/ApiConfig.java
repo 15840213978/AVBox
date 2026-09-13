@@ -42,7 +42,7 @@ import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-import com.orhanobut.hawk.Hawk;
+import com.github.tvbox.osc.util.KV;
 
 import org.json.JSONObject;
 
@@ -120,7 +120,7 @@ public class ApiConfig {
         parseBeanList = new ArrayList<>();
         searchSourceBeanList = new ArrayList<>();
         gson = new Gson();
-        Hawk.put(HawkConfig.LIVE_GROUP_LIST,new JsonArray());
+        KV.put(HawkConfig.LIVE_GROUP_LIST,new JsonArray());
         loadDefaultConfig();
     }
 
@@ -200,7 +200,7 @@ public class ApiConfig {
         return configUrl;
     }
     public void loadConfig(boolean useCache, LoadConfigCallback callback, Activity activity) {
-        String apiUrl = Hawk.get(HawkConfig.API_URL, "");
+        String apiUrl = KV.get(HawkConfig.API_URL, "");
         if (apiUrl.isEmpty()) {
             callback.error("-1");
             return;
@@ -273,8 +273,8 @@ public class ApiConfig {
      * 直播侧全部走这个方法取地址,避免各处重复写"空则回落"的判断。
      */
     public static String getEffectiveLiveUrl() {
-        String liveApiUrl = Hawk.get(HawkConfig.LIVE_API_URL, "");
-        return TextUtils.isEmpty(liveApiUrl) ? Hawk.get(HawkConfig.API_URL, "") : liveApiUrl;
+        String liveApiUrl = KV.get(HawkConfig.LIVE_API_URL, "");
+        return TextUtils.isEmpty(liveApiUrl) ? KV.get(HawkConfig.API_URL, "") : liveApiUrl;
     }
 
     /**
@@ -283,12 +283,12 @@ public class ApiConfig {
      * 因此无需数据迁移:老用户升级后行为与升级前完全一致,且点播换源时直播会继续跟随。
      */
     public static boolean isLiveFollowVod() {
-        String liveApiUrl = Hawk.get(HawkConfig.LIVE_API_URL, "");
+        String liveApiUrl = KV.get(HawkConfig.LIVE_API_URL, "");
         if (TextUtils.isEmpty(liveApiUrl)) {
             return true;
         }
         // 两者都非空才比较;API_URL 为空(未配置点播)时直播源独立存在,不算跟随
-        return liveApiUrl.equals(Hawk.get(HawkConfig.API_URL, ""));
+        return liveApiUrl.equals(KV.get(HawkConfig.API_URL, ""));
     }
 
     public void loadLiveConfig(boolean useCache, LoadConfigCallback callback) {
@@ -362,7 +362,7 @@ public class ApiConfig {
 
     /**
      * 作废已加载的直播内存态(2026-09-12 点播/直播拆分):点播源或直播源变更后调用,
-     * 让直播页下次进入必然重载。只清内存与"已加载来源"标记,不动 Hawk 与磁盘缓存(离线仍可用缓存兜底)。
+     * 让直播页下次进入必然重载。只清内存与"已加载来源"标记,不动 KV 与磁盘缓存(离线仍可用缓存兜底)。
      */
     public void invalidateLiveConfig() {
         liveChannelGroupList.clear();
@@ -370,7 +370,7 @@ public class ApiConfig {
     }
 
     public static String getLiveGroupIndexKey() {
-        String liveApiUrl = Hawk.get(HawkConfig.LIVE_API_URL, "");
+        String liveApiUrl = KV.get(HawkConfig.LIVE_API_URL, "");
         if (liveApiUrl == null || liveApiUrl.length() == 0) {
             return HawkConfig.LIVE_GROUP_INDEX;
         }
@@ -378,11 +378,11 @@ public class ApiConfig {
     }
 
     public static int getLiveGroupIndex() {
-        return Hawk.get(getLiveGroupIndexKey(), 0);
+        return KV.get(getLiveGroupIndexKey(), 0);
     }
 
     public static void setLiveGroupIndex(int index) {
-        Hawk.put(getLiveGroupIndexKey(), index);
+        KV.put(getLiveGroupIndexKey(), index);
     }
 
     private static final int LOAD_JAR_MAX_RETRY = 1;
@@ -695,16 +695,16 @@ public class ApiConfig {
         if (TextUtils.isEmpty(firstApi) || firstApi.equals(apiUrl)) {
             return false;
         }
-        Hawk.put(HawkConfig.API_LINE_LIST, apiLines);
-        Hawk.put(HawkConfig.API_LINE_SOURCE, apiUrl);
-        Hawk.put(HawkConfig.API_URL, firstApi);
+        KV.put(HawkConfig.API_LINE_LIST, apiLines);
+        KV.put(HawkConfig.API_LINE_SOURCE, apiUrl);
+        KV.put(HawkConfig.API_URL, firstApi);
         HistoryHelper.setApiHistory(apiUrl);
         // 作废内存旧配置(2026-09-13):本方法把 API_URL 换成了合集里的首条线路,
         // 若该线路随后拉取失败,不先作废就会残留合集旧数据、首页继续显示旧内容
         invalidateVodConfig();
-        String liveApiUrl = Hawk.get(HawkConfig.LIVE_API_URL, "");
+        String liveApiUrl = KV.get(HawkConfig.LIVE_API_URL, "");
         if (TextUtils.isEmpty(liveApiUrl) || liveApiUrl.equals(apiUrl)) {
-            Hawk.put(HawkConfig.LIVE_API_URL, firstApi);
+            KV.put(HawkConfig.LIVE_API_URL, firstApi);
             HistoryHelper.setLiveApiHistory(firstApi);
         }
         return true;
@@ -765,7 +765,7 @@ public class ApiConfig {
         liveChannelGroupList.clear();
         parseBeanList.clear();
         searchSourceBeanList = new ArrayList<>();
-        Hawk.put(HawkConfig.LIVE_GROUP_LIST,new JsonArray());
+        KV.put(HawkConfig.LIVE_GROUP_LIST,new JsonArray());
     }
 
     /**
@@ -780,7 +780,7 @@ public class ApiConfig {
 
     /**
      * 清空点播配置(2026-09-12,配置管理页删光点播源时调用):
-     * 内存源数据与 Hawk 点播地址一并清空,回到「尚未配置订阅接口」的初始状态;
+     * 内存源数据与 KV 点播地址一并清空,回到「尚未配置订阅接口」的初始状态;
      * 调用方随后执行 AppBootstrap.retry() 即可让各页按未配置刷新(getHomeSourceBean 有 emptyHome 兜底)。
      * **独立直播源不受影响**;直播若处于跟随态则 LIVE_API_URL 一并置空(否则会变成指向旧点播源的陈旧快照)。
      */
@@ -788,28 +788,28 @@ public class ApiConfig {
         boolean followLive = isLiveFollowVod(); // 必须在清空 API_URL 之前判定
         resetConfigData();
         mHomeSource = null;
-        Hawk.put(HawkConfig.API_URL, "");
-        Hawk.put(HawkConfig.HOME_API, "");
+        KV.put(HawkConfig.API_URL, "");
+        KV.put(HawkConfig.HOME_API, "");
         HistoryHelper.clearApiLineList();
         if (followLive) {
-            Hawk.put(HawkConfig.LIVE_API_URL, "");
+            KV.put(HawkConfig.LIVE_API_URL, "");
         }
         invalidateLiveConfig();
     }
 
     /** 清空独立直播源并回到「跟随点播源」(2026-09-12):点播配置完全不受影响 */
     public void clearLiveConfig() {
-        Hawk.put(HawkConfig.LIVE_API_URL, "");
+        KV.put(HawkConfig.LIVE_API_URL, "");
         invalidateLiveConfig();
     }
 
     /**
-     * 作废内存里的点播配置(**不**动 Hawk 地址,2026-09-13)。
+     * 作废内存里的点播配置(**不**动 KV 地址,2026-09-13)。
      *
      * 存在的理由:[loadConfig] 失败时走的是 `callback.error(...)`,**根本不会调用 [parseJson]**,
      * 而清场动作 `resetConfigData()` 只在 parseJson 开头执行 —— 于是单例里的
      * `sourceBeanList` / `mHomeSource` / `parseBeanList` 全部保留着**上一个源**的数据,
-     * 首页套用旧源继续正常显示与播放,可 Hawk 里的 `API_URL` 已经指向新源:
+     * 首页套用旧源继续正常显示与播放,可 KV 里的 `API_URL` 已经指向新源:
      * 表现就是"运行中用旧源、重启后才发现新源不可用"的状态不一致。
      *
      * 因此在**切换点播源之前**调用本方法:新源拉取成功会由 parseJson 重新填充;
@@ -823,7 +823,7 @@ public class ApiConfig {
     }
 
     private void clearApiLinesIfUnmatched(String apiUrl) {
-        ArrayList<String> apiLines = Hawk.get(HawkConfig.API_LINE_LIST, new ArrayList<String>());
+        ArrayList<String> apiLines = KV.get(HawkConfig.API_LINE_LIST, new ArrayList<String>());
         if (apiLines.isEmpty()) {
             return;
         }
@@ -884,7 +884,7 @@ public class ApiConfig {
             sourceBeanList.put(siteKey, sb);
         }
         if (sourceBeanList != null && sourceBeanList.size() > 0) {
-            String home = Hawk.get(HawkConfig.HOME_API, "");
+            String home = KV.get(HawkConfig.HOME_API, "");
             SourceBean sh = getSource(home);
             if (sh == null) {
                 assert firstSite != null;
@@ -913,7 +913,7 @@ public class ApiConfig {
         }
         // 获取默认解析
         if (parseBeanList != null && parseBeanList.size() > 0) {
-            String defaultParse = Hawk.get(HawkConfig.DEFAULT_PARSE, "");
+            String defaultParse = KV.get(HawkConfig.DEFAULT_PARSE, "");
             if (!TextUtils.isEmpty(defaultParse))
                 for (ParseBean pb : parseBeanList) {
                     if (pb.getName().equals(defaultParse))
@@ -924,7 +924,7 @@ public class ApiConfig {
         }
 
         // 直播源
-        String live_api_url=Hawk.get(HawkConfig.LIVE_API_URL,"");
+        String live_api_url=KV.get(HawkConfig.LIVE_API_URL,"");
         if(live_api_url.isEmpty() || apiUrl.equals(live_api_url)){
             LOG.i("echo-load-config_live");
             initLiveSettings();
@@ -932,7 +932,7 @@ public class ApiConfig {
                 JsonArray lives_groups=infoJson.get("lives").getAsJsonArray();
                 int live_group_index=getLiveGroupIndex();
                 if(live_group_index>lives_groups.size()-1)live_group_index=0;
-                Hawk.put(HawkConfig.LIVE_GROUP_LIST,lives_groups);
+                KV.put(HawkConfig.LIVE_GROUP_LIST,lives_groups);
                 //加载多源配置
                 try {
                     ArrayList<LiveSettingItem> liveSettingItemList = new ArrayList<>();
@@ -1042,12 +1042,12 @@ public class ApiConfig {
             } catch (Exception e) {
                 e.printStackTrace();
             }
-            if(!Hawk.get(HawkConfig.DOH_JSON, "").equals(doh_json)){
-                Hawk.put(HawkConfig.DOH_URL, 0);
-                Hawk.put(HawkConfig.DOH_JSON,doh_json);
+            if(!KV.get(HawkConfig.DOH_JSON, "").equals(doh_json)){
+                KV.put(HawkConfig.DOH_URL, 0);
+                KV.put(HawkConfig.DOH_JSON,doh_json);
             }
         }else {
-            Hawk.put(HawkConfig.DOH_JSON,"");
+            KV.put(HawkConfig.DOH_JSON,"");
         }
         OkGoHelper.setDnsList();
         LOG.i("echo-api-config-----------load");
@@ -1075,7 +1075,7 @@ public class ApiConfig {
         if(ijkCodes==null){
             ijkCodes = new ArrayList<>();
             boolean foundOldSelect = false;
-            String ijkCodec = Hawk.get(HawkConfig.IJK_CODEC, "硬解码");
+            String ijkCodec = KV.get(HawkConfig.IJK_CODEC, "硬解码");
             JsonArray ijkJsonArray = defaultJson.get("ijk").getAsJsonArray();
             for (JsonElement opt : ijkJsonArray) {
                 JsonObject obj = (JsonObject) opt;
@@ -1151,10 +1151,10 @@ public class ApiConfig {
         currentLiveSpider = "";
         currentLivePyKey = "";
         initLiveSettings();
-        Hawk.put(HawkConfig.LIVE_GROUP_LIST, new JsonArray());
-        Hawk.put(HawkConfig.EPG_URL, extractLiveTextEpg(content));
-        Hawk.put(HawkConfig.LIVE_PLAY_TYPE, Hawk.get(HawkConfig.PLAY_TYPE, 2));
-        Hawk.put(HawkConfig.LIVE_WEB_HEADER, null);
+        KV.put(HawkConfig.LIVE_GROUP_LIST, new JsonArray());
+        KV.put(HawkConfig.EPG_URL, extractLiveTextEpg(content));
+        KV.put(HawkConfig.LIVE_PLAY_TYPE, KV.get(HawkConfig.PLAY_TYPE, 2));
+        KV.put(HawkConfig.LIVE_WEB_HEADER, null);
         JsonArray livesArray = TxtSubscribe.parseToJsonArray(content);
         loadLives(livesArray);
         LOG.i("echo-live-text-config-----------load:" + apiUrl);
@@ -1199,7 +1199,7 @@ public class ApiConfig {
 
             int live_group_index=getLiveGroupIndex();
             if(live_group_index>lives_groups.size()-1)live_group_index=0;
-            Hawk.put(HawkConfig.LIVE_GROUP_LIST,lives_groups);
+            KV.put(HawkConfig.LIVE_GROUP_LIST,lives_groups);
             //加载多源配置
             try {
                 ArrayList<LiveSettingItem> liveSettingItemList = new ArrayList<>();
@@ -1290,7 +1290,7 @@ public class ApiConfig {
         followItem.setItemIndex(0);
         followItem.setItemName(LIVE_FOLLOW_ITEM_NAME);
         liveSettingItemList.add(followItem);
-        ArrayList<String> history = Hawk.get(HawkConfig.LIVE_API_HISTORY, new ArrayList<String>());
+        ArrayList<String> history = KV.get(HawkConfig.LIVE_API_HISTORY, new ArrayList<String>());
         for (int i = 0; i < history.size(); i++) {
             LiveSettingItem liveSettingItem = new LiveSettingItem();
             liveSettingItem.setItemIndex(i + 1);
@@ -1510,21 +1510,21 @@ public class ApiConfig {
             //设置epg
             if(livesOBJ.has("epg")){
                 String epg =livesOBJ.get("epg").getAsString();
-                Hawk.put(HawkConfig.EPG_URL,epg);
+                KV.put(HawkConfig.EPG_URL,epg);
             }else {
-                Hawk.put(HawkConfig.EPG_URL,"");
+                KV.put(HawkConfig.EPG_URL,"");
             }
             //直播播放器类型
             if(livesOBJ.has("playerType")){
                 String livePlayType =livesOBJ.get("playerType").getAsString();
-                Hawk.put(HawkConfig.LIVE_PLAY_TYPE,livePlayType);
+                KV.put(HawkConfig.LIVE_PLAY_TYPE,livePlayType);
             }else {
-                Hawk.put(HawkConfig.LIVE_PLAY_TYPE,Hawk.get(HawkConfig.PLAY_TYPE, 2));
+                KV.put(HawkConfig.LIVE_PLAY_TYPE,KV.get(HawkConfig.PLAY_TYPE, 2));
             }
             //设置UA
             if(livesOBJ.has("timeout")){
                 int timeout = Math.max(5, Math.min(30, livesOBJ.get("timeout").getAsInt()));
-                Hawk.put(HawkConfig.LIVE_CONNECT_TIMEOUT, (timeout + 4) / 5 - 1);
+                KV.put(HawkConfig.LIVE_CONNECT_TIMEOUT, (timeout + 4) / 5 - 1);
             }
             if(livesOBJ.has("header")) {
                 JsonObject headerObj = livesOBJ.getAsJsonObject("header");
@@ -1532,14 +1532,14 @@ public class ApiConfig {
                 for (Map.Entry<String, JsonElement> entry : headerObj.entrySet()) {
                     liveHeader.put(entry.getKey(), entry.getValue().getAsString());
                 }
-                Hawk.put(HawkConfig.LIVE_WEB_HEADER, liveHeader);
+                KV.put(HawkConfig.LIVE_WEB_HEADER, liveHeader);
             } else if(livesOBJ.has("ua")) {
                 String ua = livesOBJ.get("ua").getAsString();
                 HashMap<String,String> liveHeader = new HashMap<>();
                 liveHeader.put("User-Agent", ua);
-                Hawk.put(HawkConfig.LIVE_WEB_HEADER, liveHeader);
+                KV.put(HawkConfig.LIVE_WEB_HEADER, liveHeader);
             }else {
-                Hawk.put(HawkConfig.LIVE_WEB_HEADER,null);
+                KV.put(HawkConfig.LIVE_WEB_HEADER,null);
             }
             LiveChannelGroup liveChannelGroup = new LiveChannelGroup();
             liveChannelGroup.setGroupName(url);
@@ -1659,7 +1659,7 @@ public class ApiConfig {
     }
 
     public int getLiveConnectTimeoutSeconds() {
-        return (Hawk.get(HawkConfig.LIVE_CONNECT_TIMEOUT, 1) + 1) * 5;
+        return (KV.get(HawkConfig.LIVE_CONNECT_TIMEOUT, 1) + 1) * 5;
     }
 
     private boolean isLiveSpiderApi(String api) {
@@ -1675,7 +1675,7 @@ public class ApiConfig {
 
         boolean isJs = "js".equals(action);
         boolean isPy = "py".equals(action);
-        boolean isLive = Hawk.get(HawkConfig.PLAYER_IS_LIVE, false);
+        boolean isLive = KV.get(HawkConfig.PLAYER_IS_LIVE, false);
         boolean isApiJs = api.contains(".js");
         boolean isApiPy = api.contains(".py");
 
@@ -1818,14 +1818,14 @@ public class ApiConfig {
 
     public void setSourceBean(SourceBean sourceBean) {
         this.mHomeSource = sourceBean;
-        Hawk.put(HawkConfig.HOME_API, sourceBean.getKey());
+        KV.put(HawkConfig.HOME_API, sourceBean.getKey());
     }
 
     public void setDefaultParse(ParseBean parseBean) {
         if (this.mDefaultParse != null)
             this.mDefaultParse.setDefault(false);
         this.mDefaultParse = parseBean;
-        Hawk.put(HawkConfig.DEFAULT_PARSE, parseBean.getName());
+        KV.put(HawkConfig.DEFAULT_PARSE, parseBean.getName());
         parseBean.setDefault(true);
     }
 
@@ -1879,7 +1879,7 @@ public class ApiConfig {
     }
 
     public IJKCode getCurrentIJKCode() {
-        String codeName = Hawk.get(HawkConfig.IJK_CODEC, "硬解码");
+        String codeName = KV.get(HawkConfig.IJK_CODEC, "硬解码");
         return getIJKCodec(codeName);
     }
 

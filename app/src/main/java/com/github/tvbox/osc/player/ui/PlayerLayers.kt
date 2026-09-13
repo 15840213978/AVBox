@@ -227,20 +227,24 @@ fun PlayerLockButton(state: PlayerUiState, actions: PlayerActions) {
     }
 }
 
-/** 长按倍速浮层（替代 play_speed_3_container / fromLongPress;倍率设置页可调 2x~10x） */
+/**
+ * 长按倍速浮层(替代 play_speed_3_container / fromLongPress;倍率设置页可调 2x~10x)。
+ *
+ * 样式与其他提示浮层统一(2026-09-13 用户要求):复用 [HintPill] —— 与控制条进度提示
+ * ([PlayerSeekHint])完全同款的半透明 surface 药丸,不再用旧的纯黑圆角底 `#66000000` + 白字;
+ * 文字色随主题 `onSurface`,字号用 play 模块的 ts_26 档(与中央提示同级)。
+ */
 @Composable
 fun PlayerSpeedBoostHint(state: PlayerUiState) {
     if (!state.speedBoostVisible) return
     Box(Modifier.fillMaxSize()) {
-        Text(
-            text = "%.1f X".format(state.speedBoostValue),
-            color = Color.White,
-            fontSize = 18.sp,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier
-                .align(Alignment.Center)
-                .background(Color(0x66000000), RoundedCornerShape(12.dp))
-                .padding(8.dp),
-        )
+        HintPill(modifier = Modifier.align(Alignment.Center)) {
+            Text(
+                text = "%.1f X".format(state.speedBoostValue),
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = playerTextSize(R.dimen.ts_26),
+                fontWeight = FontWeight.Bold,
+            )
+        }
     }
 }

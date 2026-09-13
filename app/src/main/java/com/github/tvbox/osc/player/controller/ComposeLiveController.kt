@@ -7,6 +7,7 @@ import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.View
 import android.view.Window
+import com.github.tvbox.osc.util.GestureHelper
 import xyz.doikki.videoplayer.controller.BaseVideoController
 import xyz.doikki.videoplayer.player.VideoView
 import xyz.doikki.videoplayer.util.PlayerUtils
@@ -103,6 +104,14 @@ class ComposeLiveController @JvmOverloads constructor(
         return gesturePlaybackState() && !PlayerUtils.isEdge(context, event)
     }
 
+    /**
+     * 是否允许"上下滑调亮度/音量"(2026-09-13「禁用手势控制」设置项)。
+     * 直播侧的手势只有亮度/音量与左右快滑切台(走 onFling),故只在这一处收口。
+     */
+    private fun canChangeBrightnessVolume(event: MotionEvent): Boolean {
+        return canHandleGesture(event) && !GestureHelper.isControlDisabled()
+    }
+
     override fun onDown(e: MotionEvent): Boolean {
         if (!gesturePlaybackState() || PlayerUtils.isEdge(context, e)) {
             return true
@@ -127,6 +136,8 @@ class ComposeLiveController @JvmOverloads constructor(
         // 直播无 seek(旧 setCanChangePosition(false)):横向滑动不响应,仅保留亮度/音量
         if (firstTouch) {
             if (abs(distanceX) < abs(distanceY)) {
+                // 禁用手势控制:竖向滑动静默忽略,不调亮度也不调音量
+                if (!canChangeBrightnessVolume(e1)) return true
                 val halfScreen = PlayerUtils.getScreenWidth(context, true) / 2
                 if (e2.x > halfScreen) changeVolume = true else changeBrightness = true
             }

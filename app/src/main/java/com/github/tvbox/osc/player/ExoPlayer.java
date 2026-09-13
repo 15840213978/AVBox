@@ -7,7 +7,7 @@ import android.util.Pair;
 import com.github.tvbox.osc.util.AudioTrackMemory;
 import com.github.tvbox.osc.util.HawkConfig;
 import com.github.tvbox.osc.util.LOG;
-import com.orhanobut.hawk.Hawk;
+import com.github.tvbox.osc.util.KV;
 import androidx.media3.common.C;
 import androidx.media3.common.Format;
 import androidx.media3.common.MimeTypes;
@@ -54,7 +54,7 @@ public class ExoPlayer extends ExoMediaPlayer {
         // 缓冲倍数(2026-09-12,照搬 fongmi ExoUtil.buildLoadControl):
         // 蓄水目标 min/max = 官方默认 50s × 用户倍数;起播(2.5s)/再缓冲(5s)阈值保持默认不乘,
         // 保证大缓冲只影响"播起来后攒多少水"而不拖慢起播;下次新建播放器实例时生效
-        int bufferTimes = Hawk.get(HawkConfig.BUFFER_TIMES, HawkConfig.BUFFER_TIMES_DEFAULT);
+        int bufferTimes = KV.get(HawkConfig.BUFFER_TIMES, HawkConfig.BUFFER_TIMES_DEFAULT);
         bufferTimes = Math.max(1, Math.min(10, bufferTimes));
         setLoadControl(new DefaultLoadControl.Builder()
                 .setBufferDurationsMs(
@@ -130,9 +130,9 @@ public class ExoPlayer extends ExoMediaPlayer {
      */
     private void applyPlaybackParameters() {
         if (mInternalPlayer == null || trackSelector == null) return;
-        boolean tunnel = Hawk.get(HawkConfig.PLAY_TUNNEL, false);
-        boolean preferAac = Hawk.get(HawkConfig.PLAY_PREFER_AAC, false);
-        boolean surfaceRender = Hawk.get(HawkConfig.PLAY_RENDER, 1) == 1;
+        boolean tunnel = KV.get(HawkConfig.PLAY_TUNNEL, false);
+        boolean preferAac = KV.get(HawkConfig.PLAY_PREFER_AAC, false);
+        boolean surfaceRender = KV.get(HawkConfig.PLAY_RENDER, 1) == 1;
         DefaultTrackSelector.Parameters.Builder builder = trackSelector.buildUponParameters();
         builder.setTunnelingEnabled(tunnel && surfaceRender);
         if (preferAac) {
@@ -152,7 +152,7 @@ public class ExoPlayer extends ExoMediaPlayer {
         // ② 普通点播(MyVideoView 点播标记 + 设置「边播边缓存」) → 边播边缓存,回拖/重看/弱网读盘命中;
         // 直播页未打点播标记恒不走;未命中部分照常走网络
         boolean preloadTarget = PreloadManagerHolder.isPreloadTargetUrl(path);
-        boolean playCache = useDiskCache && Hawk.get(HawkConfig.PLAY_CACHE, true);
+        boolean playCache = useDiskCache && KV.get(HawkConfig.PLAY_CACHE, true);
         if (preloadTarget || playCache) {
             MediaSource cached = mMediaSourceHelper.getMediaSource(path, headers, true);
             if (cached != null) {

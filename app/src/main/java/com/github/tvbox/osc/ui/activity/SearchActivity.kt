@@ -93,7 +93,7 @@ import com.lzy.okgo.OkGo
 import com.lzy.okgo.callback.AbsCallback
 import com.github.tvbox.osc.viewmodel.SourceViewModel
 import com.github.catvod.crawler.JsLoader
-import com.orhanobut.hawk.Hawk
+import com.github.tvbox.osc.util.KV
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -146,13 +146,13 @@ class SearchViewModel : ViewModel() {
     val running = MutableStateFlow(false)
     val searchedTitle = MutableStateFlow("")
 
-    /** 热搜榜:豆瓣当日热播片名 Top10(Hawk 缓存 home_hot/home_hot_day,当日有效) */
+    /** 热搜榜:豆瓣当日热播片名 Top10(KV 缓存 home_hot/home_hot_day,当日有效) */
     val hotSearch = MutableStateFlow<List<String>>(emptyList())
 
     private var token = 0
-    // 搜索线程数(2026-09-12):设置页滑块可调(16/32/48/64),search() 入口对比 Hawk 变化后重建;
+    // 搜索线程数(2026-09-12):设置页滑块可调(16/32/48/64),search() 入口对比 KV 变化后重建;
     // 旧协程持有旧实例引用,release 后旧实例即被 GC,无泄漏
-    private var semaphorePermits = Hawk.get(HawkConfig.SEARCH_THREADS, HawkConfig.SEARCH_THREADS_DEFAULT)
+    private var semaphorePermits = KV.get(HawkConfig.SEARCH_THREADS, HawkConfig.SEARCH_THREADS_DEFAULT)
     private var semaphore = Semaphore(semaphorePermits)
     private val pendingSources = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.CompletableDeferred<Unit>>()
     private val scope = viewModelScope
@@ -168,9 +168,49 @@ class SearchViewModel : ViewModel() {
         /** 热搜榜展示条数 */
         private const val HOT_SEARCH_LIMIT = 10
 
-        /** 勾选搜索源(会话级,与旧 SearchActivity 静态字段一致);null = 全部可搜源 */
+        /**
+         * 勾选搜索源(会话级缓存);null 或空 = 不限制,搜索当前源集合的全部可搜源。
+         *
+         * <p>⚠️ 这份缓存的 key 属于**某个具体的点播源集合**,换源后必须失效 —— 否则拿旧源的 key 去过滤
+         * 新源的源列表,会只剩两边共有的那一个源能搜到(2026-09-13 用户实测:切源后只搜得到「玩偶4k」,
+         * 重启即恢复)。失效有两条路:
+         * ① 换源收尾 `AppBootstrap.onApiUrlChanged()` 主动调用 [clearCheckedSources];
+         * ② 打开搜索页时按"是否还对得上当前源列表"校验([isCheckedSourcesStale])。
+         * 两条都留着:只靠 ① 会漏掉"源地址没变但源集合变了"的情况(如同一个订阅地址内容更新)。
+         */
         @Volatile
         var checkedSources: HashMap<String, String>? = null
+            private set
+
+        /** 记录上面那份缓存属于哪个点播源地址,用于判断是否需要重新装载 */
+        @Volatile
+        private var checkedSourcesApiUrl: String? = null
+
+        /** 换源收尾时调用:丢弃会话缓存,下次打开搜索页按新源重新装载 */
+        @JvmStatic
+        fun clearCheckedSources() {
+            checkedSources = null
+            checkedSourcesApiUrl = null
+        }
+
+        /** 按当前点播源装载缓存(只在过期或未装载时真正读一次 KV) */
+        @JvmStatic
+        fun loadCheckedSources() {
+            val api = KV.get(HawkConfig.API_URL, "")
+            checkedSources = SearchHelper.getSourcesForSearch()
+            checkedSourcesApiUrl = api
+        }
+
+        /**
+         * 缓存是 null(从未装载)、属于别的源地址、或选择里的源 key 已对不上当前源列表 ⇒ 需要重新装载。
+         * 只用 == null 判断是不够的:换源后缓存非 null 却全是旧源的 key,正是本次要修的缺陷。
+         */
+        @JvmStatic
+        fun isCheckedSourcesStale(): Boolean {
+            if (checkedSources == null) return true
+            if (checkedSourcesApiUrl != KV.get(HawkConfig.API_URL, "")) return true
+            return SearchHelper.isSelectionStale(checkedSources)
+        }
     }
 
     init {
@@ -183,13 +223,13 @@ class SearchViewModel : ViewModel() {
         org.greenrobot.eventbus.EventBus.getDefault().unregister(this)
     }
 
-    /** 热搜榜:优先当日 Hawk 缓存(与首页共享),过期则请求豆瓣并回写缓存,失败退旧缓存 */
+    /** 热搜榜:优先当日 KV 缓存(与首页共享),过期则请求豆瓣并回写缓存,失败退旧缓存 */
     private fun fetchHotSearch() {
         scope.launch(Dispatchers.IO) {
             val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.CHINA)
                 .format(java.util.Date())
-            val cached = Hawk.get("home_hot", "")
-            if (Hawk.get("home_hot_day", "") == today && cached.isNotEmpty()) {
+            val cached = KV.get(HawkConfig.HOME_HOT, "")
+            if (KV.get(HawkConfig.HOME_HOT_DAY, "") == today && cached.isNotEmpty()) {
                 hotSearch.value = parseHotTitles(cached)
                 return@launch
             }
@@ -200,8 +240,8 @@ class SearchViewModel : ViewModel() {
                     override fun onSuccess(response: com.lzy.okgo.model.Response<String>) {
                         val body = response.body().orEmpty()
                         if (body.isNotEmpty()) {
-                            Hawk.put("home_hot", body)
-                            Hawk.put("home_hot_day", today)
+                            KV.put(HawkConfig.HOME_HOT, body)
+                            KV.put(HawkConfig.HOME_HOT_DAY, today)
                         }
                         hotSearch.value = parseHotTitles(body)
                     }
@@ -211,7 +251,7 @@ class SearchViewModel : ViewModel() {
 
                     override fun onError(response: com.lzy.okgo.model.Response<String>) {
                         super.onError(response)
-                        hotSearch.value = parseHotTitles(Hawk.get("home_hot", ""))
+                        hotSearch.value = parseHotTitles(KV.get(HawkConfig.HOME_HOT, ""))
                     }
                 })
         }
@@ -229,7 +269,7 @@ class SearchViewModel : ViewModel() {
         val t = title.trim()
         if (t.isEmpty()) return
         // 设置页改了搜索线程数时重建信号量:旧协程持有旧实例引用,release 后旧实例即被 GC
-        val configured = Hawk.get(HawkConfig.SEARCH_THREADS, HawkConfig.SEARCH_THREADS_DEFAULT)
+        val configured = KV.get(HawkConfig.SEARCH_THREADS, HawkConfig.SEARCH_THREADS_DEFAULT)
         if (configured != semaphorePermits) {
             semaphorePermits = configured
             semaphore = Semaphore(configured)
@@ -334,18 +374,36 @@ fun SearchScreen(vm: SearchViewModel = viewModel()) {
     var query by remember { mutableStateOf("") }
     // 结果源筛选:null = 全部(下方横向 chips 单选,新搜索时重置)
     var selectedSource by remember { mutableStateOf<String?>(null) }
-    var history by remember { mutableStateOf(Hawk.get(HawkConfig.SEARCH_HISTORY, ArrayList<String>())) }
+    var history by remember { mutableStateOf(KV.get(HawkConfig.SEARCH_HISTORY, ArrayList<String>())) }
     val searchedTitle by vm.searchedTitle.collectAsState()
 
     // 外部带标题进入(历史/兜底跳转)自动搜索;勾选源从持久化恢复(与旧行为一致)
     LaunchedEffect(Unit) {
-        if (SearchViewModel.checkedSources == null) {
-            SearchViewModel.checkedSources = SearchHelper.getSourcesForSearch()
+        // 只在"未装载 / 源地址变了 / 选择里的源 key 已对不上当前源列表"时重新装载。
+        // 不能只判 == null:切源后缓存非 null 但全是旧源的 key,会让搜索被悄悄窄化到两源共有项(本次修复的 bug)
+        if (SearchViewModel.isCheckedSourcesStale()) {
+            SearchViewModel.loadCheckedSources()
         }
         val initTitle = activity?.intent?.getStringExtra("title")
         if (!initTitle.isNullOrEmpty()) {
             query = initTitle
             vm.search(initTitle)
+        }
+    }
+
+    /**
+     * 配置(源集合)就绪后重新装载选择。
+     *
+     * 必要性:切源时 `AppBootstrap` 会先作废配置再异步拉取,窗口内 `sourceBeanList` 是空的 ——
+     * 若在这时装载过选择(哪怕是上面那句),拿到的就是"错误基准下的选择"。所以每次 `Boot.Ready`
+     * 都重新对一次基准;`loadCheckedSources` 只是读一次 KV,开销可忽略。
+     *
+     * ⚠️ 校验必须留在 `LaunchedEffect` 里:判定要读 KV 并遍历源列表,放进 composable 体会每次重组都跑。
+     */
+    val bootState by com.github.tvbox.osc.ui.page.AppBootstrap.state.collectAsState()
+    LaunchedEffect(bootState) {
+        if (bootState is com.github.tvbox.osc.ui.page.AppBootstrap.Boot.Ready && SearchViewModel.isCheckedSourcesStale()) {
+            SearchViewModel.loadCheckedSources()
         }
     }
 
@@ -359,7 +417,7 @@ fun SearchScreen(vm: SearchViewModel = viewModel()) {
         hideIme(activity)
         selectedSource = null
         vm.search(t)
-        history = Hawk.get(HawkConfig.SEARCH_HISTORY, ArrayList())
+        history = KV.get(HawkConfig.SEARCH_HISTORY, ArrayList())
     }
 
     AppTopBarScaffold(
@@ -462,7 +520,7 @@ fun SearchScreen(vm: SearchViewModel = viewModel()) {
                                     onLongClick = {
                                         // 长按删除单条搜索历史
                                         HistoryHelper.removeSearchHistory(word)
-                                        history = Hawk.get(HawkConfig.SEARCH_HISTORY, ArrayList())
+                                        history = KV.get(HawkConfig.SEARCH_HISTORY, ArrayList())
                                     },
                                 )
                             }

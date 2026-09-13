@@ -24,6 +24,7 @@ import com.github.tvbox.osc.bean.SourceBean
 import com.github.tvbox.osc.player.state.LockVisibility
 import com.github.tvbox.osc.player.state.PlayerActions
 import com.github.tvbox.osc.player.state.PlayerUiState
+import com.github.tvbox.osc.util.GestureHelper
 import com.github.tvbox.osc.player.state.SelectDialogState
 import com.github.tvbox.osc.player.ui.PlayerFocusTargets
 import com.github.tvbox.osc.player.ui.PlayerOverlay
@@ -37,7 +38,7 @@ import com.github.tvbox.osc.util.HawkConfig
 import com.github.tvbox.osc.util.PlayerHelper
 import com.github.tvbox.osc.util.ScreenUtils
 import com.github.tvbox.osc.util.SubtitleHelper
-import com.orhanobut.hawk.Hawk
+import com.github.tvbox.osc.util.KV
 import org.json.JSONException
 import org.json.JSONObject
 import xyz.doikki.videoplayer.controller.BaseVideoController
@@ -71,12 +72,13 @@ class ComposeVideoController @JvmOverloads constructor(
     GestureDetector.OnGestureListener, GestureDetector.OnDoubleTapListener, View.OnTouchListener {
 
     companion object {
-        /** 横滑进度灵敏度：全屏宽 = 120000ms（照抄 GestureVideoController/BaseController） */
-        private const val SLIDE_POSITION_FULL_WIDTH_MS = 120000f
-        /** 竖屏上下滑切集阈值 80dp（VodController:89） */
-        private const val PORTRAIT_EPISODE_SWIPE_DP = 80f
-        /** 竖屏切集标题条显示时长 3s（VodController:90） */
-        private const val PORTRAIT_EPISODE_TITLE_SHOW_MS = 3000L
+        /**
+         * 横滑进度灵敏度:全屏宽 = 240000ms(即 4 分钟)。
+         * 原为 120000ms(照抄 GestureVideoController/BaseController),2026-09-13 用户要求
+         * "调钝一点不要太灵敏" → 翻倍:同样时间跨度需要滑动两倍距离(约 1dp ≈ 0.58s)。
+         * 手感仍嫌灵敏就继续调大此值,嫌迟钝就调回 120000f。
+         */
+        private const val SLIDE_POSITION_FULL_WIDTH_MS = 240000f
         /** 锁屏图标 3s 后隐藏 */
         private const val LOCK_HIDE_DELAY_MS = 3000L
         /** BugReview #32:倍速应用重试上限(100ms×30 = 3s),防长期不进播放态时主线程空转 */
@@ -115,7 +117,6 @@ class ComposeVideoController @JvmOverloads constructor(
     private var isDoubleTapTogglePlayEnabled = true
 
     // —— 控制层行为字段（照抄 VodController） ——
-    private var portraitEpisodeSwipeTriggered = false
     private var previewMode = false
     private var fromLongPress = false
     private var speedOld = 1.0f
@@ -136,12 +137,6 @@ class ComposeVideoController @JvmOverloads constructor(
     private val uiHandler by lazy { Handler(Looper.getMainLooper()) }
     private val idleHideRunnable by lazy { Runnable { hideBottom() } }
     private val lockHideRunnable by lazy { Runnable { state.lockState = LockVisibility.HIDDEN } }
-    private val episodeTitleRunnable by lazy {
-        Runnable {
-            state.portraitEpisodeTitleTemp = false
-            if (!state.controlsVisible) state.topLeftVisible = false
-        }
-    }
     private val keySeekCommitRunnable by lazy { Runnable { commitKeySeek() } }
     private val speedRetryRunnable by lazy { Runnable { applySpeedWhenReady() } }
 
@@ -187,7 +182,7 @@ class ComposeVideoController @JvmOverloads constructor(
         initComposeLayer()
 
         // —— 初始状态（对齐旧 initView 屏显初始化） ——
-        val display = Hawk.get(HawkConfig.SCREEN_DISPLAY, View.GONE)
+        val display = KV.get(HawkConfig.SCREEN_DISPLAY, View.GONE)
         state.screenDisplayOn = display == View.VISIBLE
         state.topRightVisible = display == View.VISIBLE
         state.sysTimeVisible = display == View.VISIBLE
@@ -258,7 +253,6 @@ class ComposeVideoController @JvmOverloads constructor(
         super.onDetachedFromWindow()
         uiHandler.removeCallbacks(idleHideRunnable)
         uiHandler.removeCallbacks(lockHideRunnable)
-        uiHandler.removeCallbacks(episodeTitleRunnable)
         uiHandler.removeCallbacks(keySeekCommitRunnable)
         uiHandler.removeCallbacks(speedRetryRunnable)
     }
@@ -376,8 +370,17 @@ class ComposeVideoController @JvmOverloads constructor(
                 !PlayerUtils.isEdge(context, event)
     }
 
+    /**
+     * 是否允许"上下滑调亮度/音量"(2026-09-13「禁用手势控制」设置项)。
+     *
+     * <p>与 [canHandleGesture] 分开是本设置项的硬要求:第一版把设置并进 `canHandleGesture`,
+     * 会连带把别的滑动手势一起禁掉。
+     */
+    private fun canChangeBrightnessVolume(event: MotionEvent): Boolean {
+        return canHandleGesture(event) && !GestureHelper.isControlDisabled()
+    }
+
     override fun onDown(e: MotionEvent): Boolean {
-        portraitEpisodeSwipeTriggered = false
         if (!isInPlaybackState() || !isGestureEnabled || PlayerUtils.isEdge(context, e)) {
             return true
         }
@@ -399,23 +402,14 @@ class ComposeVideoController @JvmOverloads constructor(
     ): Boolean {
         if (e1 == null) return true
         if (previewMode) return true
-        // 竖屏上下滑切集（VodController 扩展，阈值 80dp）
-        if (isPortraitEpisodeSwipe(e1, e2)) {
-            if (!portraitEpisodeSwipeTriggered && abs(e2.y - e1.y) >= portraitEpisodeSwipeThreshold()) {
-                portraitEpisodeSwipeTriggered = true
-                listener?.let {
-                    if (e2.y < e1.y) it.playNext(false) else it.playPre()
-                }
-                showPortraitEpisodeTitle()
-            }
-            return true
-        }
         if (!canHandleGesture(e1)) return true
         val deltaX = e1.x - e2.x
         val deltaY = e1.y - e2.y
         if (firstTouch) {
             changePosition = abs(distanceX) >= abs(distanceY)
             if (!changePosition) {
+                // 禁用手势控制:竖向滑动既不进度也不亮度/音量 —— 静默忽略,不给出任何反馈
+                if (!canChangeBrightnessVolume(e1)) return true
                 val halfScreen = PlayerUtils.getScreenWidth(context, true) / 2
                 if (e2.x > halfScreen) changeVolume = true else changeBrightness = true
             }
@@ -494,24 +488,6 @@ class ComposeVideoController @JvmOverloads constructor(
             }
         }
         return super.onTouchEvent(event)
-    }
-
-    private fun isPortraitEpisodeSwipe(e1: MotionEvent, e2: MotionEvent): Boolean {
-        if (!canHandleGesture(e1)) return false
-        if (resources.configuration.orientation != Configuration.ORIENTATION_PORTRAIT) return false
-        return abs(e2.y - e1.y) > abs(e2.x - e1.x)
-    }
-
-    private fun portraitEpisodeSwipeThreshold(): Float {
-        return resources.displayMetrics.density * PORTRAIT_EPISODE_SWIPE_DP
-    }
-
-    private fun showPortraitEpisodeTitle() {
-        if (state.controlsVisible) return
-        uiHandler.removeCallbacks(episodeTitleRunnable)
-        state.topLeftVisible = true
-        state.portraitEpisodeTitleTemp = true
-        uiHandler.postDelayed(episodeTitleRunnable, PORTRAIT_EPISODE_TITLE_SHOW_MS)
     }
 
     private fun slideToChangePosition(deltaX: Float) {
@@ -729,8 +705,8 @@ class ComposeVideoController @JvmOverloads constructor(
             // BugReview #16:倍速提速不入 playerCfg(原实现把 "sp":3.0 经 updatePlayerCfg
             // 持久化,手势被 CANCEL 中断或后续集数会持续 3.0x);只改播放器速度,配置保持原值
             speedOld = cfg.getDouble("sp").toFloat()
-            // 长按倍速(2026-09-12):设置页滑块可调 2x~10x,每次长按实时读 Hawk,改设置立即生效
-            val boost = Hawk.get(HawkConfig.LONG_PRESS_SPEED, HawkConfig.LONG_PRESS_SPEED_DEFAULT).toFloat()
+            // 长按倍速(2026-09-12):设置页滑块可调 2x~10x,每次长按实时读 KV,改设置立即生效
+            val boost = KV.get(HawkConfig.LONG_PRESS_SPEED, HawkConfig.LONG_PRESS_SPEED_DEFAULT).toFloat()
             mControlWrapper?.setSpeed(boost)
             state.speedBoostValue = boost
             state.speedBoostVisible = true
@@ -1187,7 +1163,7 @@ class ComposeVideoController @JvmOverloads constructor(
 
     override fun onScreenDisplayClicked() {
         val newDisplay = if (state.screenDisplayOn) View.GONE else View.VISIBLE
-        Hawk.put(HawkConfig.SCREEN_DISPLAY, newDisplay)
+        KV.put(HawkConfig.SCREEN_DISPLAY, newDisplay)
         state.screenDisplayOn = newDisplay == View.VISIBLE
         state.seekTimeVisible = state.screenDisplayOn
         state.netSpeedSideVisible = state.screenDisplayOn

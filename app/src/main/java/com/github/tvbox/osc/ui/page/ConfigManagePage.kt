@@ -72,7 +72,7 @@ import com.github.tvbox.osc.ui.components.TopBarActionBox
 import com.github.tvbox.osc.ui.theme.cardContainer
 import com.github.tvbox.osc.util.HawkConfig
 import com.github.tvbox.osc.util.HistoryHelper
-import com.orhanobut.hawk.Hawk
+import com.github.tvbox.osc.util.KV
 
 /** 订阅源分隔符(参照 HistoryHelper 的 api 线路约定,名字与链接用 \t 拼接存储) */
 private const val SubscribeSplit = "\t"
@@ -89,9 +89,9 @@ private fun subscribeKeyOf(mode: ConfigMode): String = when (mode) {
     ConfigMode.Live -> HawkConfig.LIVE_SUBSCRIBE_LIST
 }
 
-/** 读取某角色的全部订阅源(Hawk: ArrayList<String>,每项 = "名字\t链接") */
+/** 读取某角色的全部订阅源(KV: ArrayList<String>,每项 = "名字\t链接") */
 private fun loadSubscribes(mode: ConfigMode): List<String> =
-    Hawk.get(subscribeKeyOf(mode), ArrayList<String>()).toList()
+    KV.get(subscribeKeyOf(mode), ArrayList<String>()).toList()
 
 private fun parseSubscribe(value: String): SubscribeSource {
     val index = value.indexOf(SubscribeSplit)
@@ -111,7 +111,7 @@ private fun saveSubscribe(mode: ConfigMode, name: String, url: String): List<Str
     val list = ArrayList(loadSubscribes(mode))
     val existIndex = list.indexOfFirst { parseSubscribe(it).url == url }
     if (existIndex >= 0) list[existIndex] = value else list.add(value)
-    Hawk.put(subscribeKeyOf(mode), list)
+    KV.put(subscribeKeyOf(mode), list)
     return list
 }
 
@@ -127,7 +127,7 @@ private fun updateSubscribe(mode: ConfigMode, original: SubscribeSource, name: S
     list[index] = value
     val dupIndex = list.indexOfFirst { it != value && parseSubscribe(it).url == url }
     if (dupIndex >= 0) list.removeAt(dupIndex)
-    Hawk.put(subscribeKeyOf(mode), list)
+    KV.put(subscribeKeyOf(mode), list)
     return list
 }
 
@@ -152,10 +152,10 @@ private fun badgeText(name: String, url: String): String = when {
  */
 private fun applyVodSource(item: SubscribeSource): Boolean {
     val followLive = ApiConfig.isLiveFollowVod() // 必须在改写 API_URL 之前判定
-    val oldApi = Hawk.get(HawkConfig.API_URL, "")
+    val oldApi = KV.get(HawkConfig.API_URL, "")
     HistoryHelper.setApiHistory(item.url)
-    Hawk.put(HawkConfig.API_URL, item.url)
-    if (followLive) Hawk.put(HawkConfig.LIVE_API_URL, "")
+    KV.put(HawkConfig.API_URL, item.url)
+    if (followLive) KV.put(HawkConfig.LIVE_API_URL, "")
     if (!HistoryHelper.isApiLineHistory(item.url)) HistoryHelper.clearApiLineList()
     if (oldApi == item.url) {
         // 地址没变(重新启用同一个源):不必作废内存配置,也不必整页重载
@@ -171,13 +171,13 @@ private fun applyVodSource(item: SubscribeSource): Boolean {
 /** 切换独立直播源:只写直播侧,不触碰点播配置,也不触发点播整页重载 */
 private fun applyLiveSource(item: SubscribeSource) {
     HistoryHelper.setLiveApiHistory(item.url)
-    Hawk.put(HawkConfig.LIVE_API_URL, item.url)
+    KV.put(HawkConfig.LIVE_API_URL, item.url)
     ApiConfig.get().invalidateLiveConfig()
 }
 
 /** 回到「跟随点播源」:清空独立直播源(LIVE_API_URL 空 = 跟随当前点播源) */
 private fun applyLiveFollowVod() {
-    Hawk.put(HawkConfig.LIVE_API_URL, "")
+    KV.put(HawkConfig.LIVE_API_URL, "")
     ApiConfig.get().invalidateLiveConfig()
 }
 
@@ -200,8 +200,8 @@ fun ConfigManageScreen(onNavigateBack: () -> Unit) {
     // 两个角色的列表都常驻:徽标要显示"另一个角色当前选的是哪个源",不能只持有当前段的数据
     var vodItems by remember { mutableStateOf(loadSubscribes(ConfigMode.Vod)) }
     var liveItems by remember { mutableStateOf(loadSubscribes(ConfigMode.Live)) }
-    var activeUrl by remember { mutableStateOf(Hawk.get(HawkConfig.API_URL, "")) }
-    var liveActiveUrl by remember { mutableStateOf(Hawk.get(HawkConfig.LIVE_API_URL, "")) }
+    var activeUrl by remember { mutableStateOf(KV.get(HawkConfig.API_URL, "")) }
+    var liveActiveUrl by remember { mutableStateOf(KV.get(HawkConfig.LIVE_API_URL, "")) }
     var liveFollow by remember { mutableStateOf(ApiConfig.isLiveFollowVod()) }
     var addDialogOpen by remember { mutableStateOf(false) }
     /** 编辑目标:非空即处于「编辑订阅」态(与 [addDialogOpen] 共用同一个 dialog) */
@@ -271,7 +271,7 @@ fun ConfigManageScreen(onNavigateBack: () -> Unit) {
         // 正在使用的源不可删(长按/点选已拦截,这里再兜一层)
         val target = selected.filterNot { isInUse(parseSubscribe(it).url) }
         val remaining = currentItems.filterNot { it in target }
-        Hawk.put(subscribeKeyOf(mode), ArrayList(remaining))
+        KV.put(subscribeKeyOf(mode), ArrayList(remaining))
         if (isVod) {
             vodItems = remaining
             if (remaining.isEmpty()) {

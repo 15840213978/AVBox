@@ -4,8 +4,8 @@ import android.widget.Toast
 import com.github.tvbox.osc.api.ApiConfig
 import com.github.tvbox.osc.event.RefreshEvent
 import com.github.tvbox.osc.server.ControlManager
+import com.github.tvbox.osc.ui.activity.SearchViewModel
 import com.github.tvbox.osc.util.HawkConfig
-import com.orhanobut.hawk.Hawk
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -60,16 +60,19 @@ object AppBootstrap {
     }
 
     /**
-     * 点播源地址已变更后的统一收尾(2026-09-13)。**必须在改写 Hawk `API_URL` 之后调用**。
+     * 点播源地址已变更后的统一收尾(2026-09-13)。**必须在改写 KV `API_URL` 之后调用**。
      *
-     * 三步缺一不可:
+     * 四步缺一不可:
      * ① `invalidateVodConfig()` 先作废内存里的旧配置 —— 新源拉取失败时不会残留旧源数据
      *    (失败的 loadConfig 不会走 parseJson,旧的 sourceBeanList/mHomeSource 会原样留着);
-     * ② 广播 `TYPE_API_URL_CHANGE` 让首页**立刻**按新状态刷新,而不是把旧源内容继续摆在屏幕上等结果;
-     * ③ `retry()` 重新拉配置。
+     * ② 丢弃搜索页的会话级"勾选搜索源"缓存 —— 那份缓存按**源 key** 记,而源 key 属于旧源集合,
+     *    留着会让换源后的搜索被悄悄窄化到"新旧源共有的那几个源"(2026-09-13 修的 bug:只搜得到玩偶4k);
+     * ③ 广播 `TYPE_API_URL_CHANGE` 让首页**立刻**按新状态刷新,而不是把旧源内容继续摆在屏幕上等结果;
+     * ④ `retry()` 重新拉配置。
      */
     fun onApiUrlChanged() {
         ApiConfig.get().invalidateVodConfig()
+        SearchViewModel.clearCheckedSources()
         EventBus.getDefault().post(RefreshEvent(RefreshEvent.TYPE_API_URL_CHANGE))
         retry()
     }

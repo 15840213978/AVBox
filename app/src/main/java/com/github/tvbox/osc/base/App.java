@@ -10,10 +10,10 @@ import com.github.tvbox.osc.util.AppManager;
 import com.github.tvbox.osc.util.EpgUtil;
 import com.github.tvbox.osc.util.FileUtils;
 import com.github.tvbox.osc.util.HawkConfig;
+import com.github.tvbox.osc.util.KV;
 import com.github.tvbox.osc.util.LOG;
 import com.github.tvbox.osc.util.OkGoHelper;
 import com.github.tvbox.osc.util.PlayerHelper;
-import com.orhanobut.hawk.Hawk;
 import com.p2p.P2PClass;
 import com.whl.quickjs.android.QuickJSLoader;
 import com.github.catvod.crawler.JsLoader;
@@ -53,7 +53,7 @@ public class App extends Application {
         PlayerHelper.init();
         // 共享缓存容量(第二期扩展):设置项 → player 模块(须在首次 getSharedCache 前注入,改动重启 App 生效)
         ExoMediaSourceHelper.setSharedCacheSizeBytes(
-                Math.max(128, Hawk.get(HawkConfig.EXO_CACHE_SIZE_MB, HawkConfig.EXO_CACHE_SIZE_MB_DEFAULT)) * 1024L * 1024L);
+                Math.max(128, KV.get(HawkConfig.EXO_CACHE_SIZE_MB, HawkConfig.EXO_CACHE_SIZE_MB_DEFAULT)) * 1024L * 1024L);
         QuickJSLoader.init();
         // Coil 单例:海报地址约定的请求头注入(Compose UI 图片管线)
         com.github.tvbox.osc.ui.components.VodImages.INSTANCE.init(this);
@@ -61,13 +61,13 @@ public class App extends Application {
     }
 
     private void initParams() {
-        // Hawk
-        Hawk.init(this).build();
-        Hawk.put(HawkConfig.PLAYER_IS_LIVE, false);
-        if (!Hawk.contains(HawkConfig.PLAY_TYPE)) {
-            Hawk.put(HawkConfig.PLAY_TYPE, 2);
-        } else if (Hawk.get(HawkConfig.PLAY_TYPE, 2) == 0) {
-            Hawk.put(HawkConfig.PLAY_TYPE, 2);
+        // KV 存储(2026-09-13 起为唯一实现,取代 Hawk):初始化必须在任何 KV 读写之前
+        KV.init(this);
+        KV.put(HawkConfig.PLAYER_IS_LIVE, false);
+        if (!KV.contains(HawkConfig.PLAY_TYPE)) {
+            KV.put(HawkConfig.PLAY_TYPE, 2);
+        } else if (KV.get(HawkConfig.PLAY_TYPE, 2) == 0) {
+            KV.put(HawkConfig.PLAY_TYPE, 2);
         }
     }
 

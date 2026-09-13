@@ -39,7 +39,7 @@ description: 项目规则、通用原则、通用代码规范 + 项目文档地�
 | 文档 | 内容 | 何时读 |
 | --- | --- | --- |
 | `skill/avbox-mobile-ui-spec.md` | **活规范**：技术基线(§2)、信息架构与主题(§3)、各页面规范(§4)、视觉与组件约定(§5)、关键技术约束与已知坑(§6)、未决清单(§7)、历史索引(§8) | 改动 UI / 页面 / 播放内核 / 依赖前**必读**（只有约 200 行，读 §0–§7） |
-| `skill/avbox-kv-mmkv-spec.md` | **迁移 Spec(草案,未实施)**：Hawk → MMKV 的现状盘点(键类型分布)、KV 门面设计、类型编码/加密/一次性数据迁移、分阶段实施与验收清单、待决策项 | 实施 KV 迁移前**必读**；怀疑键值存储(Hawk/gson)相关问题、评估存储替换时参考 |
+| `skill/avbox-kv-mmkv-spec.md` | **迁移 Spec(已实施 2026-09-13)**：Hawk → MMKV 的现状盘点(键类型分布)、KV 门面设计、类型编码/加密/一次性数据迁移、分阶段实施与验收清单、决策记录 | 改动键值存储(新增/调整 KV 键、怀疑存储读写问题时)**必读**;§7 决策记录与文末修订记录是结论来源 |
 | `skill/history/steps.md` | **历史归档**：Step 0–7 改造实施记录、Step 1 删除清单实际对账 | 按需检索：某类/布局/依赖当初为什么删、某步架构决策 |
 | `skill/history/features.md` | **历史归档**：2026-09-09 起功能迭代记录（下拉刷新、隧道模式+AAC、配置管理页、主题设置页、顶栏改造、选集溢出修复、快搜删除、卡片点击分发…） | 按需检索：某功能当初怎么实现、为什么这么定、踩过什么坑 |
 | `logs/crash_diagnosis_20260912.md` | 崩溃诊断案例：动态加载 jar 缺宿主类导致 `NoClassDefFoundError`（zxing） | 排查启动崩溃 / 依赖裁剪争议时 |
@@ -64,3 +64,4 @@ Select-String -Path skill\history\features.md -Pattern '配置管理页' -Contex
 - **Exo 帧率匹配必须保持关闭**（`disableFrameRateMatching()`）：否则 ROM 会把整机刷新率降到 60Hz，表现为"播放时卡顿"（spec §6.1）。
 - **禁止自研顶栏滚动记账**：用 M3 官方 `exitUntilCollapsed` behavior（spec §6.6）。
 - **爬虫阻塞调用必须在 IO 线程**（spec §6.2）。
+- **KV(MMKV)复杂键必须在 `util/kv/KVKeySpec` 登记显式类型**，且禁止用匿名 `TypeToken` 捕获类型变量推元素类型（spec §6.7）；另注意 `KV.contains` 才是判存在性、`KV.get(key, def)` 分不清"键不存在"与"值就是 def"。

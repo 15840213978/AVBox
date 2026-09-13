@@ -67,12 +67,12 @@ import com.github.tvbox.osc.util.FileUtils
 import com.github.tvbox.osc.util.HistoryHelper
 import com.github.tvbox.osc.util.HawkConfig
 import com.github.tvbox.osc.util.OkGoHelper
-import com.orhanobut.hawk.Hawk
+import com.github.tvbox.osc.util.KV
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/** 设置项状态:集中从 Hawk 读取,设置变更后整体刷新 */
+/** 设置项状态:集中从 KV 读取,设置变更后整体刷新 */
 data class SettingsState(
     val playType: Int,
     val playRender: Int,
@@ -85,6 +85,8 @@ data class SettingsState(
     val m3u8Purify: Boolean,
     /** 无痕模式:不记录搜索历史与观看历史(收藏正常) */
     val incognito: Boolean,
+    /** 禁用手势控制:开启后播放器不再响应上下滑调节亮度/音量 */
+    val gestureControlDisabled: Boolean,
     val danmuOpen: Boolean,
     val danmuApi: String,
     val defaultLoadLive: Boolean,
@@ -158,38 +160,39 @@ class SettingsViewModel : ViewModel() {
     }
 
     private fun loadState(): SettingsState = SettingsState(
-        playType = Hawk.get(HawkConfig.PLAY_TYPE, 2),
+        playType = KV.get(HawkConfig.PLAY_TYPE, 2),
         // 默认 SurfaceView(2026-09-09 用户定稿)
-        playRender = Hawk.get(HawkConfig.PLAY_RENDER, 1),
-        playScale = Hawk.get(HawkConfig.PLAY_SCALE, 0),
-        ijkCodec = Hawk.get(HawkConfig.IJK_CODEC, "硬解码"),
-        ijkCachePlay = Hawk.get(HawkConfig.IJK_CACHE_PLAY, false),
-        playTunnel = Hawk.get(HawkConfig.PLAY_TUNNEL, false),
-        preferAac = Hawk.get(HawkConfig.PLAY_PREFER_AAC, false),
-        autoSwitchLine = Hawk.get(HawkConfig.AUTO_SWITCH_LINE, false),
-        m3u8Purify = Hawk.get(HawkConfig.M3U8_PURIFY, false),
-        incognito = Hawk.get(HawkConfig.INCOGNITO, false),
+        playRender = KV.get(HawkConfig.PLAY_RENDER, 1),
+        playScale = KV.get(HawkConfig.PLAY_SCALE, 0),
+        ijkCodec = KV.get(HawkConfig.IJK_CODEC, "硬解码"),
+        ijkCachePlay = KV.get(HawkConfig.IJK_CACHE_PLAY, false),
+        playTunnel = KV.get(HawkConfig.PLAY_TUNNEL, false),
+        preferAac = KV.get(HawkConfig.PLAY_PREFER_AAC, false),
+        autoSwitchLine = KV.get(HawkConfig.AUTO_SWITCH_LINE, false),
+        m3u8Purify = KV.get(HawkConfig.M3U8_PURIFY, false),
+        incognito = KV.get(HawkConfig.INCOGNITO, false),
+        gestureControlDisabled = KV.get(HawkConfig.GESTURE_CONTROL_DISABLED, false),
         // 默认与 DanmuHelper.isOpen() 对齐(true),避免首装显示“关”但弹幕实际开着
-        danmuOpen = Hawk.get(HawkConfig.DANMU_OPEN, true),
-        danmuApi = Hawk.get(HawkConfig.DANMU_API, ""),
-        defaultLoadLive = Hawk.get(HawkConfig.DEFAULT_LOAD_LIVE, false),
-        historyNumIndex = Hawk.get(HawkConfig.HISTORY_NUM, 0),
-        searchThreads = Hawk.get(HawkConfig.SEARCH_THREADS, HawkConfig.SEARCH_THREADS_DEFAULT),
-        longPressSpeed = Hawk.get(HawkConfig.LONG_PRESS_SPEED, HawkConfig.LONG_PRESS_SPEED_DEFAULT),
-        bufferTimes = Hawk.get(HawkConfig.BUFFER_TIMES, HawkConfig.BUFFER_TIMES_DEFAULT),
-        preloadNextEpisode = Hawk.get(HawkConfig.PRELOAD_NEXT_EPISODE, false),
-        preloadDuration = Hawk.get(HawkConfig.PRELOAD_DURATION, HawkConfig.PRELOAD_DURATION_DEFAULT),
-        playCache = Hawk.get(HawkConfig.PLAY_CACHE, true),
-        exoCacheSizeMb = Hawk.get(HawkConfig.EXO_CACHE_SIZE_MB, HawkConfig.EXO_CACHE_SIZE_MB_DEFAULT),
-        apiUrl = Hawk.get(HawkConfig.API_URL, ""),
-        apiLines = Hawk.get(HawkConfig.API_LINE_LIST, ArrayList()),
-        dohIndex = Hawk.get(HawkConfig.DOH_URL, 0),
+        danmuOpen = KV.get(HawkConfig.DANMU_OPEN, true),
+        danmuApi = KV.get(HawkConfig.DANMU_API, ""),
+        defaultLoadLive = KV.get(HawkConfig.DEFAULT_LOAD_LIVE, false),
+        historyNumIndex = KV.get(HawkConfig.HISTORY_NUM, 0),
+        searchThreads = KV.get(HawkConfig.SEARCH_THREADS, HawkConfig.SEARCH_THREADS_DEFAULT),
+        longPressSpeed = KV.get(HawkConfig.LONG_PRESS_SPEED, HawkConfig.LONG_PRESS_SPEED_DEFAULT),
+        bufferTimes = KV.get(HawkConfig.BUFFER_TIMES, HawkConfig.BUFFER_TIMES_DEFAULT),
+        preloadNextEpisode = KV.get(HawkConfig.PRELOAD_NEXT_EPISODE, false),
+        preloadDuration = KV.get(HawkConfig.PRELOAD_DURATION, HawkConfig.PRELOAD_DURATION_DEFAULT),
+        playCache = KV.get(HawkConfig.PLAY_CACHE, true),
+        exoCacheSizeMb = KV.get(HawkConfig.EXO_CACHE_SIZE_MB, HawkConfig.EXO_CACHE_SIZE_MB_DEFAULT),
+        apiUrl = KV.get(HawkConfig.API_URL, ""),
+        apiLines = KV.get(HawkConfig.API_LINE_LIST, ArrayList()),
+        dohIndex = KV.get(HawkConfig.DOH_URL, 0),
         cacheSizeText = cacheSizeText,
     )
 
-    /** 通用写入口:写 Hawk 后刷新状态流 */
+    /** 通用写入口:写 KV 后刷新状态流 */
     fun <T> put(key: String, value: T) {
-        Hawk.put(key, value)
+        KV.put(key, value)
         refresh()
     }
 }
@@ -374,12 +377,12 @@ fun SettingsPage(vm: SettingsViewModel = viewModel(), bottomPadding: Dp = 0.dp) 
                                 ) { idx ->
                                     val newApi = HistoryHelper.getApiLineUrl(state.apiLines[idx])
                                     if (newApi.isNotEmpty()) {
-                                        val oldApi = Hawk.get(HawkConfig.API_URL, "")
+                                        val oldApi = KV.get(HawkConfig.API_URL, "")
                                         // 2026-09-12 点播/直播拆分:只切点播;直播跟随态继续跟随新线路,
                                         // 独立直播源原样保留(旧实现双写会把独立直播源冲掉)
                                         val followLive = ApiConfig.isLiveFollowVod()
-                                        Hawk.put(HawkConfig.API_URL, newApi)
-                                        if (followLive) Hawk.put(HawkConfig.LIVE_API_URL, "")
+                                        KV.put(HawkConfig.API_URL, newApi)
+                                        if (followLive) KV.put(HawkConfig.LIVE_API_URL, "")
                                         vm.refresh()
                                         if (oldApi != newApi) {
                                             // 作废旧配置 + 通知首页刷新 + 重载:失败时不会残留旧线路的内容

@@ -1,6 +1,6 @@
 package com.github.tvbox.osc.util;
 
-import com.orhanobut.hawk.Hawk;
+import com.github.tvbox.osc.util.KV;
 import java.util.ArrayList;
 
 public class HistoryHelper {
@@ -28,54 +28,54 @@ public class HistoryHelper {
      * `RoomDataManger.insertVodRecord`(观看历史 + 进度的唯一落库点)。
      */
     public static boolean isIncognito(){
-        return Hawk.get(HawkConfig.INCOGNITO, false);
+        return KV.get(HawkConfig.INCOGNITO, false);
     }
 
     public static void setSearchHistory(String title){
         // 无痕模式:不记录新的搜索历史(已有历史照常展示,清空/删除仍可用)
         if (isIncognito()) return;
         // 读取历史记录
-        ArrayList<String> history = Hawk.get(HawkConfig.SEARCH_HISTORY, new ArrayList<String>());
+        ArrayList<String> history = KV.get(HawkConfig.SEARCH_HISTORY, new ArrayList<String>());
         history.remove(title);
         history.add(0, title);
         // 保证最多只保留 20 条，超过的就删除最后一条
         if (history.size() > 20) {
             history.remove(history.size() - 1);
         }
-        Hawk.put(HawkConfig.SEARCH_HISTORY, history);
+        KV.put(HawkConfig.SEARCH_HISTORY, history);
     }
 
     public static void clearSearchHistory(){
-        Hawk.put(HawkConfig.SEARCH_HISTORY, new ArrayList<String>());
+        KV.put(HawkConfig.SEARCH_HISTORY, new ArrayList<String>());
     }
 
     /** 删除单条搜索历史(2026-09-11:搜索页长按历史 chip) */
     public static void removeSearchHistory(String title){
-        ArrayList<String> history = Hawk.get(HawkConfig.SEARCH_HISTORY, new ArrayList<String>());
+        ArrayList<String> history = KV.get(HawkConfig.SEARCH_HISTORY, new ArrayList<String>());
         history.remove(title);
-        Hawk.put(HawkConfig.SEARCH_HISTORY, history);
+        KV.put(HawkConfig.SEARCH_HISTORY, history);
     }
 
     public static void setLiveApiHistory(String value){
-        ArrayList<String> history = Hawk.get(HawkConfig.LIVE_API_HISTORY, new ArrayList<String>());
+        ArrayList<String> history = KV.get(HawkConfig.LIVE_API_HISTORY, new ArrayList<String>());
         if (!history.contains(value)) {
             history.add(0, value);
         }
         if (history.size() > 30) {
             history.remove(30);
         }
-        Hawk.put(HawkConfig.LIVE_API_HISTORY, history);
+        KV.put(HawkConfig.LIVE_API_HISTORY, history);
     }
 
     public static void setApiHistory(String value){
-        ArrayList<String> history = Hawk.get(HawkConfig.API_HISTORY, new ArrayList<String>());
+        ArrayList<String> history = KV.get(HawkConfig.API_HISTORY, new ArrayList<String>());
         if (!history.contains(value)) {
             history.add(0, value);
         }
         if (history.size() > 30) {
             history.remove(30);
         }
-        Hawk.put(HawkConfig.API_HISTORY, history);
+        KV.put(HawkConfig.API_HISTORY, history);
     }
 
     public static String buildApiLine(String name, String url) {
@@ -104,7 +104,7 @@ public class HistoryHelper {
     public static boolean isApiLineUrl(String url) {
         if (url == null || url.trim().isEmpty()) return false;
         String trimUrl = url.trim();
-        ArrayList<String> apiLines = Hawk.get(HawkConfig.API_LINE_LIST, new ArrayList<String>());
+        ArrayList<String> apiLines = KV.get(HawkConfig.API_LINE_LIST, new ArrayList<String>());
         for (String apiLine : apiLines) {
             if (trimUrl.equals(getApiLineUrl(apiLine))) {
                 return true;
@@ -115,7 +115,7 @@ public class HistoryHelper {
 
     public static boolean isApiLineSource(String url) {
         if (url == null || url.trim().isEmpty()) return false;
-        String source = Hawk.get(HawkConfig.API_LINE_SOURCE, "");
+        String source = KV.get(HawkConfig.API_LINE_SOURCE, "");
         return url.trim().equals(source);
     }
 
@@ -124,7 +124,7 @@ public class HistoryHelper {
     }
 
     public static void clearApiLineList() {
-        Hawk.put(HawkConfig.API_LINE_LIST, new ArrayList<String>());
-        Hawk.put(HawkConfig.API_LINE_SOURCE, "");
+        KV.put(HawkConfig.API_LINE_LIST, new ArrayList<String>());
+        KV.put(HawkConfig.API_LINE_SOURCE, "");
     }
 }

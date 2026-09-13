@@ -447,3 +447,106 @@ interface 'com.github.catvod.spider.merge.Pu' in call to
 - **处置**:先实现并验证了 Hawk 兼容补丁(`HawkCompatConverter` 改用 `TypeToken.getParameterized(...)`,已证实修复且旧数据恢复),**用户最终选择回退 gson 到 2.10.1**,补丁与全部临时诊断日志(LOG 前缀/LogInterceptor/ConfigManagePage 探针)已删除;`libs.versions.toml` 的 gson 行保留"不可升 2.13+"的约束注释。
 - **验证**:回退版装机 → 配置管理页截图 4 个源完整显示;依赖树 gson 2.10.1 ✅。
 - **可复用经验**:Hawk 静默失败(`put` 返 false 不抛、`get` 失败返默认值)→ 集合读写异常无提示;升级与停更库(Hawk)共存的依赖(gson)前必须核对兼容性;`Hawk.init(ctx).setLogInterceptor()` 是定位 Hawk 内部链路问题的利器。
+
+## KV 存储迁移:Hawk → MMKV(2026-09-13,按 skill/avbox-kv-mmkv-spec.md 实施 P0–P3)
+
+- **背景**:同日「gson 升级导致 Hawk 集合数据全部读不出」只做了回退 gson 的止血;本次按 spec 根治 —— 用 MMKV 承载全项目键值存储,彻底摆脱"停更库 + 匿名 TypeToken 推元素类型"的组合。
+- **P0 门面(`util/KV`,新文件)**:
+  - `gradle/libs.versions.toml` 新增 `mmkv = "2.4.2"`(`com.tencent:mmkv`);实例 = `MMKV.mmkvWithID("avbox_kv", SINGLE_PROCESS_MODE)`,**不加密**(spec §7-Q1),`App.initParams` 里 `KV.init(this)`。
+  - API 对齐 Hawk:`put/get(key)/get(key,def)/contains/delete`。差异有二:① 类型推断不再靠匿名 TypeToken;② 写入失败返回 false 并打 `echo-kv` 日志(不再静默,G4)。
+  - **类型编码**(`util/kvcodec/KVDecoder`,**纯 JVM 无 Android 依赖**以便单测):String 原样存;集合 / Map / JsonArray / 任意对象 → `\u0001json:` 前缀 + Gson 文本。读侧类型优先级 = 调用侧默认值的具体类型 → 注册表 → 复杂值退化为 JSON 节点树(只保证不丢值)。
+  - **`util/kv/KVKeySpec` 键→显式类型表**(spec §7-Q3):集合与嵌套泛型必须登记。⚠️ 这不是迁移脚手架而是长期设施 —— 泛型擦除后 `new ArrayList()` / `new HashMap<>()` / `null` 默认值都带不来元素类型,不登记就会解出元素为 `LinkedTreeMap` 的集合(取值 ClassCastException / 写回把元素类型写坏)。**这正是旧 Hawk 的病灶**:`HawkConverter.toList/toMap` 拿 `new TypeToken<List<T>>(){}.getType()` 推元素类型,在 gson 2.13+ 直接抛异常。
+  - **单测 14 例**(`app/src/test/java/.../kvcodec/KVDecoderTest.java`,`testImplementation junit 4.13.2`,纯 JVM 不需要 Robolectric):ArrayList 元素恢复为 String、JsonArray 走节点树不按 List、嵌套 `HashMap<String,HashMap<String,String>>`、未登记键 + Object 默认值的兜底、坏数据返回 null 而非抛异常、静默副本等。
+- **P1 一次性迁移(`util/kv/KVMigrate`)——已实现并真机跑通,随后整体删除**:触发 = 完成标记 `kv_migrated_from_hawk`;逐键 `Hawk.get` → `KV.put`,全部成功才写标记(幂等)。**删除原因**:用户 2026-09-13 明确"应用尚未发布、没有存量用户" —— 迁移唯一的价值(保护存量数据)不存在,留着只会让 Hawk/Conceal 永久留在依赖树里。连带删除:hawk 依赖(toml + `build.gradle.kts`)、`proguard` 的 `-keep class com.orhanobut.hawk.**`、旧库与 Conceal 密钥文件。**首装即原生 MMKV,不存在"旧库"这个前提。**(该段代码在删除前暴露过一个必崩缺陷,教训见下方崩溃复盘)
+- **P2 全量切换**:**33 个文件**(与 spec §1.1 盘点的 34 个文件对账一致,HawkConfig 本身只含键常量)机械替换 `Hawk.` → `KV.` + import 替换;`HawkConfig` 类名与全部键字符串**保持不变**(§7-Q4 不做键名重构,零迁移风险)。顺带把两处字面量键收敛进 `HawkConfig`(`home_hot`/`home_hot_day`/`danmu_api_use_default`),便于类型登记。`LOG.FILE_LOG_PREFIXES` 增补 `echo-kv`。
+- **P3 收尾(彻底解耦)**:移除 hawk/conceal 依赖链(`debugRuntimeClasspath` 依赖树实测只剩 `com.google.code.gson` + `com.tencent:mmkv`),`proguard` keep 规则清理,gson 版本锁注释解除(Hawk 已不在,2.13+ 约束消失)。**`util/kv/KVKeySpec` 保留** —— 它是 KV 正常运行的必需件(集合元素类型登记),不是迁移脚手架。
+- **gson 升级 2.10.1 → 2.14.0(2026-09-13 用户要求,验证 G3 达成)**:gson 2.10.1 是当初为绕开"gson 2.13+ 与 Hawk 2.0.1 不兼容"而锁的版本(Hawk 的 `HawkConverter` 用匿名 `TypeToken<T>` 捕获类型变量,2.13+ 直接抛 `IllegalArgumentException`,导致 List/Map/Set 键整体读不出)。Hawk 移除后该枷锁消失,直接升到最新稳定版:**编译 + 19 例单测一次通过,零代码改动** —— 因为 KV 侧只使用稳定 API(`TypeToken.get(Class)` / `TypeToken.getParameterized(...)` 的替代路径:显式 `Type` 登记),不引用任何 gson 内部实现,也不再用匿名 TypeToken 推元素类型。spec 的目标 G3「解除 gson 版本枷锁」到此闭环。
+- **踩坑记录(重要,写给以后的自己)**:批量替换 + 注释改写用 PowerShell `[System.IO.File]::ReadAllText/WriteAllText` 混用编码时,**中文注释被逐字损坏**(如"策略"→"略略"、"持久化"→"久久化"、`(`→`H`)且仍是合法 UTF-8,编译器不报错、单测也照过)。发现方式 = 逐文件把工作区与「HEAD 机械替换后」的文本做 `Compare-Object`,任何多出来的差异都要人工确认。补救 = 从 HEAD 取回、只用一种明确的编码(`Get-Content -Raw -Encoding UTF8` 读 + `UTF8Encoding($false)` 写)重做替换,再复核差异集合只剩预期改动。**教训:多字节文本的批量改写,验证步骤不可省,且不要在同一批文件上叠多轮不同的替换脚本。**
+- **验证**:`:app:testDebugUnitTest` 19/19 通过;`:app:assembleDebug`、`:app:assembleRelease`(R8 + 资源压缩)BUILD SUCCESSFUL;`debugRuntimeClasspath` 依赖树 = `com.google.code.gson:2.10.1` + `com.tencent:mmkv:2.4.2`(**已无 hawk / conceal**);全库 grep 已无业务侧 `Hawk.` 调用。
+- **未做(需真机)**:spec §6.2 全量回归(设置项/配置管理/搜索历史/线路历史与自动换线/直播分组与直播源切换/续播/弹幕/DoH/无痕/卸载重装走默认值)—— 本轮只做到编译 + 单测 + 构建。装机命令与预期见 spec §5 第 4 条。
+
+## 崩溃修复:KV 迁移把"旧库里没有的键"写成代表值 → 搜索页 `Semaphore(0)` 必崩(2026-09-13,用户报"有崩溃")
+
+> ⚠️ 相关迁移代码(`KVMigrate`)已按"应用未发布、无存量用户"整体删除;本节保留是因为其中两个缺陷/教训与**现行 KV 代码**直接相关。
+
+- **现象**:装机后**一进搜索页必崩**:`java.lang.IllegalArgumentException: Semaphore should have at least 1 permit, but had 0`(`SearchViewModel.<init>` → `Semaphore(semaphorePermits)`)。
+- **抓日志**:`adb logcat -d` 拿到 FATAL 栈(`androidx.lifecycle.ViewModelProvider` 反射创建 `SearchViewModel` → kotlinx `SemaphoreKt.Semaphore`)定位到崩溃点;`adb shell run-as <pkg> cat files/preload_debug.log` 拿到本轮迁移日志 —— **`migrate-start hawkKeys=26` 对 `migrate-done kvKeys=76`**,键数不守恒,一眼看出写多了;再 `exec-out cat shared_prefs/Hawk2.xml` 核对旧库真实键集合(26 个,`search_threads` 不在其中),`files/mmkv/avbox_kv` 里 `search_threads` 存的是 `json:0`,闭环。
+- **根因**:`migrateRegisteredKeys()` 用 `Hawk.get(key, 代表值)` 直读,而 **`Hawk.get(key, default)` 在键不存在时返回的就是 default 本身**(不是 null);代表值(`0`/`false`/空集合)本意只是告诉 Hawk "元素是什么类型"。于是登记表里有、旧库却没有的键全被写进 KV 且写的是代表值 —— `search_threads` 业务默认 32,被写成 **0**,`Semaphore(0)` 直接抛异常。实测多写了 50 个假键。
+- **同源第二个 bug(现行代码,已修)**:`KVCodec.decode` 用 `getValueSize(key) < 0` 判存在性 —— MMKV 该 API 底层是 `size_t`,**不存在的键返回 0 不是 -1**,判断恒 false,导致每个不存在的键都带 `raw=null` 进解码器刷 `type-mismatch`,一轮启动 **2.9 万行**,把有效日志淹掉。已改 `containsKey` + `raw == null` 兜底。
+- **同批加固(现行代码,已修)**:`KVDecoder.coerceNumber()` —— Gson 解析裸数字 token 一律给 `Double`,按 `int` 读会 `isInstance` 失败而静默回落默认值(值看着对、类型被换掉);现按目标数值类型收敛,越界值降级为"回落默认值"(不静默截断)。
+- **最终处置**:修好并真机验证后,用户指出"应用未发布、没有存量用户",于是**迁移整套(搬运 + 纠偏 + 完成标记 + hawk 依赖 + 旧库文件)全部删除** —— 首装即原生 MMKV。设备侧旧库已随之清掉。
+- **验证**:单测 19 例(含本题回归 3 例:Double→int 收敛、越界回落、`json:0` 老实读出 0 而非猜测为缺省);`assembleDebug`/`assembleRelease` 通过;修复版真机冷启动后 `echo-kv` **只剩一行** `type-registry keys=75`,无 `FATAL EXCEPTION` / 无 `Semaphore should`。
+- **可复用教训**:
+  ① **"取默认值"与"判存在性"是两件事** —— 拿带默认值的 getter 去判断存在与否,必然把默认值当成真值;读取层必须把二者分开暴露(`KV.contains` vs `KV.get`);
+  ② 一次性逻辑的完成标记必须可升版本,否则修复无法到达已执行过的机器;
+  ③ **批量搬运/写入后核对数量守恒**,"完成键数"与"旧库键数"的对比是数据写坏的最早信号(本次首装机日志里就已显现,当时没看);
+  ④ 不要用 size 类 API 的返回值猜存在性(注意 `size_t` 的"0 表示不存在"语义);
+  ⑤ **没发布的代码不要背迁移包袱** —— 本次为一个不存在的需求写了完整的搬运 + 纠偏 + 标记体系,最后全部删除;先确认"有没有存量数据"再决定要不要迁移,能省掉整条链路与一整个缺陷面;
+  ⑥ 单元测试要覆盖**语义契约**而不只是算法:当时的 19 例全是纯解码逻辑,迁移的"键不存在不得写入"没有任何测试覆盖,所以缺陷一路走到真机。
+
+## 媒体通知扩展到影视内容(2026-09-13,用户报"播放影视也和音乐一样下拉通知栏能看到")
+
+- **需求(用户原文)**:「播放影视也和音乐一样下拉通知栏能看到」。
+- **定位**:前台服务通知 + MediaSession 原先只对**纯音频**建立,判据是 `PlayContainer.updateMusicSession()` 里
+  `return !trackInfo.getAudio().isEmpty() && trackInfo.getVideo().isEmpty();` —— **影视有音轨但视频轨非空,直接被否**;
+  另一处 `playStateObserver` 里的 `switchPlayback` 收尾分支同样用它。
+- **处置(拆成两个概念,避免连带改掉既有行为)**:
+  - `hasPlayableAudio()` = **有音轨** ⇒ 决定"要不要建会话/通知",影视同样满足(本次需求);
+  - `hasAudioOnlyPlayback()` = **有音轨且无视频轨** ⇒ 只决定 `hostPause()` 里"退后台是否保持播放"(维持原状);
+  - 抽出 `currentTrackInfo()` 复用取轨道信息的 try/catch;`getAudioOnlyPlayback()` 这个返回 `Boolean`(可为 null 表示"取不到")的旧方法随之删除。
+- **⚠️ 明确不做的部分**:**退后台保持播放仍然只对纯音频生效** —— 视频退后台照旧由 `HostPause` 自动暂停(dkplayer 的 autoPause 未启用,是应用自己在管)。所以影视的通知语义是"暂停后仍能在通知栏看到、并能从通知恢复播放",**不是后台播放视频**。若将来要后者,改的是 `hostPause` 的判据,不是通知判据 —— 这两件事已在 spec §4.4 写明分界,不要混。
+- **验证**:`compileDebugJava` 通过(无 `getAudioOnlyPlayback` 残留),已 `installDebug` 到 `V2425A`。
+- **真机验证点**:①播放影视内容 → 下拉通知栏出现标题/集数/封面 + 播放暂停按钮;②切集后通知里的集数跟着变;③在通知里点暂停/播放,播放器状态同步;④**退后台视频仍会暂停**(与改动前一致);⑤播放纯音频(音乐源)行为不变,退后台继续播;⑥电视模式下(UI_MODE_TELEVISION)不建通知(`MusicPlaybackService.isSupported`)。
+
+## 权限梳理:补通知权限申请 + 移除 5 项零引用敏感权限(2026-09-13,用户选"权限一起重新梳理")
+
+- **触发**:用户问"当前项目是否需要通知权限"。核查结论:清单里声明了 `POST_NOTIFICATIONS`,但**代码里从未申请** —— targetSdk 37,Android 13+ 该权限是运行时权限、默认拒绝,于是 `MusicPlaybackService` 的 `startForeground` 通知不显示(服务能起,但用户看不到播放控制,部分 ROM 还会限制无可见通知的前台服务)。
+- **补申请**:`PermissionHelper.requestNotificationIfNeeded(Activity)`(`XXPermissions` 28.3 的 `PermissionLists.getPostNotificationsPermission()`,仅 API 33+ 生效,已授权则秒回)。**申请点 = 启动时**(`MainActivity.init()`,2026-09-13 用户要求"启动就弹窗通知申请");`PlayContainer.updateMusicSession()` 保留一次兜底(覆盖"启动那次拒绝、后来想开"的路径,系统在拒绝两次后不再弹窗、只会静默返回)。拒绝**不阻断任何功能**。
+- **移除的权限**(全项目零引用 + manifest-merger 报告核对来源):`READ_PHONE_STATE`(唯一使用者 `ScreenUtils.checkIsPhone` 靠 `getPhoneType()`,该调用 API 23+ 需此权限)、`GET_TASKS`(Android 5+ 废弃)、`ACCESS_FINE_LOCATION`(DLNA 组播锁不需要定位)、`MOUNT_UNMOUNT_FILESYSTEMS`(来自 `com.lzy.net:okgo:3.0.4`,系统签名权限,第三方应用纯噪声)、`player` 模块里与 app 重复的 `READ/WRITE_EXTERNAL_STORAGE` 声明。
+- **`ScreenUtils` 改造**:`isTv()` 原来 = `UI_MODE_TYPE_TELEVISION || (屏幕很大 && !是手机)`。本项目是纯手机定位(`abiFilters` 仅 arm64-v8a、TV/遥控适配代码已全删),真正的风险反而是**大屏手机被 `SCREENLAYOUT_SIZE_LARGE` 误判成 TV**(会莫名隐藏锁屏钮)。故收窄为只认"系统声明为 TV"这一个权威判据,电话权限随之移除。
+- **保留未删**:`REQUEST_INSTALL_PACKAGES`(零引用,但将来做应用内自更新必须用它;已在清单注释里写明"不需要就删本行"的用户决策点)。
+- **踩坑**:`READ/WRITE_EXTERNAL_STORAGE` 在 app 清单里已**合法声明**(带 `maxSdkVersion=32`),我又加了两条 `tools:node="remove"` → 清单合并直接 `Validation failed` 构建失败。**同一声明里不能既要又要**。删掉那两条 remove 即可(okgo 声明的那份没有 maxSdkVersion,合并会自动保留我们带上限的版本)。
+- **验证**:APK 实际权限从 **20 条降到 16 条**(含 1 条 androidx 内部权限),敏感项全部消失;`aapt2 dump xmltree` 核对通过;已 `installDebug` 到 `V2425A`。清单核对命令:
+  ```powershell
+  aapt2 dump xmltree --file AndroidManifest.xml app\build\outputs\apk\debug\AVBox_debug.apk
+  # 或看来源:app\build\outputs\logs\manifest-merger-debug-report.txt
+  ```
+- **真机验证点**:①设置里应用权限列表应无"电话/位置/读取手机状态";②播放音乐类内容后,下拉通知栏应出现播放控制(首次会弹通知授权);③即使拒绝通知,音乐照常播放;④DLNA 投屏扫描仍能发现设备(证明删定位没影响组播);⑤大屏/普通手机进播放页,锁屏钮照常出现。
+- **可复用教训**:① **清单里声明 ≠ 已获得权限** —— 运行时权限必须显式申请,只看 Manifest 会漏;② 依赖库会通过清单合并塞权限进来,**裁权限必须看合并后的 APK 清单或 merger 报告**,不能只搜自己源码;③ `tools:node="remove"` 不能与同名声明共存,否则构建期直接失败。
+
+## 手势修复:竖屏上下滑改为调亮度/音量,删除"竖屏上下滑切集"(2026-09-13,用户报"上下滑动都会快进,看看 fongmitv")
+
+- **现象**:用户反馈"进度手感调钝没效果",并补充"我上下滑动屏幕都会快进",要求对照 fongmi。
+- **定位(对照 `player/.../GestureVideoController.java` 与 fongmi 参考工程)**:① `onScroll` 的方向判定 `abs(distanceX) >= abs(distanceY)` 与 dkplayer 第 189 行**逐字一致**,不是问题;② 真正的元凶是 `onScroll` **开头**的竖屏切集分支: `isPortraitEpisodeSwipe` 的判据只有 `abs(Δy) > abs(Δx)`(**与 80dp 阈值无关**),命中后**无条件 `return true`** —— 于是竖屏下**所有**上下滑都被它吞掉,后面的 `changeBrightness`/`changeVolume` 分支在竖屏永远到不了,用户既调不了亮度音量、又看到画面在换。③ 该分支是本项目 `VodController` 时期的扩展;**fongmi 没有它**(其手势完全交给 dkplayer 的 `GestureVideoController.onScroll`,只有横滑进度 / 半屏亮度 / 半屏音量三种),所以 fongmi 的上下滑稳定可用。这也解释了"改灵敏度没感觉"——`SLIDE_POSITION_FULL_WIDTH_MS` 只管**横滑**。
+- **处置(用户选方案 2:只调亮度/音量,去掉竖屏切集)**:整套删除 —— `onScroll` 里的切集分支、`isPortraitEpisodeSwipe()`、`portraitEpisodeSwipeThreshold()`、`showPortraitEpisodeTitle()`、常量 `PORTRAIT_EPISODE_SWIPE_DP`(80dp)与 `PORTRAIT_EPISODE_TITLE_SHOW_MS`、字段 `portraitEpisodeSwipeTriggered`(`onDown` 里的复位一并删)、`episodeTitleRunnable`(含 `onDetachedFromWindow` 的 removeCallbacks)、`PlayerUiState.portraitEpisodeTitleTemp`(删除后无任何读写方)。**竖屏与横屏手势行为自此完全一致**。
+- **保留**:`VodControlListener.playNext/playPre` 与 `listener?.playNext(...)` 仍被播放完成自动下一集、键盘/远端切集等使用,不是本次删除对象。
+- **顺带保留的上一轮改动**:`SLIDE_POSITION_FULL_WIDTH_MS = 240000f`(横滑调钝,用户上一轮要求)—— 它现在只作用于**横滑进度**,方向判定与边缘屏蔽不变。
+- **验证**:`compileDebugKotlin` + `compileDebugJava` 通过,全库 `portraitEpisode|PORTRAIT_EPISODE|episodeTitleRunnable` 残留 0 处;已 `installDebug` 到 `V2425A`。
+- **真机验证点**:①竖屏预览态上下滑出现亮度/音量药丸、数值随滑动变化(以前完全无反应);②横屏全屏同样;③"禁用手势控制"开关开启后两者都不响应;④横滑仍是进度(滑满一屏 = 4 分钟);⑤单击显隐、双击暂停、长按倍速不受影响。
+- **可复用教训**:**在 onScroll 开头做"无条件 return true"的形态分支,一定会吃掉后面所有手势** —— 这类"竖屏扩展手势"必须与既有手势划清边界(要么只在真的触发动作时才 return,要么放到独立手势通道),否则表现为"某些手势莫名失效/变成别的动作"。另外:**用户报"某个常量调了没效果"时,先确认这个常量所在代码路径是否真的可达**,本次就是路径被前置分支挡住。
+
+## 新功能:偏好设置新增「禁用手势控制」(2026-09-13,用户要求)
+
+- **需求(用户原文)**:「在偏好设置页面无痕模式和弹幕开关中间新增加一项功能,名为禁用手势控制,小标题为开启后将禁用手势控制亮度和音量,默认关闭。功能的作用是开启后无法再播放器页面通过手势控制音量和亮度」。
+- **落地**:`PreferenceSettingsPage` 在无痕模式与弹幕开关之间插入 `SettingsSwitchRow(title="禁用手势控制", subtitle="开启后将禁用手势控制亮度和音量")`;键 = `HawkConfig.GESTURE_CONTROL_DISABLED`(`"gesture_control_disabled"`,默认 false,已登记进 `KVKeySpec`);`SettingsState` 增字段并在 `loadState()` 读取;判定收口在新的 `util/GestureHelper.isControlDisabled()`(照 `HistoryHelper.isIncognito()` 的既有约定:开关判定集中一处,消费侧统一调用)。
+- **⚠️ 实现要点(踩过)**:该判定**必须是独立方法 `canChangeBrightnessVolume(event)`,不能并进 `canHandleGesture(event)`**。第一版我并进去了,复查时发现点播侧 `isPortraitEpisodeSwipe()`(竖屏上下滑切集)内部第一行就是 `if (!canHandleGesture(e1)) return false` —— 并进去会**连竖屏切集一起禁掉**,超出用户要求。改为:两个控制器各自新增 `canChangeBrightnessVolume = canHandleGesture && !GestureHelper.isControlDisabled()`,只在**竖屏滑动方向确认后**、真正要调亮度/音量之前判一次;关闭时该分支静默 return(不调值、不弹提示)。
+- **生效范围**:点播(`ComposeVideoController`)与直播(`ComposeLiveController`)两侧都生效(直播侧手势本就只有亮度/音量 + 左右快滑切台,后者走 `onFling` 不受影响)。**不受影响**:单击显隐控制条、双击播放/暂停、横滑进度、竖屏上下滑切集、左右快滑切台。
+- **验证**:`compileDebugKotlin` + `compileDebugJava` 通过。真机验证点:①开关默认关,与弹幕开关之间显示且带小标题;②开启后点播页上下滑不再出现亮度/音量药丸、数值不变;③开启后直播页同样;④开启后**竖屏上下滑切集仍然可用**;⑤横滑进度、单击、双击不受影响;⑥重启应用后开关状态保持。
+
+## 缺陷修复:换源后搜索被窄化到只搜得到一个源(2026-09-13,用户报"换源后有概率只能搜到玩偶4K,重启恢复正常")
+
+- **现象**:在配置管理页切换到别的点播源后,搜索**只剩一个源**(用户看到的是「玩偶4K」)有结果,其他源一条都不出;退出应用重进即恢复。
+- **定位(纯代码审查 + 源码证据)**:`SearchActivity` 的 companion 里有一份**会话级**的"勾选搜索源"缓存,注释自称"与旧 SearchActivity 静态字段一致":
+  ```kotlin
+  @Volatile var checkedSources: HashMap<String, String>? = null
+  ```
+  它只在 `== null` 时装载一次(`LaunchedEffect` 里 `if (SearchViewModel.checkedSources == null) ...`),之后**永不刷新**;而这份缓存是**按源 key 记**的,源 key 属于**具体的源集合**。搜索筛选是
+  `getSourceBeanList().filter { isSearchable() && checked.containsKey(it.key) }` ——
+  换源后拿"旧源 key"去过滤"新源源列表",**只有两边 key 相同的源能活下来**,于是表现为"只剩某一个源"。重启清掉静态缓存,重新按新地址从 KV 取(新地址无记录 ⇒ 回落到"全部可搜源")⇒ 恢复。
+- **为什么换源链路没兜住**:换源会走 `AppBootstrap.onApiUrlChanged()`(作废内存配置 → 广播刷新 → 重载),但那条链路**没有清这份缓存**;而唯一的写入点 `SearchHelper.putCheckedSources()` **全项目 0 个调用点**(死代码),意味着缓存一旦装载就再无修正途径。
+- **修复(两层,缺一不可)**:
+  ① **主修**:`AppBootstrap.onApiUrlChanged()` 增加 `SearchViewModel.clearCheckedSources()` —— 换源收尾是唯一正确位置(只有点播地址真的变了才需要失效);注释同步改成"四步"。
+  ② **兜底**:`SearchActivity` 的装载条件从"只判 `== null`"改为 `isCheckedSourcesStale()`,判据三条 —— 未装载 / 属于别的源地址 / **选择里的源 key 已对不上当前源列表**(`SearchHelper.isSelectionStale`)。第三条正是本 bug 的不变量:选择永远是当前源 key 的子集。另外每次 `Boot.Ready` 也重对一次基准,避免"切源后配置尚未拉完时装载到错误基准"。
+  ③ 顺带删除死方法 `SearchHelper.putCheckedSources()`。
+- **遗留说明(已查,非本次问题)**:`detail` 页的"快速搜索"(`DetailActivity.startSourceSearch`)**不走这份会话缓存**,而是每次 `SearchHelper.getSourcesForSearch()` 按当前地址现取,所以不受本 bug 影响。但那里只按 `isSearchable()` 过滤、又在后续按 `isQuickSearch()` 过滤,两个口径不一致 —— 属既有行为,本次不动。
+- **验证**:新增 `SearchHelperTest` 5 例(纯判定与 Android 解耦后单测),含"部分匹配也必须判过期"这一用户实测形态;`KVDecoderTest` 20 例 + `SearchHelperTest` 5 例全过,编译通过。**真机复现路径待用户确认**(切源 → 直接搜索,应可搜到新源的全部可搜源)。

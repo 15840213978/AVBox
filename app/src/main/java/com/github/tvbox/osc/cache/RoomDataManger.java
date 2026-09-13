@@ -14,7 +14,7 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
 
-import com.orhanobut.hawk.Hawk;
+import com.github.tvbox.osc.util.KV;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -88,7 +88,7 @@ public class RoomDataManger {
 
     public static List<VodInfo> getAllVodRecord(int limit) {
         VodRecordDao dao = AppDataManager.get().getVodRecordDao();
-        Integer index = Hawk.get(HawkConfig.HISTORY_NUM, 0);
+        Integer index = KV.get(HawkConfig.HISTORY_NUM, 0);
         Integer hisNum = HistoryHelper.getHisNum(index);
         List<VodRecord> recordList = dao.getAll(Integer.MAX_VALUE);
         List<VodInfo> vodInfoList = new ArrayList<>();

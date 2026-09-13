@@ -3,7 +3,7 @@ package com.github.tvbox.osc.server;
 import android.content.Context;
 
 import com.github.tvbox.osc.util.HawkConfig;
-import com.orhanobut.hawk.Hawk;
+import com.github.tvbox.osc.util.KV;
 
 import java.io.IOException;
 
@@ -59,7 +59,7 @@ public class ControlManager {
             try {
                 mServer.start();
                 com.github.catvod.Proxy.set(RemoteServer.serverPort);
-                IjkMediaPlayer.setDotPort(Hawk.get(HawkConfig.DOH_URL, 0) > 0, RemoteServer.serverPort);
+                IjkMediaPlayer.setDotPort(KV.get(HawkConfig.DOH_URL, 0) > 0, RemoteServer.serverPort);
                 break;
             } catch (IOException ex) {
                 RemoteServer.serverPort++;

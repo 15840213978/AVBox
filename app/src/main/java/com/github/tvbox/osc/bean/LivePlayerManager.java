@@ -5,7 +5,7 @@ import androidx.annotation.NonNull;
 import com.github.tvbox.osc.util.HawkConfig;
 import com.github.tvbox.osc.util.LOG;
 import com.github.tvbox.osc.util.PlayerHelper;
-import com.orhanobut.hawk.Hawk;
+import com.github.tvbox.osc.util.KV;
 
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -18,13 +18,13 @@ public class LivePlayerManager {
 
     public void init(VideoView videoView) {
         try {
-            defaultPlayerConfig.put("pl", Hawk.get(HawkConfig.LIVE_PLAY_TYPE, Hawk.get(HawkConfig.PLAY_TYPE, 2)));
+            defaultPlayerConfig.put("pl", KV.get(HawkConfig.LIVE_PLAY_TYPE, KV.get(HawkConfig.PLAY_TYPE, 2)));
             if (defaultPlayerConfig.optInt("pl", 2) == 0) {
                 defaultPlayerConfig.put("pl", 2);
             }
-            defaultPlayerConfig.put("ijk", Hawk.get(HawkConfig.IJK_CODEC, "硬解码"));
-            defaultPlayerConfig.put("pr", Hawk.get(HawkConfig.PLAY_RENDER, 1));
-            defaultPlayerConfig.put("sc", Hawk.get(HawkConfig.LIVE_PLAY_SCALE, 0));
+            defaultPlayerConfig.put("ijk", KV.get(HawkConfig.IJK_CODEC, "硬解码"));
+            defaultPlayerConfig.put("pr", KV.get(HawkConfig.PLAY_RENDER, 1));
+            defaultPlayerConfig.put("sc", KV.get(HawkConfig.LIVE_PLAY_SCALE, 0));
         } catch (JSONException e) {
             e.printStackTrace();
         }
@@ -101,8 +101,8 @@ public class LivePlayerManager {
         try {
             defaultPlayerConfig.put("pl", playerConfig.getInt("pl"));
             defaultPlayerConfig.put("ijk", playerConfig.getString("ijk"));
-            Hawk.put(HawkConfig.LIVE_PLAY_TYPE, playerConfig.getInt("pl"));
-            Hawk.put(HawkConfig.IJK_CODEC, playerConfig.getString("ijk"));
+            KV.put(HawkConfig.LIVE_PLAY_TYPE, playerConfig.getInt("pl"));
+            KV.put(HawkConfig.IJK_CODEC, playerConfig.getString("ijk"));
         } catch (JSONException e) {
             e.printStackTrace();
         }
@@ -137,7 +137,7 @@ public class LivePlayerManager {
 
     public void changeLivePlayerScale(@NonNull VideoView videoView, int playerScale){
         videoView.setScreenScaleType(playerScale);
-        Hawk.put(HawkConfig.LIVE_PLAY_SCALE, playerScale);
+        KV.put(HawkConfig.LIVE_PLAY_SCALE, playerScale);
 
         JSONObject playerConfig;
         try {

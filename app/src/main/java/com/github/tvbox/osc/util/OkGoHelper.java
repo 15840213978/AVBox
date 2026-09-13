@@ -17,7 +17,7 @@ import com.lzy.okgo.OkGo;
 import com.lzy.okgo.https.HttpsUtils;
 import com.lzy.okgo.interceptor.HttpLoggingInterceptor;
 import com.lzy.okgo.model.HttpHeaders;
-import com.orhanobut.hawk.Hawk;
+import com.github.tvbox.osc.util.KV;
 
 import java.io.File;
 import java.net.InetAddress;
@@ -132,7 +132,7 @@ public class OkGoHelper {
         } catch (Exception e) {
             e.printStackTrace();
         }
-        appendDohItems(merged, keys, parseDohArray(Hawk.get(HawkConfig.DOH_JSON, "")));
+        appendDohItems(merged, keys, parseDohArray(KV.get(HawkConfig.DOH_JSON, "")));
         return merged;
     }
 
@@ -179,7 +179,7 @@ public class OkGoHelper {
             String name = dnsConfig.has("name") ? dnsConfig.get("name").getAsString() : "Unknown Name";
             dnsHttpsList.add(name);
         }
-        if(Hawk.get(HawkConfig.DOH_URL, 0)+1>dnsHttpsList.size())Hawk.put(HawkConfig.DOH_URL, 0);
+        if(KV.get(HawkConfig.DOH_URL, 0)+1>dnsHttpsList.size())KV.put(HawkConfig.DOH_URL, 0);
         myHosts = ApiConfig.get().getMyHost();
     }
 
@@ -199,14 +199,14 @@ public class OkGoHelper {
     }
 
     static void initDnsOverHttps() {
-        Integer dohSelector=Hawk.get(HawkConfig.DOH_URL, 0);
+        Integer dohSelector=KV.get(HawkConfig.DOH_URL, 0);
         JsonArray ips=null;
         try {
             dnsHttpsList.clear();
             dnsHttpsList.add("关闭");
             JsonArray jsonArray = getDohConfigArray();
             if(dohSelector>jsonArray.size()) {
-                Hawk.put(HawkConfig.DOH_URL, 0);
+                KV.put(HawkConfig.DOH_URL, 0);
                 dohSelector = 0;
             }
             for (int i = 0; i < jsonArray.size(); i++) {
@@ -233,7 +233,7 @@ public class OkGoHelper {
         }
         builder.cache(new Cache(new File(App.getInstance().getCacheDir().getAbsolutePath(), "dohcache"), 100 * 1024 * 1024));
         OkHttpClient dohClient = builder.build();
-        String dohUrl = getDohUrl(Hawk.get(HawkConfig.DOH_URL, 0));
+        String dohUrl = getDohUrl(KV.get(HawkConfig.DOH_URL, 0));
 //        if (!dohUrl.isEmpty()) is_doh = true;
 //        LOG.i("echo-initDnsOverHttps dohUrl:"+dohUrl);
 //        LOG.i("echo-initDnsOverHttps ips:"+ips);

@@ -15,7 +15,7 @@ import androidx.media3.exoplayer.source.preload.TargetPreloadStatusControl;
 
 import com.github.tvbox.osc.util.HawkConfig;
 import com.github.tvbox.osc.util.LOG;
-import com.orhanobut.hawk.Hawk;
+import com.github.tvbox.osc.util.KV;
 
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -86,7 +86,7 @@ public final class PreloadManagerHolder {
 
     /** 预载总开关（设置页「下一集预载」,默认关） */
     public static boolean enabled() {
-        return Hawk.get(HawkConfig.PRELOAD_NEXT_EPISODE, false);
+        return KV.get(HawkConfig.PRELOAD_NEXT_EPISODE, false);
     }
 
     /**
@@ -201,7 +201,7 @@ public final class PreloadManagerHolder {
     private static long preloadRangeMs() {
         int seconds = PRELOAD_SECONDS_DEFAULT;
         try {
-            seconds = Hawk.get(HawkConfig.PRELOAD_DURATION, PRELOAD_SECONDS_DEFAULT);
+            seconds = KV.get(HawkConfig.PRELOAD_DURATION, PRELOAD_SECONDS_DEFAULT);
         } catch (Throwable ignored) {
         }
         seconds = Math.max(PRELOAD_SECONDS_MIN, Math.min(PRELOAD_SECONDS_MAX, seconds));

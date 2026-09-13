@@ -74,6 +74,7 @@ import com.github.tvbox.osc.util.AdBlocker;
 import com.github.tvbox.osc.util.DefaultConfig;
 import com.github.tvbox.osc.util.FileUtils;
 import com.github.tvbox.osc.util.HawkConfig;
+import com.github.tvbox.osc.util.PermissionHelper;
 import com.github.tvbox.osc.util.ImgUtil;
 import com.github.tvbox.osc.util.LOG;
 import com.github.tvbox.osc.util.MD5;
@@ -88,7 +89,7 @@ import com.lzy.okgo.OkGo;
 import com.lzy.okgo.callback.AbsCallback;
 import com.lzy.okgo.model.HttpHeaders;
 import com.lzy.okgo.model.Response;
-import com.orhanobut.hawk.Hawk;
+import com.github.tvbox.osc.util.KV;
 import androidx.media3.common.text.Cue;
 
 import org.greenrobot.eventbus.EventBus;
@@ -435,10 +436,10 @@ public class PlayContainer extends FrameLayout implements CustomAdapt {
                         switchingPlayback = false;
                         audioPlayback = false;
                     } else if (isStartedPlayState(playState)) {
-                        Boolean audioOnly = getAudioOnlyPlayback();
-                        if (audioOnly != null) {
+                        // 起播成功:有音频轨则维护会话/通知(影视同样),并结束切换态
+                        if (hasPlayableAudio() || audioPlayback) {
                             switchingPlayback = false;
-                            audioPlayback = audioOnly;
+                            audioPlayback = true;
                         }
                     }
                 }
@@ -657,7 +658,7 @@ public class PlayContainer extends FrameLayout implements CustomAdapt {
             mController.getSubtitleView().setVisibility(View.GONE);
             mController.getSubtitleView().setSubtitlePath(path);
             // 恢复用户选择的文字样式(样式一 白 / 样式二 粉,2026-09-12 补回)
-            setSubtitleViewTextStyle(Hawk.get(HawkConfig.SUBTITLE_TEXT_STYLE, 0));
+            setSubtitleViewTextStyle(KV.get(HawkConfig.SUBTITLE_TEXT_STYLE, 0));
             mController.getSubtitleView().setVisibility(View.VISIBLE);
         }
     }
@@ -686,7 +687,7 @@ public class PlayContainer extends FrameLayout implements CustomAdapt {
                     },
                     style -> {
                         // 样式一(0)/样式二(1):应用并持久化,下次挂载外挂字幕自动恢复
-                        Hawk.put(HawkConfig.SUBTITLE_TEXT_STYLE, style);
+                        KV.put(HawkConfig.SUBTITLE_TEXT_STYLE, style);
                         setSubtitleViewTextStyle(style);
                         return kotlin.Unit.INSTANCE;
                     }));
@@ -1090,7 +1091,7 @@ public class PlayContainer extends FrameLayout implements CustomAdapt {
         startSwitchLinePlayTimeout();
         url = attachProxySiteKey(url);
         if(!url.startsWith("data:application"))EventBus.getDefault().post(new RefreshEvent(RefreshEvent.TYPE_REFRESH, url));//更新播放地址
-        if (!Hawk.get(HawkConfig.M3U8_PURIFY, false)) {
+        if (!KV.get(HawkConfig.M3U8_PURIFY, false)) {
             goPlayUrl(url,headers);
             return;
         }
@@ -1524,17 +1525,17 @@ public class PlayContainer extends FrameLayout implements CustomAdapt {
                 // 原写法在这里 NPE,而本块 catch(Throwable) 是空的 —— 会静默跳过下面
                 // pr/ijk/sc/sp/st/et 全部设置,播放器配置只剩半截。改为退回全局播放器设置。
                 int sourcePlayerType = sourceBean == null ? -1 : sourceBean.getPlayerType();
-                mVodPlayerCfg.put("pl", (sourcePlayerType == -1) ? (int) Hawk.get(HawkConfig.PLAY_TYPE, 2) : sourcePlayerType);
+                mVodPlayerCfg.put("pl", (sourcePlayerType == -1) ? (int) KV.get(HawkConfig.PLAY_TYPE, 2) : sourcePlayerType);
             }
             if (mVodPlayerCfg.optInt("pl", 2) == 0) {
                 mVodPlayerCfg.put("pl", 2);
             }
-            mVodPlayerCfg.put("pr", Hawk.get(HawkConfig.PLAY_RENDER, 1));
+            mVodPlayerCfg.put("pr", KV.get(HawkConfig.PLAY_RENDER, 1));
             if (!mVodPlayerCfg.has("ijk")) {
-                mVodPlayerCfg.put("ijk", Hawk.get(HawkConfig.IJK_CODEC, "硬解码"));
+                mVodPlayerCfg.put("ijk", KV.get(HawkConfig.IJK_CODEC, "硬解码"));
             }
             if (!mVodPlayerCfg.has("sc")) {
-                mVodPlayerCfg.put("sc", Hawk.get(HawkConfig.PLAY_SCALE, 0));
+                mVodPlayerCfg.put("sc", KV.get(HawkConfig.PLAY_SCALE, 0));
             }
             if (!mVodPlayerCfg.has("sp")) {
                 mVodPlayerCfg.put("sp", 1.0f);
@@ -1567,32 +1568,46 @@ public class PlayContainer extends FrameLayout implements CustomAdapt {
         this.exitingPreview = exitingPreview;
     }
 
-    private boolean hasAudioOnlyPlayback() {
-        return Boolean.TRUE.equals(getAudioOnlyPlayback());
+    /**
+     * 当前媒体是否有音频轨(2026-09-13 由"是否纯音频"拆出)。
+     *
+     * <p>拆分的理由:两件事被混在了一个判定里 ——
+     * ① **要不要建 MediaSession / 前台服务通知**(用户要求播放影视也能下拉看到)→ 只要**有音频轨**即可;
+     * ② **退后台是否保持播放**(见 [hostPause])→ 只有**纯音频**才保留,视频退后台仍按既有行为暂停。
+     * 影视同样有音频轨,故通知对影视生效,而"退后台暂停视频"的行为不变。
+     */
+    private boolean hasPlayableAudio() {
+        TrackInfo trackInfo = currentTrackInfo();
+        return trackInfo != null && !trackInfo.getAudio().isEmpty();
     }
 
-    private Boolean getAudioOnlyPlayback() {
+    /** 是否为纯音频(有音轨且无视频轨):决定退后台是否保持播放 */
+    private boolean hasAudioOnlyPlayback() {
+        TrackInfo trackInfo = currentTrackInfo();
+        return trackInfo != null && !trackInfo.getAudio().isEmpty() && trackInfo.getVideo().isEmpty();
+    }
+
+    /** 取当前播放器的轨道信息;拿不到(未起播/不支持)返回 null */
+    private TrackInfo currentTrackInfo() {
         if (mVideoView == null) return null;
         try {
             AbstractPlayer mediaPlayer = mVideoView.getMediaPlayer();
-            TrackInfo trackInfo = null;
             if (mediaPlayer instanceof IjkMediaPlayer) {
-                trackInfo = ((IjkMediaPlayer) mediaPlayer).getTrackInfo();
+                return ((IjkMediaPlayer) mediaPlayer).getTrackInfo();
             } else if (mediaPlayer instanceof ExoPlayer) {
-                trackInfo = ((ExoPlayer) mediaPlayer).getTrackInfo();
+                return ((ExoPlayer) mediaPlayer).getTrackInfo();
             }
-            if (trackInfo == null) return null;
-            return !trackInfo.getAudio().isEmpty() && trackInfo.getVideo().isEmpty();
         } catch (Throwable ignored) {
-            return null;
         }
+        return null;
     }
 
     private void updateMusicSession() {
         if (!MusicPlaybackService.isSupported(getContext())) return;
         if (switchingPlayback) return;
-        Boolean audioOnly = getAudioOnlyPlayback();
-        if (audioOnly != null) audioPlayback = audioOnly;
+        // 有音频轨就维护会话与通知(影视/音乐一视同仁);拿不到轨道信息时沿用上一次的判定结果
+        Boolean hasAudio = hasPlayableAudio();
+        if (hasAudio) audioPlayback = true;
         if (audioPlayback && TextUtils.isEmpty(playArtwork) && mVodInfo != null && !TextUtils.isEmpty(mVodInfo.pic)) {
             playArtwork = mVodInfo.pic;
             mVideoView.setArtwork(playArtwork);
@@ -1604,6 +1619,9 @@ public class PlayContainer extends FrameLayout implements CustomAdapt {
             audioPlayback = false;
             return;
         }
+        // 通知权限兜底(启动时已在 MainActivity 申请过一次):这里再调一次用于覆盖
+        // "启动那次被拒、后来手动开启"的路径,已授权时 XXPermissions 秒回,无额外开销
+        if (mActivity != null) PermissionHelper.requestNotificationIfNeeded(mActivity);
         VodInfo.VodSeries currentSeries = getCurrentSeries(mVodInfo.playFlag, mVodInfo.playIndex);
         String episode = currentSeries == null || TextUtils.isEmpty(currentSeries.name) ? "" : currentSeries.name;
         MusicPlaybackService.update(getContext(), this,
@@ -1766,7 +1784,7 @@ public class PlayContainer extends FrameLayout implements CustomAdapt {
 
     boolean tryNextLineIfEnabled() {
         restoreAutoSwitchedPlayer();
-        if (allowAutoSwitchLine && Hawk.get(HawkConfig.AUTO_SWITCH_LINE, false)) return tryNextLine();
+        if (allowAutoSwitchLine && KV.get(HawkConfig.AUTO_SWITCH_LINE, false)) return tryNextLine();
         LOG.i("echo-autoRetry line switching disabled");
         autoRetryCount = 0;
         allowSwitchPlayer = true;

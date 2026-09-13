@@ -143,7 +143,7 @@ fun HomePage(vm: HomeViewModel, bottomPadding: Dp = 0.dp) {
 
     // 订阅源切换 sheet 开关(2026-09-10:源 chips 行收敛为左上角胶囊入口)
     var showSourceSheet by remember { mutableStateOf(false) }
-    // 源级卡片点击策略变更计数:驱动 sheet 内策略标记重组(策略本体存 Hawk)
+    // 源级卡片点击策略变更计数:驱动 sheet 内策略标记重组(策略本体存 KV)
     var policyTick by remember { mutableStateOf(0) }
 
     AppTopBarScaffold(
