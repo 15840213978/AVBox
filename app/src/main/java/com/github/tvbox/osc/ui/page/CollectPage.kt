@@ -77,19 +77,11 @@ class CollectViewModel : ViewModel() {
         EventBus.getDefault().unregister(this)
     }
 
-    /** 回顶信号:数据刷新后页面滚动回顶部(自增版本,页面层 collect) */
     val scrollSignal = MutableStateFlow(0)
 
-    /** 补位动画开关:删除时启用(短距离补位),观看/收藏刷新回顶场景关闭(避免长滑行穿顶栏) */
     val placementAnim = MutableStateFlow(false)
 
-    /**
-     * [scrollToTop]=true 用于"收藏行为"触发的刷新(落库后发事件):刚收藏的影片会插入到
-     * 列表顶部,若保持旧滚动偏移,新顶部的卡片会顶进状态栏区被顶栏遮住(2026-09-12);
-     * 删除操作不改变排序语义,保持原位不回滚。
-     */
     fun refresh(scrollToTop: Boolean = false) {
-        // 仅首屏(列表为空)显示全屏 loading;取消收藏/事件刷新原位更新列表,避免整页转圈闪烁
         if (items.value.isEmpty()) loading.value = true
         if (scrollToTop) placementAnim.value = false
         viewModelScope.launch(Dispatchers.IO) {
@@ -104,7 +96,7 @@ class CollectViewModel : ViewModel() {
         if (event.type == RefreshEvent.TYPE_COLLECT_REFRESH) refresh(scrollToTop = true)
     }
 
-    /** 取消收藏单条(长按卡片,2026-09-12 用户定稿交互):启用补位动画(短距离) */
+
     fun deleteOne(item: VodCollect) {
         placementAnim.value = true
         viewModelScope.launch(Dispatchers.IO) {
@@ -113,7 +105,7 @@ class CollectViewModel : ViewModel() {
         }
     }
 
-    /** 清空全部收藏(右上角删除控件,确认弹窗后执行) */
+  
     fun deleteAll() {
         viewModelScope.launch(Dispatchers.IO) {
             RoomDataManger.deleteVodCollectAll()
@@ -122,12 +114,6 @@ class CollectViewModel : ViewModel() {
     }
 }
 
-/**
- * 收藏页(2026-09-12 用户定稿交互改造,与历史页一致):
- * - 右上角删除控件**常驻**:点击弹确认窗,确认后清空全部收藏(全选机制删除);
- * - **长按海报卡**弹确认窗,确认后取消收藏该条;
- * - 卡片增删/重排带 animateItem 动画(与配置管理页一致)。
- */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun CollectPage(vm: CollectViewModel = viewModel(), bottomPadding: Dp = 0.dp) {
@@ -138,10 +124,8 @@ fun CollectPage(vm: CollectViewModel = viewModel(), bottomPadding: Dp = 0.dp) {
     var showDeleteAllDialog by remember { mutableStateOf(false) }
     var deleteTarget by remember { mutableStateOf<VodCollect?>(null) }
 
-    // 无边框顶栏(2026-09-11 晚照 `示例文件/android` 官方方案重做):Scaffold + M3 TopAppBar
     val listState = rememberLazyGridState()
 
-    // 收藏行为刷新后平滑滚回顶部(刚收藏的影片在 index 0,避免保持旧偏移时新卡顶进状态栏区)
     LaunchedEffect(vm) {
         vm.scrollSignal.collect {
             if (items.isNotEmpty()) listState.animateScrollToItem(0)
@@ -157,7 +141,7 @@ fun CollectPage(vm: CollectViewModel = viewModel(), bottomPadding: Dp = 0.dp) {
             )
         },
         actions = {
-            // 删除控件常驻(2026-09-12 用户定稿):确认弹窗后清空全部;单条走长按卡片
+
             ManageActionIcon(
                 iconRes = R.drawable.ic_delete,
                 contentDescription = "清空收藏",
@@ -190,13 +174,12 @@ fun CollectPage(vm: CollectViewModel = viewModel(), bottomPadding: Dp = 0.dp) {
                 state = listState,
                 columns = GridCells.Fixed(2),
                 modifier = Modifier.fillMaxSize(),
-                // 顶部 = 顶栏高度 + 8dp:首卡与顶栏间距与设置页一致(2026-09-12 用户定稿,原 -8+28=+20);
-                // 内容可延伸到状态栏下,滚动时从顶栏区域穿过并被顶部遮罩渐隐
+                
                 contentPadding = PaddingValues(
                     start = 16.dp,
                     end = 16.dp,
                     top = topPad + 8.dp,
-                    // 液态玻璃模式:叠加悬浮栏遮挡高度(MainScreen 下发,M3 栏模式为 0)
+                    
                     bottom = 8.dp + bottomPadding,
                 ),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -205,7 +188,7 @@ fun CollectPage(vm: CollectViewModel = viewModel(), bottomPadding: Dp = 0.dp) {
                 items(items, key = { it.id }) { item ->
                     CollectCard(
                         item = item,
-                        // 补位动画按场景开关:删除=开启(短距离补位);收藏刷新回顶=关闭(瞬时)
+                    
                         modifier = Modifier.animateItem(
                             fadeInSpec = spring(stiffness = Spring.StiffnessMediumLow),
                             placementSpec = if (placementAnim) {

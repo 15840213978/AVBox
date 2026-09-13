@@ -584,3 +584,26 @@ interface 'com.github.catvod.spider.merge.Pu' in call to
   ③ 顺带删除死方法 `SearchHelper.putCheckedSources()`。
 - **遗留说明(已查,非本次问题)**:`detail` 页的"快速搜索"(`DetailActivity.startSourceSearch`)**不走这份会话缓存**,而是每次 `SearchHelper.getSourcesForSearch()` 按当前地址现取,所以不受本 bug 影响。但那里只按 `isSearchable()` 过滤、又在后续按 `isQuickSearch()` 过滤,两个口径不一致 —— 属既有行为,本次不动。
 - **验证**:新增 `SearchHelperTest` 5 例(纯判定与 Android 解耦后单测),含"部分匹配也必须判过期"这一用户实测形态;`KVDecoderTest` 20 例 + `SearchHelperTest` 5 例全过,编译通过。**真机复现路径待用户确认**(切源 → 直接搜索,应可搜到新源的全部可搜源)。
+
+## 缺陷修复:纯音频(音乐)SurfaceView 渲染洞穿 —— 快照变白/回前台透视桌面(2026-09-13,用户报三联症状)
+
+- **现象**:竖屏详情页播音乐(易听音乐,纯音频)应用内画面黑色(正常);退后台 → 多任务卡片播放器区域**变白**;从桌面回前台 → 过渡动画中播放器区域**闪烁透视到桌面**。用户实测补充:**仅 SurfaceView 渲染有此问题,TextureView 三症状全无**。
+- **根因**:SurfaceView 的画面在独立于应用窗口的合成层上(本渲染视图 `SurfaceRenderView` 用 `PixelFormat.RGBA_8888` 可透明格式),应用窗口在播放器矩形被"打洞":无视频帧的内容全靠空 Surface 垫底呈黑;退后台任务快照里 Surface 垫底消失,该区域只剩窗口底色;回前台 Surface 重建前洞完全透明透视壁纸。TextureView 画在应用窗口图层内,无帧呈黑、快照与过渡动画全部正常。
+- **修复(双层)**:
+  ① 起播预判:`PlayContainer.looksLikeAudioUrl(url)`(mp3/m4a/aac/flac/wav/ogg/oga/opus/wma 后缀,去 query/fragment)→ `updateCfg` 后 `mVideoView.setRenderViewFactory(TextureRenderViewFactory.create())`,补住「起播 → 轨道信息就绪」之间退后台的空窗;
+  ② 轨道信息兜底:`STATE_PLAYING` 时 `ensureAudioOnlyRender()`(`Boolean.TRUE.equals(isAudioOnlyPlayback())` 且 `MyVideoView.isSurfaceRenderActive()`)→ `switchRenderToTexture()`(`setRenderViewFactory(Texture)` + fork protected `addDisplay()` 热切换,音频不中断)。
+- **审查确认的关键机制**:
+  - **`replay(false)` 不重建渲染视图**(fork:`keepRenderViewOnReset` 分支只 reset + `startPrepare(false)`;普通分支 `startPrepare(true,true)` 也只 rebind)—— `addDisplay()` 只在 `start()`→`startPlay` 执行 ⇒ reusePlayer(切线路/清晰度/换集续播)路径①不生效,**必须靠②在 STATE_PLAYING 后重建**;这也是双层缺一不可的原因。
+  - 旧 SurfaceView 摘除后 `surfaceDestroyed` 异步回调 `setDisplay(null)`(ExoMediaPlayer → `mInternalPlayer.setVideoSurface(null)`)落在**无视频轨**的播放器上是无操作,不影响新 Texture 挂载(热切换仅音频内容触发)。
+  - artworkView 永在渲染视图之上(`addDisplay` 恒插 index 0);MeasureHelper 无视频尺寸时按父容器铺满;换集/换源下次 `updateCfg` 按用户设置恢复渲染类型,影视不受影响;误判(音频后缀实为视频)无功能损失,TextureView 照常渲染。
+  - IJK `getTrackInfo` 已过滤内嵌封面(`isAttachedPicture`);EXO 对 mp3/m4a/flac/ogg 的内嵌封面走 metadata 不产生视频轨 → `isAudioOnlyPlayback()` 三态判定可靠。
+- **验证**:`:app:compileDebugJavaWithJavac` + `:app:assembleDebug` 通过(BUILD SUCCESSFUL)。
+- **真机验证点**:①设置保持「画面渲染: SurfaceView」播音乐 → 退后台多任务卡片播放器区域黑色(不再变白);②回前台过渡不透视桌面;③音乐后台续播正常;④正常视频画面/声音/进度正常(渲染仍走 SurfaceView);⑤切线路/清晰度/换集后音乐仍正常。
+- **已知限制(未覆盖)**:直播页(广播类纯音频频道)不在本次修复范围(LivePlayerManager 独立链路);无后缀的音频直链/代理地址在轨道信息就绪前有短暂 Surface 窗口(秒级)。
+
+## 缺陷修复:真机两起崩溃(2026-09-13,用户报"应用刚刚是不是发生了崩溃",crash buffer 抓到)
+
+- **崩溃①(11:52,旧构建)**:`NullPointerException: JSONObject.getInt on null` ← `PlayContainer.getSavedProgress` 读 `mVodPlayerCfg.getInt("st")` 为 null(原 try 只 catch `JSONException`,NPE 直接穿透);触发链 = 详情页**中央播放键**(`PlayerCenterControls → onPlayPauseClicked → ControlWrapper.togglePlay → start() → startPlay → ProgressManager.getSavedProgress`),即 `setInitBundle` 之前的空窗期点中央播放。**修复**:`st = (mVodPlayerCfg == null) ? 0 : mVodPlayerCfg.optInt("st", 0)`(顺手用 optInt 免掉 try/catch),空窗期点击不崩、片头跳过按 0 处理。
+- **崩溃②(12:39,新构建)**:`IllegalArgumentException: Key "玩偶|131202" was already used` ← 详情页**相关推荐 LazyRow**(`RelatedSection` 的 item key = `sourceKey|id`)。根因:`DetailViewModel` 聚合搜索回调里 `relatedVideos.value = relatedVideos.value + related` **多源追加不去重**,同一 sourceKey|id 出现两次(玩偶源返回重复条目)即撞 key 闪退。**修复**:追加前按 `candidateKey(sourceKey|id)` 去重(`mapTo(HashSet)` 建 seen 集 + `seen.add` 过滤,同源同 id 留第一条;每次搜索 `relatedVideos` 重置,seen 随之重建)。
+- **与渲染修复无关**:两处崩溃路径均不在纯音频渲染修复的改动范围(装机构建时间线佐证:崩溃①在 12:19:32 装机前、②在其后但属既有缺陷)。
+- **验证**:`:app:assembleDebug` BUILD SUCCESSFUL。真机复测点:①详情页加载完成前立刻点中央播放键不崩;②滚动/等待相关推荐加载不崩(玩偶源可复现时);③相关推荐无重复卡片。

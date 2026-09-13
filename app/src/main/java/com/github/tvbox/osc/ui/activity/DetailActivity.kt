@@ -666,7 +666,11 @@ class DetailViewModel : ViewModel() {
                         && !(it.sourceKey == sourceKey && it.id == vodId)
             }
             if (related.isNotEmpty()) {
-                relatedVideos.value = relatedVideos.value + related
+                // 2026-09-13 崩溃修复:多源聚合追加不去重,同一 sourceKey|id 出现两次会让
+                // RelatedSection 的 LazyRow item key 撞车("Key ... was already used" 闪退)
+                val seen = relatedVideos.value.mapTo(HashSet()) { candidateKey(it) }
+                val deduped = related.filter { seen.add(candidateKey(it)) }
+                if (deduped.isNotEmpty()) relatedVideos.value = relatedVideos.value + deduped
             }
         } else if (event.type == RefreshEvent.TYPE_PLAY_QUALITY) {
             updateQualityOptions(event.obj as? org.json.JSONObject)

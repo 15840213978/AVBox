@@ -39,12 +39,7 @@ import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.sqrt
 
-/**
- * 颜色选择器(2026-09-11,照搬 `示例文件/android` 的 ColorPickerDialog):
- * Compose 自绘 HSV 色轮 + 亮度滑块 + 初始/当前色对比,返回所选颜色 ARGB Int。
- * 2026-09-13 取消/确定改走「带动画关闭」:调用方 onConfirm/onDismiss 里不要自己置 false
- * (onDismiss 仍由 scrim/返回/滑出结束的 onDismissRequest 触发)。
- */
+
 @Composable
 fun ThemeColorPickerSheet(
     title: String,

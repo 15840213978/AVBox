@@ -318,12 +318,8 @@ public class PlayContainer extends FrameLayout implements CustomAdapt {
     }
 
     public long getSavedProgress(String url) {
-        int st = 0;
-        try {
-            st = mVodPlayerCfg.getInt("st");
-        } catch (JSONException e) {
-            e.printStackTrace();
-        }
+       
+        int st = (mVodPlayerCfg == null) ? 0 : mVodPlayerCfg.optInt("st", 0);
         long skip = st * 1000L;
         Object theCache=CacheManager.getCache(MD5.string2MD5(url));
         if (theCache == null) {
@@ -365,11 +361,10 @@ public class PlayContainer extends FrameLayout implements CustomAdapt {
             }
         });
         mVideoView = findViewById(R.id.mVideoView);
-        // 点播磁盘缓存标记(第二期扩展「边播边缓存」):本容器为点播 → Exo 侧普通集也启用 cache 数据源;
-        // 直播页(LivePlayActivity)不设置,保持 false 天然排除
+        
         mVideoView.setExoDiskCacheEnabled(true);
         mController = new ComposeVideoController(mActivity);
-        // 预载就绪提示(预载方案第二期,2026-09-12 定稿 Toast+5s):预载完成 → Toast「下一集已就绪」
+
         preloadReadyListener = new PreloadManagerHolder.ReadyListener() {
             @Override
             public void onPreloadReady(String url) {

@@ -55,6 +55,15 @@ public class MusicPlaybackService extends Service {
 
     private static MusicPlaybackService instance;
     private static WeakReference<PlayContainer> owner;
+    /**
+     * startForegroundService 已发出、服务尚未就绪(onCreate 未跑)。
+     * ⚠️ 此窗口内绝不能 stopService:AOSP 竞态 —— create 已派发到进程,onStartCommand 可能
+     * 不再交付,startForeground 永远不执行 → ForegroundServiceDidNotStartInTimeException 杀进程
+     * (真机 2026-09-13:音乐起播失败重试期 start/stop 毫秒级抖动,连崩两次,vivo 超时窗 ~5s)。
+     * 改为置 stopWhenStarted,让服务自己走「startForeground → stop」的合法时序。
+     */
+    private static volatile boolean pendingStart;
+    private static volatile boolean stopWhenStarted;
 
     private MediaSessionCompat mediaSession;
     private PendingIntent sessionActivity;
@@ -85,8 +94,12 @@ public class MusicPlaybackService extends Service {
         intent.putExtra(EXTRA_DURATION, duration);
         intent.putExtra(EXTRA_PLAYING, playing);
         if (instance != null) {
+            pendingStart = false;
+            stopWhenStarted = false;
             instance.handleIntent(intent);
         } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            pendingStart = true;
+            stopWhenStarted = false;
             context.startForegroundService(intent);
         } else {
             context.startService(intent);
@@ -98,7 +111,11 @@ public class MusicPlaybackService extends Service {
         if (fragment != null && current != null && current != fragment) return;
         owner = null;
         if (instance != null) {
+            pendingStart = false;
             instance.stopPlaybackService();
+        } else if (pendingStart) {
+            // FGS 在途:不能 stopService(见 pendingStart 注释),登记"起来就停"
+            stopWhenStarted = true;
         } else if (context != null) {
             context.stopService(new Intent(context, MusicPlaybackService.class));
         }
@@ -108,6 +125,7 @@ public class MusicPlaybackService extends Service {
     public void onCreate() {
         super.onCreate();
         instance = this;
+        pendingStart = false;
         createNotificationChannel();
         mediaSession = new MediaSessionCompat(this, "TVBoxMusic");
         mediaSession.setFlags(MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS
@@ -167,6 +185,15 @@ public class MusicPlaybackService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+    
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            try {
+                startForeground(NOTIFICATION_ID, buildNotification());
+            } catch (Throwable th) {
+                
+                LOG.i("echo-music startForeground failed: " + th.getMessage());
+            }
+        }
         if (intent != null) handleIntent(intent);
         return START_NOT_STICKY;
     }

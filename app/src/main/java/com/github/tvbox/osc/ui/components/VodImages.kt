@@ -36,13 +36,6 @@ object VodImages {
         }
     }
 
-    /**
-     * 海报提速(2026-09-12 用户定稿,FongMi/Glide 默认行为对齐):HTTP 磁盘缓存 + 改写禁缓存头。
-     * TVBox 图床普遍返回 no-cache/no-store/Pragma 禁缓存,coil3 又无 respectCacheHeaders API
-     * (coil2 遗留项已移除)→ 在 OkHttp 网络层把禁缓存响应强制改写为「public, max-age=7 天」,
-     * 同 URL 二次请求(再次进 App/切回源/滚动回看)直接磁盘命中,零网络。
-     * 风险:源站原地换图且 URL 不变时显示旧图,最长 7 天(URL 带签名/变化时不受影响)。
-     */
     private fun picClient(): OkHttpClient = OkHttpClient.Builder()
         .cache(picCacheDir?.let { Cache(it, PIC_HTTP_CACHE_MB * 1024L * 1024L) })
         .addInterceptor(picHeaderInterceptor)

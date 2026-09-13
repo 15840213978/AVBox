@@ -4,11 +4,6 @@ import com.github.tvbox.osc.bean.ParseBean
 
 import java.util.HashMap
 
-/**
- * 播放器控制层对外回调契约（Compose 化改造 §4.1：从 VodController 嵌套接口提取为顶层，
- * 阶段 8 删除 VodController 后由 [ComposeVideoController] 与 PlayContainer 继续使用）。
- * 方法签名与旧 VodController.VodControlListener 完全一致。
- */
 interface VodControlListener {
     fun playNext(rmProgress: Boolean)
 
