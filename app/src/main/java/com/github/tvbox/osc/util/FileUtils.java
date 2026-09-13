@@ -182,6 +182,26 @@ public class FileUtils {
         return;
     }
 
+    /**
+     * 递归强删整个目录树:先删子项(文件/子目录),最后删目录本身。
+     * 与 {@link #deleteFile} 的"只清内容、保留各级目录"语义不同,本方法连各级子目录一并删除,
+     * 供 {@link #purgeExoCacheIfPending} 彻底删除 exo-video-cache 目录树——
+     * 否则多级子目录需多次启动才能逐层清空(表现为 purge-incomplete 逐次递减 10→7→3→done)。
+     */
+    private static void deleteFileTree(File file) {
+        if (!file.exists()) return;
+        if (file.isDirectory()) {
+            File[] files = file.listFiles();
+            if (files != null) {
+                for (File one : files) {
+                    deleteFileTree(one);
+                }
+            }
+        }
+        // 此处 file 已是文件或已清空的空目录:解除只读再删
+        deleteSingle(file);
+    }
+
     /** 删除单个文件/空目录;只读项先解除只读再删,仍失败则留日志便于排查 */
     private static void deleteSingle(File file) {
         if (!file.canWrite()) file.setWritable(true);
@@ -258,44 +278,39 @@ public class FileUtils {
     private static final String PENDING_EXO_CLEAR_FLAG = "clear_exo_cache.pending";
 
     /**
-     * 清理应用缓存(内部 + 外部)。2026-09-13 调整:**不再直接删除 exo-video-cache**
-     * —— 进程级共享 SimpleCache 常驻且从不 release,目录/索引被删会造成"内存索引与磁盘失配",
-     * 虽有 CacheDataSource 的 FLAG_IGNORE_CACHE_ON_ERROR 兜底(不崩溃),但缓存命中率会退化到进程结束。
-     * 改为写"待清理"标记,由 {@link #purgeExoCacheIfPending()} 在下次启动早期
-     * (SimpleCache 尚未创建时)真正删除该目录。
+     * 清理应用缓存(内部 + 外部,含 exo-video-cache)。2026-09-14 调整:**改为直接删除 exo-video-cache**
+     * —— 对齐 fongmi(FileUtil.clearCache → Path.clear(Path.cache) 递归强删整个 cacheDir 含 exo 子目录)。
+     * 进程级共享 SimpleCache 常驻,目录被删会"内存索引/磁盘失配",但 CacheDataSource 已设
+     * FLAG_IGNORE_CACHE_ON_ERROR 兜底(不崩溃),下次播放缓存 miss 回源,SimpleCache 自愈(移除不存在的 span)。
+     * 故点「清除缓存」后数字立即归零,不再延迟到下次启动(此前 2026-09-13 的"写待清理标记 + 下次启动 purge"
+     * 方案被本次替换;{@link #purgeExoCacheIfPending()} 保留以清理历史遗留标记)。
+     * 用 {@link #deleteFileTree} 递归强删整个目录树(含各级子目录),避免 deleteFile "只清内容保留目录"留下空子目录。
      * 与系统设置里的「清除缓存」同语义,因此也会清掉已下载的爬虫 jar 缓存(cache/jar/),
-     * 下次启动按需重新下载;{@link #EXTERNAL_CACHE_KEEP_DIR} 用户数据保留不动。
-     * 只清空目录内容、保留目录本身。耗时 IO,须在后台线程调用。
+     * 下次按需重新下载;{@link #EXTERNAL_CACHE_KEEP_DIR} 用户数据(config 订阅源)保留不动。
+     * 耗时 IO,须在后台线程调用。
      */
     public static void clearCache() {
-        // ① 先落"待清理"标记:即使后续删除过程异常,下次启动仍会补上 exo 缓存的清理
-        try {
-            writeSimple(new byte[0], pendingExoClearFlag());
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-        // ② 内部缓存:逐项删除、跳过 exo-video-cache(外部存储不可用时 Exo 会回落到内部 cacheDir)
+        // ① 内部缓存:逐项强删(含回落到内部的 exo-video-cache,不再跳过)
         File cacheDir = getCacheDir();
         File[] innerFiles = cacheDir.listFiles();
         if (innerFiles != null) {
             for (File one : innerFiles) {
-                if (EXO_CACHE_DIR_NAME.equals(one.getName())) continue;
                 try {
-                    deleteFile(one);
+                    deleteFileTree(one);
                 } catch (Exception e) {
                     e.printStackTrace();
                 }
             }
         }
-        // ③ 外部缓存:跳过用户数据(config)与 exo 视频缓存
+        // ② 外部缓存:逐项强删,跳过 config(用户订阅源数据)
         File externalCacheDir = App.getInstance().getExternalCacheDir();
         if (externalCacheDir == null) return;
         File[] files = externalCacheDir.listFiles();
         if (files == null) return;
         for (File one : files) {
-            if (EXTERNAL_CACHE_KEEP_DIR.equals(one.getName()) || EXO_CACHE_DIR_NAME.equals(one.getName())) continue;
+            if (EXTERNAL_CACHE_KEEP_DIR.equals(one.getName())) continue;
             try {
-                deleteFile(one);
+                deleteFileTree(one);
             } catch (Exception e) {
                 e.printStackTrace();
             }
@@ -315,17 +330,25 @@ public class FileUtils {
         File exoDir = new File(getExternalCachePath(), EXO_CACHE_DIR_NAME);
         LOG.i("echo-exo-cache-purge-start: " + exoDir.getAbsolutePath());
         try {
-            // deleteFile 对非空目录只清内容、保留目录本身,故下方还需按残留情况收尾
-            deleteFile(exoDir);
+            // 强删整个目录树(含各级子目录):deleteFile 只清内容、保留各级目录,会留空子目录导致
+            // purge-incomplete 逐次递减(10→7→3→done),需多次启动才清干净
+            deleteFileTree(exoDir);
         } catch (Exception e) {
             e.printStackTrace();
         }
         File[] remaining = exoDir.exists() ? exoDir.listFiles() : null;
         if (remaining == null || remaining.length == 0) {
-            exoDir.delete(); // 已清空:顺手删掉空目录本身
+            if (exoDir.exists()) exoDir.delete(); // 兜底:理论上 deleteFileTree 已删,防御性再删一次
             flag.delete(); // 确认清理完成后才清标记:删除失败/进程中途被杀都保留标记,下次启动继续
             LOG.i("echo-exo-cache-purge-done");
         } else {
+            // 详情取证:逐项打剩余项的类型/可写/大小/路径,定位强删后仍删不掉的根因(疑似只读/被占用)
+            for (File r : remaining) {
+                LOG.i("echo-exo-cache-remain: type=" + (r.isDirectory() ? "DIR" : "FILE")
+                        + " writable=" + r.canWrite()
+                        + " size=" + r.length()
+                        + " path=" + r.getAbsolutePath());
+            }
             // 少量文件删除失败:保留标记,下次启动重试
             LOG.i("echo-exo-cache-purge-incomplete: " + remaining.length);
         }

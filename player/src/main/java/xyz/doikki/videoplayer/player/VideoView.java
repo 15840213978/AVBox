@@ -404,6 +404,38 @@ public class VideoView<P extends AbstractPlayer> extends FrameLayout
         mPlayerContainer.setKeepScreenOn(true);
     }
     /**
+     * 停止播放但**保留播放器实例**(P2 服务化后新增)。
+     *
+     * <p>与 {@link #release()} 的区别:只 stop 内核(会打断 PREPARING/BUFFERING 中的起播),
+     * 不销毁实例、不卸载渲染视图 —— 因此实例可跨页面复用(下一次起播走 reusePlayer 的 reset 路径)。
+     *
+     * <p>存在的理由:{@link #pause()} 只在已进入 playback 态时生效;而"刚点播放就退出页面"时状态是
+     * PREPARING/BUFFERING,只 pause 的话这一集会在页面销毁后自己播起来(页面没了却在响)。
+     */
+    public void stopPlaybackKeepPlayer() {
+        if (mMediaPlayer == null) return;
+        // 已被 pause() 停住的保持 PAUSED:**PAUSED + 实例仍在 = 可复用状态**;
+        // 反之若置成 IDLE,则 IDLE + 实例仍在 是个危险组合 —— 此后任何 start() 都会走
+        // startPlay() → initPlayer() 新建一个内核并覆盖旧的(旧的不会被 release),既泄漏又毁掉跨页复用
+        if (mCurrentPlayState == STATE_PAUSED) return;
+        mMediaPlayer.stop();
+        setPlayState(STATE_IDLE);
+    }
+
+    /**
+     * 显式落盘当前进度(P2 服务化后新增)。
+     *
+     * <p>背景:改造前"退出页面即 {@link #release()}",进度由 release() 内部的 saveProgress 落盘。
+     * 服务化后播放器归引擎、页面退出不再 release(否则跨页复用就没了),因此必须提供这个显式入口 ——
+     * 否则"退出详情页 → 再进"会丢失上次位置(不能再续播)。
+     *
+     * <p>无进度管理器(直播模式)或位置为 0 时是空操作(与 saveProgress 自身守卫一致)。
+     */
+    public void saveCurrentProgress() {
+        saveProgress();
+    }
+
+    /**
      * 释放播放器
      */
     public void release() {
@@ -840,6 +872,49 @@ public class VideoView<P extends AbstractPlayer> extends FrameLayout
         setPlayerState(PLAYER_NORMAL);
     }
 
+    /**
+     * 把承载播放画面的容器挂到外部宿主(P2 播放服务化:服务持有播放器与渲染视图,页面只提供显示宿主)。
+     *
+     * <p>与 {@link #startFullScreen()} 的区别:只搬运 {@link #mPlayerContainer},**不碰系统栏、不改
+     * {@link #mIsFullScreen}**,因此可与"页面内全屏"(横屏沉浸,容器在 DecorView)共存 —— 全屏/退出全屏是
+     * 页面内的搬运,本方法只负责"页面 ⇄ 服务"的搬运;两处都先判 parent 再 addView,幂等且不会重复挂载。
+     *
+     * <p>搬运会触发 SurfaceView 的 surfaceDestroyed/surfaceCreated,dkplayer 既有链路会 setDisplay(null)
+     * 再重挂;IJK/Exo 侧安全性结论见 MEMORY.md「IJK 异步 release × Surface 回调」与播放服务化 Spec §2.3/R1。
+     *
+     * @param host 页面侧显示宿主(插到 index 0:宿主内的弹幕/覆盖层都在其之上)
+     */
+    public void attachContainerTo(@NonNull ViewGroup host) {
+        if (mPlayerContainer == null || host == null) return;
+        ViewGroup parent = (ViewGroup) mPlayerContainer.getParent();
+        if (parent == host) return;
+        if (parent != null) parent.removeView(mPlayerContainer);
+        ViewGroup.LayoutParams lp = mPlayerContainer.getLayoutParams();
+        if (lp == null) {
+            lp = new ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
+        }
+        host.addView(mPlayerContainer, 0, lp);
+    }
+
+    /**
+     * 把渲染容器从外部宿主摘回自身(服务侧),供页面 detach/销毁调用;幂等(未挂出时为空操作)。
+     * 摘回后渲染视图失去 Surface(画面不可见),音频不受影响。
+     */
+    public void detachContainerFromHost() {
+        if (mPlayerContainer == null) return;
+        ViewGroup parent = (ViewGroup) mPlayerContainer.getParent();
+        if (parent == null || parent == this) return;
+        parent.removeView(mPlayerContainer);
+        this.addView(mPlayerContainer, new LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+    }
+
+    /** 渲染容器当前是否挂在指定宿主上(P2 挂摘幂等判定;宿主已销毁时为 false) */
+    public boolean isContainerAttachedTo(ViewGroup host) {
+        return mPlayerContainer != null && host != null && mPlayerContainer.getParent() == host;
+    }
+
     private void showSysBar(ViewGroup decorView) {
         int uiOptions = decorView.getSystemUiVisibility();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN) {
@@ -961,7 +1036,24 @@ public class VideoView<P extends AbstractPlayer> extends FrameLayout
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.MATCH_PARENT);
             mPlayerContainer.addView(mVideoController, params);
+            // 状态回灌(P2 挂摘,2026-09-14 修复):挂上来的控制器**可能是全新的**(新页面 / 摘下后重挂),
+            // 而播放器此时也许已经在播或已暂停。dkplayer 只在状态**发生变化**时下发事件,新控制器会一直停在
+            // 初始 IDLE:duration/position = 0(进度条显示 0 且不可拖)、播放/暂停图标与实际反相。
+            // 因此必须把当前状态补发一次;非播放态再补一跳进度,让 duration/position 立刻正确。
+            mediaController.setPlayState(mCurrentPlayState);
+            mediaController.setPlayerState(mCurrentPlayerState);
+            if (mCurrentPlayState != STATE_IDLE && mCurrentPlayState != STATE_ERROR) {
+                mediaController.startProgress();
+            }
         }
+    }
+
+    /**
+     * 当前挂载的控制器(P4:直播页据此判断自己的控制层是否被点播页顶掉,见 LivePlayActivity)。
+     */
+    @Nullable
+    public BaseVideoController getVideoController() {
+        return mVideoController;
     }
 
     /**

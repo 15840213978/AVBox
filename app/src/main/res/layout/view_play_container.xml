@@ -1,14 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- 2026-09-11:play_loading/play_load_error/play_load_tip 三个提示 View 已移除,
-     提示改由 DetailScreen 的 Compose 覆盖层绘制(状态走 PlayerTipBridge) -->
+     提示改由 DetailScreen 的 Compose 覆盖层绘制(状态走 PlayerTipBridge)。
+     2026-09-14(P2 播放服务化):MyVideoView 改为运行时加入的 surfaceSlot —— 旧路径由页面 new MyVideoView
+     放入槽位;服务模式由 PlaybackEngine 把引擎侧渲染容器(mPlayerContainer)搬进槽位。 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@android:color/black">
 
-
-    <com.github.tvbox.osc.player.MyVideoView
-        android:id="@+id/mVideoView"
+    <FrameLayout
+        android:id="@+id/surfaceSlot"
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 

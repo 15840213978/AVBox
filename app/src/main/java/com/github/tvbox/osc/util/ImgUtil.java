@@ -146,7 +146,7 @@ public class ImgUtil {
      * 播放器封面的 Target:**只有 onSuccess 才落地**,onStart(占位)/onError 一律不改视图。
      * 视图保持自身黑底 → 永远不会出现"加载中/加载失败的浅色矩形盖住视频"。
      * 失败也不落错误图:播放器区的正确兜底是黑底,而不是一张与内容无关的图。
-     * (与 {@code MusicPlaybackService.updateArtwork} 里取通知封面用的是同一种写法)
+     * (与 {@code PlaybackService.updateArtwork} 里取通知封面用的是同一种写法)
      */
     private static final class ArtworkTarget implements coil3.target.Target {
         private final ImageView view;

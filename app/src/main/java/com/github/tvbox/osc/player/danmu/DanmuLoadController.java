@@ -25,7 +25,7 @@ public class DanmuLoadController {
         void onFailed();
     }
 
-    private final MyVideoView videoView;
+    private MyVideoView videoView;
     private final PlayerControlApi controller;
     private final DanmakuView danmuView;
     private final DanmakuContext danmakuContext;
@@ -48,6 +48,17 @@ public class DanmuLoadController {
             this.videoView.setDanmuView(this.danmuView);
         }
         applySettings(false);
+    }
+
+    /**
+     * 换绑播放器实例(空闲 TTL 释放后页面重建引擎时用,见 `PlaybackEngine.IDLE_RELEASE_DELAY_MS`)。
+     * 弹幕视图属于页面,但必须挂到**当前**播放器上才会被驱动 —— 否则重建后弹幕静默失效。
+     */
+    public void setVideoView(MyVideoView videoView) {
+        this.videoView = videoView;
+        if (videoView != null && danmuView != null) {
+            videoView.setDanmuView(danmuView);
+        }
     }
 
     public void applySettings(boolean reload) {

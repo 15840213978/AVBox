@@ -29,7 +29,7 @@ public class LOG {
      * 只落盘少数事件级前缀,不在热路径上,异步写不阻塞调用线程。
      */
     private static final boolean FILE_LOG = true;
-    private static final String[] FILE_LOG_PREFIXES = {"echo-preload", "echo-setDataSource", "echo-play-cache", "echo-kv", "echo-exo-cache", "echo-music"};
+    private static final String[] FILE_LOG_PREFIXES = {"echo-preload", "echo-setDataSource", "echo-play-cache", "echo-kv", "echo-exo-cache", "echo-music", "clearCache"};
     private static final String FILE_LOG_NAME = "preload_debug.log";
     private static ExecutorService fileLogExecutor;
 

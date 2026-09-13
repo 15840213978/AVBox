@@ -16,9 +16,11 @@ import android.os.Looper;
 import android.os.PowerManager;
 import android.text.TextUtils;
 
+import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
 import androidx.media.app.NotificationCompat.MediaStyle;
+
 import android.support.v4.media.MediaMetadataCompat;
 import android.support.v4.media.session.MediaSessionCompat;
 import android.support.v4.media.session.PlaybackStateCompat;
@@ -28,23 +30,42 @@ import coil3.request.ImageRequest;
 import coil3.target.Target;
 
 import com.github.tvbox.osc.R;
-import com.github.tvbox.osc.ui.player.PlayContainer;
 import com.github.tvbox.osc.util.LOG;
 import com.github.tvbox.osc.util.ScreenUtils;
 
 import java.lang.ref.WeakReference;
 
-public class MusicPlaybackService extends Service {
+/**
+ * 播放宿主服务(P2 播放服务化 + P3 通知/媒体会话并入,`skill/avbox-playback-service-spec.md` §2.1/§3)。
+ *
+ * <p>**职责**:
+ * <ol>
+ *   <li><b>托管播放引擎</b> {@link PlaybackEngine}(P2):播放器实例的生命周期长于页面 ——
+ *       页面进出只做挂摘,不再重建 ExoPlayer/RenderView;任务被移除/服务销毁时释放。</li>
+ *   <li><b>前台服务 + 媒体通知 + 媒体会话</b>(P3 起职责在本服务,原独立音乐服务的壳已在 P5 删除):
+ *       有音频轨就维护会话(影视/音乐一视同仁),通知栏可播放/暂停/上一集/下一集/拖动;播放期间持
+ *       wake/wifi 锁。由控制器({@code PlaybackController.updateMusicSession})驱动,宿主是页面或引擎。</li>
+ * </ol>
+ *
+ * <p>**为什么引擎不是 Service 本体**:页面对引擎的取用必须与页面构造**同帧同步**(否则要处理
+ * "服务未就绪 → 控制器事后替换 → 在途取流结果/观察者双投递"的竞态)。故引擎由页面同步取用
+ * ({@link #engine(Context)}),本服务随后托管其生命周期。
+ *
+ * <p>**唯一形态**(P5 起):引擎 + 本服务即播放层;旧路径(页面自建播放器 + 独立音乐服务)已下线。
+ */
+public class PlaybackService extends Service {
+
+    private static final String TAG = "echo-p2";
     private static final String CHANNEL_ID = "music_playback";
     private static final int NOTIFICATION_ID = 1001;
-    private static final String ACTION_UPDATE = "com.github.tvbox.osc.music.UPDATE";
-    private static final String ACTION_PLAY = "com.github.tvbox.osc.music.PLAY";
-    private static final String ACTION_PAUSE = "com.github.tvbox.osc.music.PAUSE";
-    private static final String ACTION_PREVIOUS = "com.github.tvbox.osc.music.PREVIOUS";
-    private static final String ACTION_NEXT = "com.github.tvbox.osc.music.NEXT";
-    private static final String ACTION_PLACEHOLDER = "com.github.tvbox.osc.music.PLACEHOLDER";
-    private static final String ACTION_STOP = "com.github.tvbox.osc.music.STOP";
-    private static final String ACTION_SEEK = "com.github.tvbox.osc.music.SEEK";
+    private static final String ACTION_UPDATE = "com.github.tvbox.osc.playback.UPDATE";
+    private static final String ACTION_PLAY = "com.github.tvbox.osc.playback.PLAY";
+    private static final String ACTION_PAUSE = "com.github.tvbox.osc.playback.PAUSE";
+    private static final String ACTION_PREVIOUS = "com.github.tvbox.osc.playback.PREVIOUS";
+    private static final String ACTION_NEXT = "com.github.tvbox.osc.playback.NEXT";
+    private static final String ACTION_PLACEHOLDER = "com.github.tvbox.osc.playback.PLACEHOLDER";
+    private static final String ACTION_STOP = "com.github.tvbox.osc.playback.STOP";
+    private static final String ACTION_SEEK = "com.github.tvbox.osc.playback.SEEK";
     private static final String EXTRA_TITLE = "title";
     private static final String EXTRA_SUBTITLE = "subtitle";
     private static final String EXTRA_ARTWORK = "artwork";
@@ -53,8 +74,9 @@ public class MusicPlaybackService extends Service {
     private static final String EXTRA_PLAYING = "playing";
     private static final String EXTRA_SEEK = "seek";
 
-    private static MusicPlaybackService instance;
-    private static WeakReference<PlayContainer> owner;
+    private static PlaybackService instance;
+    private static PlaybackEngine engine;
+    private static WeakReference<PlaybackHostApi> owner;
     /**
      * startForegroundService 已发出、服务尚未就绪(onCreate 未跑)。
      * ⚠️ 此窗口内绝不能 stopService:AOSP 竞态 —— create 已派发到进程,onStartCommand 可能
@@ -65,6 +87,7 @@ public class MusicPlaybackService extends Service {
     private static volatile boolean pendingStart;
     private static volatile boolean stopWhenStarted;
 
+    // ---- 会话资源(媒体会话/通知/锁) ----
     private MediaSessionCompat mediaSession;
     private PendingIntent sessionActivity;
     private String title = "TVBox";
@@ -77,16 +100,60 @@ public class MusicPlaybackService extends Service {
     private PowerManager.WakeLock wakeLock;
     private WifiManager.WifiLock wifiLock;
 
+    // ==================== 引擎入口(P2) ====================
+
+    /**
+     * 页面同步取用播放引擎(主线程调用;首次调用会顺带拉起宿主服务)。
+     *
+     * <p>同步返回是本设计的硬要求:页面构造期就要把 {@code scheduler}/{@code mVideoView} 指向引擎,
+     * 不能"先本地建一套、服务就绪再替换"(在途取流/预载观察者会双投递)。
+     */
+    @NonNull
+    public static PlaybackEngine engine(@NonNull Context context) {
+        Context app = context.getApplicationContext();
+        if (engine == null) engine = new PlaybackEngine(app);
+        startHost(app, null);
+        return engine;
+    }
+
+    /** 当前引擎(未创建时为 null) */
+    @Nullable
+    public static PlaybackEngine peek() {
+        return engine;
+    }
+
+    private static void startHost(@NonNull Context app, @Nullable Intent intent) {
+        if (instance != null) return;
+        try {
+            if (intent == null) {
+                app.startService(new Intent(app, PlaybackService.class));
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                app.startForegroundService(intent);
+            } else {
+                app.startService(intent);
+            }
+        } catch (Throwable th) {
+            // 后台启动服务受限等异常不影响播放(引擎在本进程内已可用)
+            LOG.e(TAG + " startService failed: " + th.getMessage());
+        }
+    }
+
+    // ==================== 媒体会话/通知入口(P3) ====================
+
     public static boolean isSupported(Context context) {
         if (context == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false;
         return !ScreenUtils.isTv(context);
     }
 
-    public static void update(Context context, PlayContainer fragment, String title, String subtitle,
-                              String artwork, long position, long duration, boolean playing) {
+    /** 维护会话与通知(有音频轨就调用;影视/音乐一视同仁,见 PlaybackController.updateMusicSession) */
+    public static void updateSession(Context context, PlaybackHostApi host, String title, String subtitle,
+                                     String artwork, long position, long duration, boolean playing) {
         if (!isSupported(context)) return;
-        owner = new WeakReference<>(fragment);
-        Intent intent = new Intent(context, MusicPlaybackService.class).setAction(ACTION_UPDATE);
+        // 引擎已不在(空闲 TTL 自释放 / 任务移除后)却来了迟到的会话更新:再建就会得到一条**空通知**
+        // 加上无人释放的 wake/wifi 锁(释放路径已跑完)。这种调用一律丢弃。
+        if (engine == null) return;
+        owner = new WeakReference<>(host);
+        Intent intent = new Intent(context, PlaybackService.class).setAction(ACTION_UPDATE);
         intent.putExtra(EXTRA_TITLE, title);
         intent.putExtra(EXTRA_SUBTITLE, subtitle);
         intent.putExtra(EXTRA_ARTWORK, artwork);
@@ -96,82 +163,173 @@ public class MusicPlaybackService extends Service {
         if (instance != null) {
             pendingStart = false;
             stopWhenStarted = false;
-            instance.handleIntent(intent);
-        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            instance.handleSessionIntent(intent);
+        } else {
             pendingStart = true;
             stopWhenStarted = false;
-            context.startForegroundService(intent);
-        } else {
-            context.startService(intent);
+            startHost(context.getApplicationContext(), intent);
         }
     }
 
-    public static void stop(Context context, PlayContainer fragment) {
-        PlayContainer current = owner == null ? null : owner.get();
-        if (fragment != null && current != null && current != fragment) return;
+    /**
+     * 强制结束会话(**不看 host 归属**):直播接管、引擎释放等"非页面驱动"的收尾用。
+     * 归属守卫({@link #stopSession})是为"页面 B 不许停页面 A 的会话"而设,这些场景必须绕过它。
+     */
+    public static void forceStopSession(@Nullable Context context) {
         owner = null;
         if (instance != null) {
             pendingStart = false;
-            instance.stopPlaybackService();
+            instance.stopPlaybackSession();
+        } else if (pendingStart) {
+            stopWhenStarted = true;
+        }
+    }
+
+    /** 结束会话:撤通知 + 释放锁与会话资源(**不释放引擎**:播放器仍要跨页面复用) */
+    public static void stopSession(Context context, PlaybackHostApi host) {
+        PlaybackHostApi current = owner == null ? null : owner.get();
+        if (host != null && current != null && current != host) return;
+        owner = null;
+        if (instance != null) {
+            pendingStart = false;
+            instance.stopPlaybackSession();
         } else if (pendingStart) {
             // FGS 在途:不能 stopService(见 pendingStart 注释),登记"起来就停"
             stopWhenStarted = true;
-        } else if (context != null) {
-            context.stopService(new Intent(context, MusicPlaybackService.class));
         }
     }
+
+    // ==================== 生命周期 ====================
 
     @Override
     public void onCreate() {
         super.onCreate();
         instance = this;
         pendingStart = false;
+        LOG.i(TAG + " host onCreate (engine=" + (engine == null ? "none" : "alive") + ")");
         createNotificationChannel();
-        mediaSession = new MediaSessionCompat(this, "TVBoxMusic");
+        createMediaSession();
+    }
+
+    @Override
+    public int onStartCommand(Intent intent, int flags, int startId) {
+        String action = intent == null ? null : intent.getAction();
+        if (ACTION_UPDATE.equals(action)) {
+            // 会话请求:必须立刻进前台(否则 O+ 的 startForegroundService 超时杀进程)
+            startForegroundSafely();
+            handleSessionIntent(intent);
+        } else if (action != null) {
+            // 通知栏动作/AOSP 重建:已在 FGS 上则无事,否则补一次前台(持有通知才允许被后续 startForeground 覆盖)
+            startForegroundSafely();
+            handleSessionIntent(intent);
+        }
+        if (stopWhenStarted) {
+            // 起播抖动期登记过"起来就停":先合法进前台,再收尾(见 pendingStart 注释)
+            stopWhenStarted = false;
+            stopPlaybackSession();
+        }
+        // 不自动重启:进程被回收后引擎已不存在,重启服务只会留下一个空壳
+        return START_NOT_STICKY;
+    }
+
+    @Nullable
+    @Override
+    public IBinder onBind(Intent intent) {
+        return null;
+    }
+
+    @Override
+    public void onTaskRemoved(Intent rootIntent) {
+        LOG.i(TAG + " host onTaskRemoved → release engine");
+        stopPlaybackSession();
+        stopSelf();
+        super.onTaskRemoved(rootIntent);
+    }
+
+    @Override
+    public void onDestroy() {
+        LOG.i(TAG + " host onDestroy");
+        instance = null;
+        stopPlaybackSession();
+        releaseEngine();
+        super.onDestroy();
+    }
+
+    private static void releaseEngine() {
+        PlaybackEngine current = engine;
+        engine = null;
+        if (current != null) current.release();
+    }
+
+    /**
+     * 引擎**自己**释放后的回执(空闲 TTL 到期,见 `PlaybackEngine.IDLE_RELEASE_DELAY_MS`)。
+     *
+     * <p>与 {@link #releaseEngine()} 的区别:那条路径是服务主动释放(任务移除/服务销毁),静态引用已先清空;
+     * 这条是引擎自下而上释放,服务必须把静态引用清掉,否则 `engine()` 会把一个已 released 的引擎继续发给新页面。
+     * 引擎没了,服务也没有继续常驻的理由 —— 一并停掉(下次 `engine()` 会重新建引擎并拉起服务)。
+     */
+    static void onEngineReleased(@NonNull PlaybackEngine released) {
+        if (engine == released) engine = null;
+        owner = null;
+        LOG.i(TAG + " engine self-released (idle)");
+        if (instance != null) {
+            instance.stopPlaybackSession();
+            // ⚠️ **不 stopSelf**(2026-09-14 审查修复):stopSelf 到 onDestroy 之间有一段窗口,
+            // 期间若用户打开详情页,`engine()` 会新建引擎 E2 而 `startHost` 因 `instance != null` 不拉服务;
+            // 随后旧服务 onDestroy → `releaseEngine()` 会把静态 engine(此刻已是 **E2**)释放掉并置 null,
+            // 页面拿到一个已释放的引擎 → 黑屏。服务本来就为托管引擎而常驻(P3 起会话结束也不 stopSelf),
+            // 引擎可以重建,服务不必跟着销毁。
+        }
+    }
+
+    // ==================== 会话内部实现 ====================
+
+    private void createMediaSession() {
+        mediaSession = new MediaSessionCompat(this, "TVBoxPlayback");
         mediaSession.setFlags(MediaSessionCompat.FLAG_HANDLES_MEDIA_BUTTONS
                 | MediaSessionCompat.FLAG_HANDLES_TRANSPORT_CONTROLS);
         mediaSession.setCallback(new MediaSessionCompat.Callback() {
             @Override
             public void onPlay() {
-                PlayContainer fragment = getOwner();
-                if (fragment != null) fragment.resumeFromMediaSession();
+                PlaybackHostApi host = getOwner();
+                if (host != null) host.resumeFromMediaSession();
             }
 
             @Override
             public void onPause() {
-                PlayContainer fragment = getOwner();
-                if (fragment != null) fragment.pauseFromMediaSession();
+                PlaybackHostApi host = getOwner();
+                if (host != null) host.pauseFromMediaSession();
             }
 
             @Override
             public void onSkipToPrevious() {
-                PlayContainer fragment = getOwner();
-                if (fragment != null) {
+                PlaybackHostApi host = getOwner();
+                if (host != null) {
                     pauseForSwitch();
-                    fragment.playPrevious();
+                    host.playPrevious();
                 }
             }
 
             @Override
             public void onSkipToNext() {
-                PlayContainer fragment = getOwner();
-                if (fragment != null) {
+                PlaybackHostApi host = getOwner();
+                if (host != null) {
                     pauseForSwitch();
-                    fragment.playNext(false);
+                    host.playNext(false);
                 }
             }
 
             @Override
             public void onStop() {
-                PlayContainer fragment = getOwner();
-                if (fragment != null) fragment.stopFromMediaSession();
-                stopPlaybackService();
+                PlaybackHostApi host = getOwner();
+                if (host != null) host.stopFromMediaSession();
+                stopPlaybackSession();
             }
 
             @Override
             public void onSeekTo(long pos) {
-                PlayContainer fragment = getOwner();
-                if (fragment != null) fragment.seekFromMediaSession(pos);
+                PlaybackHostApi host = getOwner();
+                if (host != null) host.seekFromMediaSession(pos);
             }
         }, new Handler(Looper.getMainLooper()));
         Intent launchIntent = getPackageManager().getLaunchIntentForPackage(getPackageName());
@@ -183,64 +341,60 @@ public class MusicPlaybackService extends Service {
         }
     }
 
-    @Override
-    public int onStartCommand(Intent intent, int flags, int startId) {
-    
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            try {
-                startForeground(NOTIFICATION_ID, buildNotification());
-            } catch (Throwable th) {
-                
-                LOG.i("echo-music startForeground failed: " + th.getMessage());
-            }
+    private void startForegroundSafely() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
+        if (mediaSession == null) return;
+        try {
+            startForeground(NOTIFICATION_ID, buildNotification());
+        } catch (Throwable th) {
+            LOG.i(TAG + " startForeground failed: " + th.getMessage());
         }
-        if (intent != null) handleIntent(intent);
-        return START_NOT_STICKY;
     }
 
-    private void handleIntent(Intent intent) {
+    private void handleSessionIntent(Intent intent) {
         String action = intent.getAction();
         if (ACTION_STOP.equals(action)) {
-            PlayContainer fragment = getOwner();
-            if (fragment != null) fragment.stopFromMediaSession();
-            stopPlaybackService();
+            PlaybackHostApi host = getOwner();
+            if (host != null) host.stopFromMediaSession();
+            stopPlaybackSession();
             return;
         }
         if (ACTION_PLAY.equals(action)) {
-            PlayContainer fragment = getOwner();
-            if (fragment != null) fragment.resumeFromMediaSession();
+            PlaybackHostApi host = getOwner();
+            if (host != null) host.resumeFromMediaSession();
             return;
         }
         if (ACTION_PAUSE.equals(action)) {
-            PlayContainer fragment = getOwner();
-            if (fragment != null) fragment.pauseFromMediaSession();
+            PlaybackHostApi host = getOwner();
+            if (host != null) host.pauseFromMediaSession();
             return;
         }
         if (ACTION_PREVIOUS.equals(action)) {
-            PlayContainer fragment = getOwner();
-            if (fragment != null) {
+            PlaybackHostApi host = getOwner();
+            if (host != null) {
                 pauseForSwitch();
-                fragment.playPrevious();
+                host.playPrevious();
             }
             return;
         }
         if (ACTION_NEXT.equals(action)) {
-            PlayContainer fragment = getOwner();
-            if (fragment != null) {
+            PlaybackHostApi host = getOwner();
+            if (host != null) {
                 pauseForSwitch();
-                fragment.playNext(false);
+                host.playNext(false);
             }
             return;
         }
         if (ACTION_SEEK.equals(action)) {
-            PlayContainer fragment = getOwner();
-            if (fragment != null) fragment.seekFromMediaSession(intent.getLongExtra(EXTRA_SEEK, 0));
+            PlaybackHostApi host = getOwner();
+            if (host != null) host.seekFromMediaSession(intent.getLongExtra(EXTRA_SEEK, 0));
             return;
         }
         if (ACTION_UPDATE.equals(action)) {
-            // 服务已被 stopPlaybackService 停止(mediaSession 已置 null)但实例尚未销毁时,
-            // PlayContainer 的播放状态回调仍可能投递 UPDATE —— 此时不能再走下去:
-            // acquirePlaybackLocks 会重新持锁且无人释放(电量泄漏)、startForeground 会让通知复活、
+            // 会话已结束(通知已撤、mediaSession 已释放)但引擎/服务仍在:本次是**新会话** → 重建媒体会话。
+            // (原实现靠 stopSelf 后由 onCreate 重建;并入后服务为托管引擎而常驻,必须自己重建)
+            if (mediaSession == null) createMediaSession();
+            // 重建失败(理论上不会)时不能再走下去:acquirePlaybackLocks 会重新持锁且无人释放(电量泄漏)、
             // buildNotification 曾在真机上直接 NPE 崩溃(2026-09-13 实锤路径)
             if (mediaSession == null) return;
             acquirePlaybackLocks();
@@ -251,8 +405,8 @@ public class MusicPlaybackService extends Service {
             duration = intent.getLongExtra(EXTRA_DURATION, 0);
             playing = intent.getBooleanExtra(EXTRA_PLAYING, false);
             updateArtwork(newArtworkUrl);
-            updateSession();
-            startForeground(NOTIFICATION_ID, buildNotification());
+            updateSessionState();
+            startForegroundSafely();
         }
     }
 
@@ -270,10 +424,10 @@ public class MusicPlaybackService extends Service {
                     public void onSuccess(coil3.Image image) {
                         // toBitmap 保证软件位图,通知 RemoteViews 不接受硬件位图
                         artwork = coil3.Image_androidKt.toBitmap(image);
-                        // 图片下载期间服务可能已被停止(mediaSession 被置 null):此时再刷新通知会
+                        // 图片下载期间会话可能已被结束(mediaSession 被置 null):此时再刷新通知会
                         // 在 buildNotification() 内对 null mediaSession 取 sessionToken 而崩溃(2026-09-13 修复)
                         if (mediaSession == null) return;
-                        updateSession();
+                        updateSessionState();
                         NotificationManager manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
                         if (manager != null) manager.notify(NOTIFICATION_ID, buildNotification());
                     }
@@ -282,7 +436,7 @@ public class MusicPlaybackService extends Service {
         SingletonImageLoader.get(this).enqueue(request);
     }
 
-    private void updateSession() {
+    private void updateSessionState() {
         if (mediaSession == null) return;
         MediaMetadataCompat.Builder metadata = new MediaMetadataCompat.Builder()
                 .putString(MediaMetadataCompat.METADATA_KEY_TITLE, title)
@@ -310,8 +464,8 @@ public class MusicPlaybackService extends Service {
     private void pauseForSwitch() {
         playing = false;
         position = 0;
-        updateSession();
-        startForeground(NOTIFICATION_ID, buildNotification());
+        updateSessionState();
+        startForegroundSafely();
     }
 
     private Notification buildNotification() {
@@ -327,21 +481,21 @@ public class MusicPlaybackService extends Service {
                 .setShowWhen(false)
                 .setOngoing(playing)
                 .setDeleteIntent(actionIntent(ACTION_STOP))
-                // mediaSession 可能已被 stopPlaybackService 置 null(封面异步回调晚于停止):
+                // mediaSession 可能已被 stopPlaybackSession 置 null(封面异步回调晚于停止):
                 // 这里判空兜底,防 getSessionToken() NPE(2026-09-13 修复)
                 .setStyle(new MediaStyle().setMediaSession(mediaSession == null ? null : mediaSession.getSessionToken())
                         .setShowActionsInCompactView(1, 2, 3));
         if (artwork != null) builder.setLargeIcon(artwork);
         builder.addAction(new NotificationCompat.Action(R.drawable.media_action_placeholder, "", actionIntent(ACTION_PLACEHOLDER)));
-        builder.addAction(new NotificationCompat.Action(R.drawable.exo_icon_previous, "上一首", actionIntent(ACTION_PREVIOUS)));
+        builder.addAction(new NotificationCompat.Action(R.drawable.exo_icon_previous, "上一个", actionIntent(ACTION_PREVIOUS)));
         builder.addAction(new NotificationCompat.Action(playing ? R.drawable.exo_icon_pause : R.drawable.exo_icon_play,
                 playing ? "暂停" : "播放", actionIntent(playing ? ACTION_PAUSE : ACTION_PLAY)));
-        builder.addAction(new NotificationCompat.Action(R.drawable.exo_icon_next, "下一首", actionIntent(ACTION_NEXT)));
+        builder.addAction(new NotificationCompat.Action(R.drawable.exo_icon_next, "下一个", actionIntent(ACTION_NEXT)));
         return builder.build();
     }
 
     private PendingIntent actionIntent(String action) {
-        Intent intent = new Intent(this, MusicPlaybackService.class).setAction(action);
+        Intent intent = new Intent(this, PlaybackService.class).setAction(action);
         int flags = PendingIntent.FLAG_UPDATE_CURRENT;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) flags |= PendingIntent.FLAG_IMMUTABLE;
         return PendingIntent.getService(this, action.hashCode(), intent, flags);
@@ -349,8 +503,8 @@ public class MusicPlaybackService extends Service {
 
     private void createNotificationChannel() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
-        NotificationChannel channel = new NotificationChannel(CHANNEL_ID, "音乐播放", NotificationManager.IMPORTANCE_LOW);
-        channel.setDescription("音乐后台播放控制");
+        NotificationChannel channel = new NotificationChannel(CHANNEL_ID, "播放控制", NotificationManager.IMPORTANCE_LOW);
+        channel.setDescription("后台播放控制");
         NotificationManager manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
         if (manager != null) manager.createNotificationChannel(channel);
     }
@@ -360,7 +514,7 @@ public class MusicPlaybackService extends Service {
             if (wakeLock == null) {
                 PowerManager powerManager = (PowerManager) getSystemService(POWER_SERVICE);
                 if (powerManager != null) {
-                    wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "TVBox:MusicPlayback");
+                    wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "TVBox:Playback");
                     wakeLock.setReferenceCounted(false);
                 }
             }
@@ -375,7 +529,7 @@ public class MusicPlaybackService extends Service {
             if (wifiLock == null) {
                 WifiManager wifiManager = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
                 if (wifiManager != null) {
-                    wifiLock = wifiManager.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "TVBox:MusicPlayback");
+                    wifiLock = wifiManager.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "TVBox:Playback");
                     wifiLock.setReferenceCounted(false);
                 }
             }
@@ -411,11 +565,15 @@ public class MusicPlaybackService extends Service {
         }
     }
 
-    private PlayContainer getOwner() {
+    private PlaybackHostApi getOwner() {
         return owner == null ? null : owner.get();
     }
 
-    private void stopPlaybackService() {
+    /**
+     * 结束会话:撤通知 + 释放锁与媒体会话。
+     * **不 stopSelf、不释放引擎** —— 播放器要继续跨页面复用(P2),任务移除/服务销毁时才释放(见 onTaskRemoved)。
+     */
+    private void stopPlaybackSession() {
         playing = false;
         releasePlaybackLocks();
         if (mediaSession != null) {
@@ -424,19 +582,5 @@ public class MusicPlaybackService extends Service {
             mediaSession = null;
         }
         stopForeground(true);
-        stopSelf();
-    }
-
-    @Override
-    public void onDestroy() {
-        stopPlaybackService();
-        instance = null;
-        super.onDestroy();
-    }
-
-    @Nullable
-    @Override
-    public IBinder onBind(Intent intent) {
-        return null;
     }
 }

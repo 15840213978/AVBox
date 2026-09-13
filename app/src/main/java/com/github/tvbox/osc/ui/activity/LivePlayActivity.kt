@@ -94,6 +94,7 @@ import com.github.tvbox.osc.bean.LiveChannelItem
 import com.github.tvbox.osc.bean.LivePlayerManager
 import com.github.tvbox.osc.bean.LiveSettingGroup
 import com.github.tvbox.osc.player.MyVideoView
+import com.github.tvbox.osc.player.PlaybackService
 import com.github.tvbox.osc.player.controller.ComposeLiveController
 import com.github.tvbox.osc.ui.components.AVBoxBottomSheet
 import com.github.tvbox.osc.ui.components.LoadStateBox
@@ -225,6 +226,8 @@ class LivePlayActivity : BaseActivity() {
     // ============================================================
 
     private var mVideoView: MyVideoView? = null
+    /** 直播自己的控制层:点播页接管播放器后会被顶掉,回前台要重新挂上(见 rebindLiveControllerIfNeeded) */
+    private var liveController: ComposeLiveController? = null
     private val mHandler = Handler(Looper.getMainLooper())
     private val liveChannelGroupList = ArrayList<LiveChannelGroup>()
     private var currentChannelGroupIndex = 0
@@ -310,7 +313,15 @@ class LivePlayActivity : BaseActivity() {
     override fun onResume() {
         super.onResume()
         exitingLivePlay = false
-        mVideoView?.resume()
+        // P4:回到前台时确保引擎仍是"直播人格"。被点播页接管过(返回 true)则内核已被释放、
+        // 内容不可信 —— 重播当前频道;否则照旧恢复播放(直播退后台被 onPause 暂停的那一路)
+        val takenOverByVod = PlaybackService.peek()?.enterLiveState() ?: false
+        rebindLiveControllerIfNeeded()
+        if (takenOverByVod) {
+            replayCurrentChannelAfterTakeover()
+        } else {
+            mVideoView?.resume()
+        }
     }
 
     override fun onPause() {
@@ -322,7 +333,8 @@ class LivePlayActivity : BaseActivity() {
         super.onDestroy()
         KV.put(HawkConfig.PLAYER_IS_LIVE, false)
         hideSwitchChannelSnapshot()
-        mVideoView?.release()
+        // P4:播放器归引擎 —— 只退出直播模式(还回点播进度管理器、清直播控制器),实例留给点播复用
+        PlaybackService.peek()?.exitLive()
         mVideoView = null
         mHandler.removeCallbacksAndMessages(null)
     }
@@ -334,10 +346,61 @@ class LivePlayActivity : BaseActivity() {
     private fun initVideoView() {
         val controller = ComposeLiveController(this)
         controller.setListener(liveControlListener)
-        val view = MyVideoView(this)
+        liveController = controller
+        // P4:与点播共用同一播放器实例 —— 引擎切到"直播人格"(撤点播进度管理器、结束点播媒体会话、
+        // 清掉上一部点播的残留帧/封面),直播自己的控制层与切换逻辑不变
+        val view = PlaybackService.engine(this).also { it.enterLive() }.player()
         view.setVideoController(controller)
         view.setProgressManager(null)
         mVideoView = view
+    }
+
+    /**
+     * 直播自己的控制层(2026-09-14 审查修复):点播页 attach 时会 `setVideoController(点播控制器)`,
+     * 把直播控制器从播放器上顶掉;此前直播页没有任何恢复点,从点播页返回后手势/菜单/时移/清晰度
+     * 全部失效。这里在回前台时按"当前挂的是不是直播控制器"补挂一次。
+     */
+    private fun rebindLiveControllerIfNeeded() {
+        val view = mVideoView ?: return
+        val controller = liveController ?: return
+        if (view.videoController !== controller) {
+            view.setVideoController(controller)
+            LOG.i("echo-p4 re-bind live controller")
+        }
+    }
+
+    /**
+     * 被点播页接管后回到直播(见 PlaybackEngine.enterLiveState):内核已被释放,直播流无法
+     * 续播(地址早已失效或被点播替换)—— 等同一次"不换台号的强制切台",重播当前频道。
+     * 与 playChannel 的差别仅在于绕过"同频道不重播"守卫;时移/回看状态复位与切台一致。
+     */
+    private fun replayCurrentChannelAfterTakeover() {
+        val item = currentLiveChannelItem ?: return
+        val videoView = mVideoView ?: return
+        currentLiveLookBackIndex = -1
+        isSHIYI = false
+        isBackState = false
+        overlayVisible = false
+        stopTimeshiftTicker()
+        hideSwitchChannelSnapshot()
+        videoView.setUrl(item.url, liveChannelHeader())
+        videoView.start()
+        showResolutionAfterChannelSwitch()
+        loadEpgAfterChannelStarted()
+        epgVersion++
+    }
+
+    /**
+     * 释放播放内核(切台 / 换解码器 / 换源 / 时移进出)。
+     *
+     * <p>所有权收口(2026-09-14 架构评审第 2 项):播放器归引擎,页面只表达"我要换内核"的意图。
+     * 行为与改造前 `videoView.release()` 完全一致(释放内核 + 渲染视图,下次 start 新建),
+     * 但走引擎后引擎自己知道内核没了,不会把预载/会话/接管标记留在"还在播"的假象上。
+     */
+    private fun releasePlayerKernel() {
+        val eng = PlaybackService.peek()
+        if (eng != null && !eng.isReleased()) eng.releasePlayer()
+        else mVideoView?.release()
     }
 
     private val liveControlListener = object : ComposeLiveController.LiveControlListener {
@@ -490,7 +553,7 @@ class LivePlayActivity : BaseActivity() {
                 videoView.setUrl(liveUrl, liveChannelHeader())
                 videoView.replay(true)
             } else {
-                videoView.release()
+                releasePlayerKernel()
                 videoView.setUrl(liveUrl, liveChannelHeader())
                 videoView.start()
             }
@@ -572,7 +635,7 @@ class LivePlayActivity : BaseActivity() {
             return false
         }
         mHandler.removeCallbacks(mConnectTimeoutChangeSourceRun)
-        videoView.release()
+        releasePlayerKernel()
         if (!livePlayerManager.switchLivePlayer(videoView)) {
             allowLiveSwitchPlayer = false
             return false
@@ -968,7 +1031,7 @@ class LivePlayActivity : BaseActivity() {
         mHandler.removeCallbacks(mConnectTimeoutChangeSourceRun)
         mHandler.removeCallbacks(mLoadEpgRun)
         hideSwitchChannelSnapshot()
-        if (releasePlayer) mVideoView?.release()
+        if (releasePlayer) releasePlayerKernel()
         expandedGroups.clear()
         selectedChannelGroupIndex = 0
         channelName = null
@@ -1093,7 +1156,7 @@ class LivePlayActivity : BaseActivity() {
             2 -> { // 播放解码
                 if (position == livePlayerManager.livePlayerType) return
                 val videoView = mVideoView ?: return
-                videoView.release()
+                releasePlayerKernel()
                 livePlayerManager.changeLivePlayerType(videoView, position)
                 currentLiveChannelItem?.let { videoView.setUrl(it.url, liveChannelHeader()) }
                 videoView.start()
@@ -1121,7 +1184,7 @@ class LivePlayActivity : BaseActivity() {
                 ApiConfig.setLiveGroupIndex(position)
                 ApiConfig.get().loadLiveApi(livesOBJ)
                 if (ApiConfig.get().channelGroupList.isEmpty()) {
-                    mVideoView?.release()
+                    releasePlayerKernel()
                     setEmptyLiveChannelList(false)
                     return
                 }
@@ -1156,7 +1219,7 @@ class LivePlayActivity : BaseActivity() {
                     override fun error(msg: String) {
                         mHandler.post {
                             if (requestId != liveConfigRequestId || isFinishing) return@post
-                            mVideoView?.release()
+                            releasePlayerKernel()
                             ApiConfig.get().refreshLiveApiHistoryItems()
                             setEmptyLiveChannelList(false)
                             Toast.makeText(this@LivePlayActivity, msg, Toast.LENGTH_SHORT).show()
@@ -1269,7 +1332,7 @@ class LivePlayActivity : BaseActivity() {
     private fun startCatchupReplay(epg: Epginfo) {
         val item = currentLiveChannelItem ?: return
         val videoView = mVideoView ?: return
-        videoView.release()
+        releasePlayerKernel()
         isSHIYI = true
         val shiyiUrl = buildCatchupUrl(item.url, epg)
         if (TextUtils.isEmpty(shiyiUrl)) return
@@ -1293,7 +1356,7 @@ class LivePlayActivity : BaseActivity() {
         val item = currentLiveChannelItem ?: return
         val videoView = mVideoView ?: return
         stopTimeshiftTicker()
-        videoView.release()
+        releasePlayerKernel()
         isSHIYI = false
         isBackState = false
         overlayVisible = false

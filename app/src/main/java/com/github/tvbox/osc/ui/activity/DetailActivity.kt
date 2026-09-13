@@ -2,6 +2,7 @@
 
 package com.github.tvbox.osc.ui.activity
 
+import android.content.Context
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
@@ -87,6 +88,8 @@ import com.github.tvbox.osc.bean.Movie
 import com.github.tvbox.osc.bean.VodInfo
 import com.github.tvbox.osc.cache.RoomDataManger
 import com.github.tvbox.osc.event.RefreshEvent
+import com.github.tvbox.osc.player.PageHost
+import com.github.tvbox.osc.player.PlaybackSession
 import com.github.tvbox.osc.player.ui.playerDim
 import com.github.tvbox.osc.ui.components.AVBoxBottomSheet
 import com.github.tvbox.osc.ui.components.LoadState
@@ -98,6 +101,7 @@ import com.github.tvbox.osc.ui.player.PlayContainer
 import com.github.tvbox.osc.ui.player.PlayerTipBridge
 import com.github.tvbox.osc.ui.theme.AVBoxTheme
 import com.github.tvbox.osc.util.LOG
+import com.github.tvbox.osc.util.PermissionHelper
 import com.github.tvbox.osc.util.SearchHelper
 import com.github.tvbox.osc.util.SubtitleHelper
 import com.github.tvbox.osc.viewmodel.SourceViewModel
@@ -129,7 +133,7 @@ private const val SYSBAR_APPEARANCE_REASSERT_DELAY_MS = 400L
  * → 换源行(同名片源 chips)→ 相关推荐(聚合搜索非同名结果)。
  * 全屏 = 横屏沉浸(隐藏系统栏),返回退回竖屏预览。
  */
-class DetailActivity : BaseActivity() {
+class DetailActivity : BaseActivity(), PageHost {
 
     private val vm: DetailViewModel by lazy {
         ViewModelProvider(this)[DetailViewModel::class.java]
@@ -152,7 +156,7 @@ class DetailActivity : BaseActivity() {
         if (uri != null) playContainer?.onLocalSubtitlePicked(uri)
     }
 
-    fun launchLocalSubtitlePicker() {
+    override fun launchLocalSubtitlePicker() {
         try {
             localSubtitlePicker.launch(arrayOf("*/*"))
         } catch (e: Exception) {
@@ -208,6 +212,8 @@ class DetailActivity : BaseActivity() {
     fun ensurePlayContainer(): PlayContainer {
         if (playContainer == null) {
             playContainer = PlayContainer(this).also {
+                // 页面能力注册(P0):播放层不再 instanceof DetailActivity 回调本地字幕选择器/换源兜底
+                it.setPageHost(this)
                 // 首次进入详情页即为竖屏预览态(旧版 setPreviewMode 仅在全屏切换时调用,导致首次呼出仍带菜单行)
                 it.setPreviewMode(true)
             }
@@ -220,16 +226,38 @@ class DetailActivity : BaseActivity() {
         playContainer = null
     }
 
+    // ==================== PageHost(播放服务化 Spec §2.1,§3-P0) ====================
+    // 播放层原先用 `instanceof DetailActivity` 回调两件事(本地字幕选择器 / 线路耗尽后的换源兜底),
+    // 抽成接口后播放侧不再依赖具体页面类 —— 这是 P2 把播放器搬进服务的前置条件。
+
+    override fun context(): Context = this
+
+    override fun isPageAlive(): Boolean = !isFinishing && !isDestroyed
+
+    override fun runOnUi(action: Runnable) {
+        if (isPageAlive()) runOnUiThread(action)
+    }
+
+    override fun toast(text: CharSequence) {
+        Toast.makeText(this, text, Toast.LENGTH_SHORT).show()
+    }
+
+    override fun requestNotificationPermission() {
+        PermissionHelper.requestNotificationIfNeeded(this)
+    }
+
+    override fun onPlaybackLinesExhausted(): Boolean = startDetailFallbackAfterLinesExhausted()
+
     /** 把当前选中的集投给播放容器(对应旧 jumpToPlay 的下半段) */
     fun playCurrent() {
         val container = playContainer ?: return
-        val bundle = vm.preparePlayBundle()
-        if (bundle == null) {
+        val session = vm.preparePlaySession()
+        if (session == null) {
             // 组装不出播放数据:别把"正在切换片源"提示留在播放器上
             container.clearSourceSwitchTip()
             return
         }
-        container.setData(bundle)
+        container.setData(session)
     }
 
     fun applyFullscreen(full: Boolean) {
@@ -440,7 +468,7 @@ class DetailViewModel : ViewModel() {
         playSignal.value += 1
     }
 
-    /** 读取并清除手动选线标记(供 preparePlayBundle 写入播放容器) */
+    /** 读取并清除手动选线标记(供 preparePlaySession 写入播放容器) */
     private fun consumeManualLineSwitch(): Boolean {
         val pending = manualLineSwitchPending
         manualLineSwitchPending = false
@@ -1037,8 +1065,13 @@ class DetailViewModel : ViewModel() {
         EventBus.getDefault().post(RefreshEvent(RefreshEvent.TYPE_HISTORY_REFRESH))
     }
 
-    /** 组装交给播放容器的数据(旧 jumpToPlay 的 App.setVodInfo + bundle) */
-    fun preparePlayBundle(): Bundle? {
+    /**
+     * 组装交给播放容器的会话数据(旧 jumpToPlay 的 App.setVodInfo + bundle)。
+     *
+     * 播放服务化 Spec §2.1:改用显式 [PlaybackSession] 取代"全局单槽 + Bundle"两个隐式通道;
+     * `App.setVodInfo` 仍保留 —— 本地 HTTP 服务(RemoteServer 弹幕接口)读它取当前片名。
+     */
+    fun preparePlaySession(): PlaybackSession? {
         val info = vodInfo ?: return null
         val list = info.seriesMap?.get(info.playFlag) ?: return null
         if (list.isEmpty()) return null
@@ -1056,10 +1089,7 @@ class DetailViewModel : ViewModel() {
         preview.playIndex = info.playIndex
         previewVodInfo = preview
         App.getInstance().setVodInfo(preview)
-        val bundle = Bundle()
-        bundle.putString("sourceKey", sourceKey)
-        bundle.putBoolean(PlayContainer.EXTRA_USER_PICKED_LINE, consumeManualLineSwitch())
-        return bundle
+        return PlaybackSession(preview, sourceKey, consumeManualLineSwitch())
     }
 
     // ============ 集数匹配工具(旧 findSameEpisodeIndex 系列) ============

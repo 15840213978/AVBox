@@ -720,3 +720,269 @@ interface 'com.github.catvod.spider.merge.Pu' in call to
 - **回归面核对**:`isM3u8ProxyUrl`(等值比较,proxyUrl 双方同为带 k 的字符串)✓;`getCastUrl`(仍能识别代理 URL 并换回 source)✓;`playUrl` 的 `startsWith("http://127.0.0.1")` 直通分支不受影响 ✓;进程重启后重新净化产生新键 ✓;无任何持久化 ✓。
 - **验证**:`assembleDebug` + `installDebug` + 单测 BUILD SUCCESSFUL(30s);read_lints 无诊断。
 - **真机复测点**:①带广告的 m3u8 源正常去广告播放(提示"已移除视频广告 N 条");②同一集内切内核/重试仍能正常播放(旧键仍有效);③快速切集后不出现"上一集/下一集画面串台";④投屏该源仍推送原始播放地址(不经本地代理)。
+
+## 播放服务化 P0 + P1 第一步:会话数据/派生工具迁出 PlayContainer(2026-09-14,用户"现在开始 p0 和 p1")
+
+按 `skill/avbox-playback-service-spec.md` 执行第一阶段(照搬 fongmi 播放器所有权模型的前置重构)。**行为等价是硬要求**:只搬位置,不改逻辑。
+
+- **P0 接口与边界(行为零变化)**:
+  - 新增 `player/PlaybackSession.java`:一次播放会话的数据(vod 引用 + sourceKey + 用户手动选线标记),取代"`App.setVodInfo` 全局单槽 + `Bundle`"两个隐式通道;附 `playbackKey()` 供 P2 归属判定(Spec D6)。`App.setVodInfo` 保留(本地 HTTP 服务的弹幕接口读它取当前片名)。
+  - 新增 `player/PlaybackHostApi.java`:播放指令面;`PlayContainer implements PlaybackHostApi`(方法体未改,纯接口收口)。
+  - 新增 `player/PageHost.java`:页面能力(context / isPageAlive / runOnUi / toast / 本地字幕选择器 / 通知权限 / 线路耗尽换源);`DetailActivity : BaseActivity(), PageHost` 实现,`ensurePlayContainer()` 内 `setPageHost(this)`。
+  - **收口的三处硬耦合**(P2 服务化的前置条件,原先播放层直接依赖具体页面类):①`openLocalSubtitleChooser()` 去掉 `instanceof DetailActivity`;②`requestDetailFallbackAfterLinesExhausted()` 同上;③通知权限兜底改走 PageHost(无 PageHost 时保留 `mActivity` 回退)。
+- **P1 第一步(调度层抽离的开头)**:
+  - 新增 `player/PlaybackController.java`:承载会话数据(vod / playerCfg / sourceKey / sourceBean / 进度键与字幕键 / 歌词键 / 清晰度结果 / 净化代理地址)与**纯派生工具**(进度读取与继承、线路与剧集匹配算法、取流结果过期判定、清晰度发布、投屏地址改写、请求头提取)。
+  - `PlayContainer` 改为持 `private final PlaybackController scheduler`,原同名成员下沉:字段声明与方法体删除、调用点改 `scheduler.xxx(...)`、字段读写改访问器/setter。文件从 **3074 行 → 2809 行**。
+  - **仍未搬迁(P1 后续步骤)**:取流/解析/嗅探(`play`/`playUrl`/`goPlayUrl`/`initParse`/WebView)、重试与换线决策(`autoRetry`/`tryNextLine`/三处超时)、弹幕与预载调度、媒体会话与通知 —— 它们与 `MyVideoView`/`ComposeVideoController` 强耦合,须连同"视图契约"一起搬(Spec §3-P1 出口条件)。
+- **机械重构手法(可复用)**:走 `.codebuddy/tools/refactor_p1_playcontainer.py`(括号感知删除方法体 + 词边界改名 + 赋值改写 setter + 残留报告),代替逐块字符串替换 —— 该文件满行的行尾空白会让手写 `old_str` 匹配失败。**已踩的两个坑**:①`mVodInfo.sourceKey` 中的 `sourceKey` 是 `VodInfo` 的字段,被连带改成 `scheduler.sourceKey()`(4 处,已修);②匿名内部类里 `ProgressManager.getSavedProgress` 的**覆写声明**也被"调用点改名"命中(已回滚)。
+- **验证**:`:app:assembleDebug` BUILD SUCCESSFUL;`read_lints` 无诊断;**未装机**(测试机未连接,`installDebug` 报 `No connected devices`)。
+- **真机回归点(P0/P1 期望零行为差异)**:①详情页起播/切集/切线路/换源(含失败回滚)/切清晰度;②本地字幕选择、字幕搜索、弹幕、歌词、封面;③投屏(TVBox 推送 + DLNA,地址改写走新 `scheduler.getCastUrl`);④边播缓存开关、预载「下一集已就绪」、进度续播(退出重进接着看);⑤线路耗尽后的换源兜底(PageHost 链路)。
+
+## 播放服务化 P1 第二组:重试/换线/超时迁入 PlaybackController(2026-09-14)
+
+继续 `skill/avbox-playback-service-spec.md` 的 P1。本组把"**播放失败后的自我修复链路**"整体搬到调度层 —— 这是"详情页快速换页资源风暴"里最活跃的一段(起播失败→切内核→换线路→换源兜底都在这里)。
+
+- **新增视图契约** `player/PlaybackViewBridge.java`:`PlaybackController` 决策所需的最小动作面 = 播放/提示/状态读取/解析停止/嗅探队列消费/内核切换/配置回刷/换源兜底。页面内由 `PlayContainer` 提供**匿名实现**(不扩大容器公开 API);P2 起改由"服务 → 页面"的桥实现。
+- **迁入 `PlaybackController`(语义逐字保留)**:
+  - 状态:`autoRetryCount/lastRetryTime/allowSwitchPlayer/hasAutoSwitchedPlayer/autoSwitchedPlayerType/allowAutoSwitchLine/playbackStarted/playTimeoutBasePosition/triedLineFlags/userPickedLine/reusePlayerOnSwitch/releasePlayerOnSwitch`;
+  - 三处超时:独立 `timeoutHandler`(MSG 101 取流超时 / 102 换线播放超时;解析超时 100 仍留页面),`startResolvePlayUrlTimeout/startSwitchLinePlayTimeout/cancelSwitchLinePlayTimeout/cancelPlayTimeout/cancelResolvePlayUrlTimeout`;
+  - 决策:`autoRetry()`(嗅探地址 → 切内核重播 → 换线路)、`tryNextLineIfEnabled()`、`tryNextLine()`(集号按集名匹配)、`restoreAutoSwitchedPlayer()`、`handleResolvePlayUrlTimeout/Failed()`、`handleSwitchLinePlayTimeout()`;
+  - 状态查询/标记:`markPlaybackStarted()`、`isPlaybackStarted()`、`isStartedPlayState()`、`isFirstAttempt()`、`playTimeoutBasePosition()`。
+- **页面侧改为"状态开关 + 委托"**(避免逐行改写流程):`beginNewPlay()`(等价 play() 开头四处赋值)、`markStoppedForSourceSwitch()`、`consumeReusePlayerOnSwitch()`、`clearTriedLines()`、`resetAutoRetryState()`、`setUserPickedLine()`、`setAllowSwitchPlayer()`、`setPlaybackStarted()`、`setPlayTimeoutBasePosition()`;`setAutoSwitchLineEnabled()` 变为纯转发。
+- **文件规模**:`PlayContainer` 2809 → **2656 行**(初版 3074);`PlaybackController` ≈ 1000 行(含注释)。
+- **验证**:`:app:assembleDebug` BUILD SUCCESSFUL;`:app:testDebugUnitTest` BUILD SUCCESSFUL;`read_lints` 无诊断;**仍未装机**(测试机未连接)。
+- **复盘要点(可复用)**:①"整组赋值 → 命名状态开关"比逐行替换更能保住流程可读性(play()/stopForSourceSwitch/回调复位三处);②迁方法时对"字段直读"必须补 getter(本次 `autoRetryCount`/`playTimeoutBasePosition` 各漏一处,由编译器兜住);③匿名视图契约实现里 `runOnUi` 必须自带 `isPageAlive()` 守卫,否则桥在页面销毁后弹 Toast 会踩空。
+
+## 播放服务化 P1 第三组-3a:解析/嗅探层 + 取流结果观察者迁入 PlaybackController(2026-09-14)
+
+继续 `skill/avbox-playback-service-spec.md`(用户"继续 p1 的 1")。本组搬"**解析与嗅探**"——WebView 嗅探、OkGo JSON 解析、聚合/超级解析、解析超时、嗅探结果队列,以及把它们汇成"可播地址"的 `playResultObserver`。
+
+- **迁入 `PlaybackController`**:`initFetch()`(建 `SourceViewModel` + 观察者 + `observeForever`)、观察者全部逻辑、`initParse/jsonParse/doParse/parseMix/rsJsonJX/stopParse/initParseLoadFound/autoRetryFromLoadFoundVideoUrls`、WebView 三件套(`loadWebView/initWebView/loadUrl/stopLoadWebView/configWebViewSys/checkVideoFormat/SysWebClient`)、`getSubtitleUrl/isLyricSubtitle/searchDanmu`、取流状态字段(`webUrl/parseFlag/webPlayUrl/webHeaderMap/webUserAgent` + 嗅探队列/线程池);解析超时(MSG 100)并入控制器 handler。
+- **视图契约扩容**(`PlaybackViewBridge`):新增 `firstUrlByArray/setArtwork/showParse/checkDanmu(danmaku,Runnable)/encodeUrl/evaluateScript/newSniffWebView/attachSniffWebView/showErrorWithRetry/isSwitchStopPending`;删除已不再需要跨层调用的 `stopParse/initParseLoadFound/tryRetryFromSniffedUrls/resolvedUrl/playHeaders/cancelPlayRequest`(全部变为控制器内部调用)。
+- **页面侧**:`initViewModel()` 缩到 4 行(只建预载协调器);`hostDestroy` 的观察者注销改 `scheduler.releaseFetch()`;`play()` 命中预载数据时改 `scheduler.deliverPlayResult(preResult)`;`webPlayUrl/webHeaderMap` 改访问器;**`PlayContainer` 3074 → 2656 → 1902 行**(搬迁三组共 -38%),`PlaybackController` ≈1690 行;顺带清理 40 个失效 import。
+- **验证**:`assembleDebug` + `testDebugUnitTest` BUILD SUCCESSFUL;`read_lints` 无诊断;未装机(设备未连接)。
+- **踩坑(脚本重构的真实代价,已修正)**:①按签名删方法时**花括号配对会因注释/字符串里的花括号误判**,本次 `configWebViewSys`/`SysWebClient` 一带删完发现两文件各缺 3 个右括号(编译器"已到达文件结尾"报出)→ 用 `fix_braces_b3.py` 按计数补回并规范尾缩进;②**注解行不属方法体**,删方法后 `@SuppressLint("SetJavaScriptEnabled")` 会残留/被误删,需单独处理;③`private` 方法迁走后原同包可访问性失效(`doParse` 需改 public);④被删字段的注释残留(3 行 WebView 并发说明)要手工清。
+
+## 播放服务化 P1 第三组-3b:取流入口 play/playUrl/goPlayUrl/selectQuality 迁入 PlaybackController(2026-09-14)
+
+本组把"**起播**"整条决策链搬到调度层 —— 内核对齐/外部播放器/dash 强制 EXO/纯音频渲染/进度继承/预载命中都在这里,真正操作 `MyVideoView` 的连招交给页面的一个入口 `startVideoPlayback(...)`。
+
+- **迁入 `PlaybackController`**:`play(boolean)`(切集/换线/换源/重播唯一入口)、`playUrl`(M3U8 去广告分流)、`goPlayUrl`(外部播放器 / dash / 复用判断)、`attachProxySiteKey`、`selectQuality`、`looksLikeAudioUrl`(纯 URL 谓词);随迁状态:`switchStopPending`、`pendingInheritKey/Progress`(换源"接着看"进度)。
+- **视图契约 3b 扩容**(14 个):`setTitle/stopOtherPlayers/resetDanmu/clearLyric/clearArtwork/clearVideoFrame/setSubtitleViewVisible/onNewPlayStarted/onPlaybackSwitching/applyPlayerConfigToView(forceKernel)/useTextureRenderForAudio/playExternalPlayer/playM3u8/startVideoPlayback` + 预载 4 个(`invalidatePreload/hidePreloadReadyTip/consumePreloadResult/dropPreloadData`);并**删除**已可内部化的 `play/playUrl/isSwitchStopPending`。
+- **页面侧**:`play`/`selectQuality` 变成 `@Override` 纯转发(PlaybackHostApi 契约不变);`stopForSourceSwitch` 只调 `scheduler.markStoppedForSourceSwitch()` + `scheduler.setPendingInherit(...)`;`clearSourceSwitchTip` 读 `scheduler.isSwitchStopPending()`。
+- **规模**:`PlayContainer` 1902 → **1691 行**(初版 3074,**-45%**),`PlaybackController` **1980 行**;`PlaybackViewBridge` 共 40 个方法(下一批会随"弹幕/预载/媒体会话"再收口)。
+- **验证**:`assembleDebug` + `testDebugUnitTest` BUILD SUCCESSFUL;`read_lints` 无诊断;未装机(设备未连接)。
+- **新踩的坑(值得写进脚本约定)**:①**`play(false);` 的批量改名会误伤 `replay(false);`**(子串匹配!)—— 本次把 `mVideoView.replay(false)` 改成了 `mVideoView.rescheduler.play(false)`;批量改名必须用**词边界/前置断言**(`(?<![\w.])`),或对方法名先做全量枚举核对;②方法迁走后 **`implements` 的接口方法会缺失**(`PlaybackHostApi.play`),需在页面留 `@Override` 纯转发;③同批内"先改字段名再改调用点"的顺序仍要注意(本批 `view.xxx` 内部化是收尾单独做的)。
+
+## 播放服务化 P1 收官:预载调度 + 媒体会话迁入 PlaybackController(2026-09-14,用户"继续完成 p1")
+
+P1 最后两组。至此**调度层(会话/取流/解析/嗅探/重试/换线/超时/预载/媒体会话)全部搬出 `PlayContainer`**。
+
+- **预载调度(4a)**:`PreloadCoordinator` 归调度层持有,`initPreload()`(建协调器 + 注册 "下一集已就绪" `ReadyListener`)、`onPlayerStateForPreload(playState)`(STATE_PLAYING/BUFFERED 排期评估、STATE_BUFFERING 让路)、`invalidatePreload()`、`destroyPreload()`;"何时喂快照/取结果/作废"全在调度层,页面只提供 `buildPreloadSnapshot()`(需上下文 + 真实内核实例判 ExoKernel)与 Toast(`showPreloadReadyTip/hidePreloadReadyTip`)。页面侧 `preloadCoordinator/preloadReadyListener` 两个字段与 4 个桥方法整体消失。
+- **媒体会话/通知(4b)**:`updateMusicSession()`(含"只有确定纯音频才给封面,绝不压影视画面"的三条件注释与 2026-09-13 回归修复说明)、`hasPlayableAudio/isAudioOnlyPlayback/currentTrackInfo`(三态语义保留)、`ensureAudioOnlyRender()`、`stopMusicSessionForFailedPlayback()`、`stopMusicSession()`、`onHostDestroy()`、`handlePlayStateForMusicSession(playState)`(切换期状态机,返回 true 时页面直接 return)、`isConfirmedAudioOnly()`(退后台判定)全部迁入;`switchingPlayback/audioPlayback/playArtwork` 随迁。
+- **关键抽象:`MusicPlaybackService` 的 owner 从 `PlayContainer` 改为 `PlaybackHostApi`**(通知栏播放/暂停/上一集/下一集/拖动都只打接口)——这正是 Spec §2.1/D2 的 `MusicControl` 归属模型,服务端已完全不依赖页面类。
+- **视图契约第四批**:新增 `context()/playbackHost()/duration()/mediaPlayer()/requestNotificationPermission()/switchRenderToTexture()/ensureRenderViewMatchesConfig()/buildPreloadSnapshot()/showPreloadReadyTip()`;删除 `invalidatePreload/consumePreloadResult/dropPreloadData/stopMusicSession/onPlaybackSwitching`。
+- **规模**:`PlayContainer` 1902 → **1553 行**(初版 3074,**-49%**,只剩视图/控制器/挂摘/弹幕视图/字幕轨道/弹层/生命周期),`PlaybackController` **2203 行**,`PlaybackViewBridge` 41 方法;顺手清掉页面 12 个失效 import(含 `MusicPlaybackService`/`PreloadManagerHolder`)。
+- **验证**:`assembleDebug` + `testDebugUnitTest` BUILD SUCCESSFUL;`read_lints` 无诊断;未装机(测试机未连接)。
+
+## 播放服务化 P2:引擎/宿主服务持有播放器,页面只挂摘视图(2026-09-14,用户"开始 p2")
+
+目标(Spec §3-P2):进出详情页**不再重建播放器**。落地形态与 Spec 原案有一处**有意偏差**,下面写清。
+
+- **fork 内核挂摘 API**(`player/.../VideoView.java`):新增 `attachContainerTo(ViewGroup host)`(把渲染容器
+  `mPlayerContainer` 搬到外部宿主,插 index 0 —— 弹幕/覆盖层在其上)、`detachContainerFromHost()`(摘回自身)、
+  `isContainerAttachedTo(host)`;三处都幂等,**不碰系统栏、不改 `mIsFullScreen`**,与页面内全屏(容器在 DecorView)互不干扰。
+  渲染/封面(`artworkView`)/黑帧(`frameCover`)全在 `mPlayerContainer` 内,搬运即整体跟随。
+- **`PlaybackEngine`(新,`player/PlaybackEngine.java`)**:进程级播放引擎 —— 持有 `MyVideoView`(主题化 application
+  上下文,不持有 Activity)+ `PlaybackController`,自带进度落盘、状态监听(预载时机/音乐会话/弹幕启动)、
+  `initFetch/initPreload`;实现 `attach(page, slot)`/`detach(page)`/`release()` 与 `PlaybackHostApi`;
+  内部 `HeadlessView` 实现 `PlaybackViewBridge`:**播放器机械动作照做、UI 动作空操作**,因此退页面后
+  音频/通知/预载照常维护(`isPageAlive()` 返回 true 的语义 = "存在可服务宿主",否则控制器会跳过 `updateMusicSession`)。
+- **`PlaybackService`(新,宿主)**:托管引擎生命周期(任务移除/服务销毁即 `release()`);**本阶段不做 FGS**
+  (通知仍归 `MusicPlaybackService`,避免双通知;单一前台服务 + 后台档位 = P3)。
+- **为什么引擎不是 Service 本体(偏差与理由)**:页面对引擎的取用必须与页面构造**同帧同步**,否则要处理
+  "服务未就绪 → 控制器事后替换 → 在途取流结果/观察者双投递"的初始化竞态(以及首播排队)。故 `PlaybackService.engine(ctx)`
+  同步创建/返回引擎,`startService` 只做宿主。
+- **页面接线(开关 `HawkConfig.PLAYBACK_SERVICE`,默认 false)**:
+  ① `view_play_container.xml` 的 `MyVideoView` 改为运行时加入的 `surfaceSlot`;
+  ② 旧路径(开关关)在槽位里 `new MyVideoView` + `bindPlayerToPage()`(进度管理器/状态监听抽成方法);
+  ③ 服务模式:构造期同步取引擎(`scheduler = engine.controller()`、`mVideoView = engine.player()`、`engine.attach(this, surfaceSlot)`),
+  跳过本页的 `initFetch/initPreload`(随引擎),`hostDestroy` 只 `engine.detach(this)`(**不 release、不停媒体会话**),
+  `mVideoView = null`;
+  ④ 控制器挂载/清空:`setVideoController(mController)`(页面)↔ `detach` 时引擎 `setVideoController(null)` + `setDanmuView(null)`(防服务持有页面 View);
+  ⑤ manifest 注册 `.player.PlaybackService`;`PlaybackViewBridge` 增 `startDanmuIfReady()`(状态监听搬到引擎后仍需回落到页面弹幕);
+  ⑥ 控制器 `onPlayerStateForPreload` 增 `view == null` 守卫、`initWebView` 增无页面(null WebView)守卫。
+- **顺手拿到的收益**:开关打开后,确认纯音频(音乐)**离开详情页继续播**(引擎继续持有会话,通知由控制器 + `MusicPlaybackService` 维护)——
+  Spec 里原属 P3 的"音乐跨页续播"在 P2 结构下已自然成立(仍待真机确认)。
+- **规模**:`PlayContainer` 1541 → **1605 行**(+64,双路径接线),新增 `PlaybackEngine`(≈540 行)、`PlaybackService`(≈140 行);
+  `assembleDebug` + `testDebugUnitTest` BUILD SUCCESSFUL、`read_lints` 无诊断;**未装机**(测试机未连接)。
+- **待真机验收(开关打开)**:① 列表→详情→播放→返回→再进→换片,播放器实例创建次数 ≤1(日志 `echo-p2`);
+  ② 12 次快速进出后 hprof 对比改造前基线(ExoPlayer×36 / 249 线程);③ attach/detach 无泄漏(服务不再持有页面 View);
+  ④ 全屏/退出全屏与挂摘并存无黑屏;⑤ 音乐退页面续播、通知可控。
+
+## 播放服务化 P3:通知/媒体会话并入宿主服务 + 同片接管(2026-09-14,用户"继续 p3")
+
+- **`MusicPlaybackService` 的职责并入 `PlaybackService`**(后者同时是 P2 的引擎宿主):
+  通知频道/媒体会话(`MediaSessionCompat` + `MediaStyle`)/通知栏动作(播放·暂停·上一集·下一集·拖动·停止)/封面(coil 异步 + 软位图)/wake+wifi 锁
+  全部搬过去;**FGS 语义**由 `PlaybackService` 承担 —— `updateSession()` 走 `startForegroundService`(ACTION_UPDATE),`onStartCommand`
+  里立刻 `startForeground`;`pendingStart/stopWhenStarted` 那套 **AOSP 竞态防护**(start 已派发但 onStartCommand 不交付 → ForegroundServiceDidNotStartInTimeException 杀进程)原样保留。
+  **关键差别**:会话结束时**不 stopSelf、不释放引擎**(旧实现 stopSelf,新实现要托管引擎跨页面复用)—— 因此 `ACTION_UPDATE` 到达时若
+  `mediaSession == null` 需**重建媒体会话**(原来靠 stopSelf 后 onCreate 重建),已在 `handleSessionIntent` 中补上。
+- **`PlaybackNotification`(新,过渡门面)**:控制器的 `updateMusicSession/stopMusicSession` 只依赖它 ——
+  `PlaybackService.isAlive()`(引擎在)→ 合并路径;否则(回滚/旧路径)→ `MusicPlaybackService`(一字未改)。P5 清理时门面与旧服务一起下线。
+- **D6 同片接管落地**:`PlayContainer.setData(session)` 在服务模式下先判 `engine.session().playbackKey()` 与目标一致
+  (源 key|片 id|线路|集索引)且播放器实例仍持有、非 ERROR/IDLE → **只同步配置/UI 并在暂停时 start(),不重新取流**(再进详情页接管续播);
+  不同键 = 用户显式换片 → 走既有 `play()` 复用同一实例。服务模式下会话经 `engine.setData(session)` 落到引擎(引擎侧 `startSession`)。
+- **manifest**:`.player.PlaybackService` 加 `foregroundServiceType="mediaPlayback"`(权限 `FOREGROUND_SERVICE`/`FOREGROUND_SERVICE_MEDIA_PLAYBACK`/`POST_NOTIFICATIONS` 之前已具备);`.player.MusicPlaybackService` 保留到 P5。
+- **行为**:退页面音频续播 + 通知/锁由合并后的服务维持;影视退页面停播且无残留画面/声音(容器摘回引擎、无页面 View 引用);通知栏控制打到当前宿主(页面在=页面,页面没了=引擎)。
+- **规模**:`PlaybackService` 121 → **564 行**(引擎托管 + 会话通知),`PlaybackNotification` 47 行,`PlayContainer` 1605 → 1630 行(D6 接管);
+  控制器对 `MusicPlaybackService` 的直接引用清零。`assembleDebug` + `testDebugUnitTest` BUILD SUCCESSFUL、`read_lints` 无诊断;**未装机**。
+- **待真机验收**:① 音乐退详情页回首页仍播、通知可控(播放/暂停/上一集/下一集/拖动);② 重进详情页**接管续播**(日志 `echo-p3 take over same playback`,不重新取流);
+  ③ 影视退页面停播、无残留声画、通知仍可下拉;④ 换片(不同 playbackKey)仍复用同一播放器实例;⑤ 播放期 wake/wifi 锁持有、会话结束释放(日志 `echo-music wake/wifi lock`)。
+
+## 播放服务化 P4:直播页接入同一引擎(2026-09-14,用户"继续 p4")
+
+- **共用同一 `MyVideoView`**:`LivePlayActivity.initVideoView()` 服务模式下取 `PlaybackService.engine(this).player()`
+  (旧路径仍 `MyVideoView(this)`),整块 View 进直播页的 Compose 树(`AndroidView(factory = { videoView })` 不变);
+  直播自己的 `ComposeLiveController`/`LivePlayerManager`(默认解码器、自动换源、时移)**逻辑一行未改**。
+- **引擎"直播人格"(新)**:`enterLive()` —— 若点播页面还在栈里先 `detach(page)`(把渲染容器收回,否则容器仍在旧页面槽位、直播拿到空壳);
+  点播一律 `pause`(含"确认纯音频"场景,避免与直播双声);`setProgressManager(null)`(直播无进度);
+  **`setExoDiskCacheEnabled(false)`**(边播边缓存是点播特性,直播 m3u8 片用它无意义且可能影响起播);
+  `clearArtwork()/showVideoFrame()`(清上一部点播的残留海报/黑帧);`controller.stopMusicSession()`(撤通知、放锁)。
+  `exitLive()` 反向:清直播控制器、还回进度管理器与磁盘缓存标记;直播页 `onDestroy` 只 `exitLive()`,**不 release**(实例留给点播复用)。
+- **状态监听短路**:引擎的 `onPlayStateChanged` 在 `liveMode` 下**直接 return** —— 直播不进点播的预载排期/进度落盘/媒体会话/弹幕启动
+  (否则会拿上一部点播的 vod 去更新通知与预载,或把直播当点播起播)。
+- **点播→直播→点播**:`PlayContainer.hostResume()` 新增 `reattachIfOwnedByOther()` —— 回来时若发现自己不再是引擎的挂载页面,
+  自动 `exitLive() + attach(this, surfaceSlot) + 重设控制器`(日志 `echo-p4 re-attach after live/other page`),避免"回来一片空白"。
+- **已知边界(有意保留,R10)**:直播自身的 `release()` 调用(切台/换解码器/换源等 8 处)不动 —— 那些路径仍会重建**内核进程**;
+  P4 的"内核实例不增长"指**不再多出第二个 MyVideoView/播放器对象**,且点播↔直播来回不再各自新建(点播侧实例一直被引擎持有)。
+- **规模**:`PlaybackEngine` 536 → 584 行,`PlayContainer` 1630 → 1647 行,`LivePlayActivity` 2709 → 2726 行(3 处接线);
+  `assembleDebug` + `testDebugUnitTest` BUILD SUCCESSFUL、`read_lints` 无诊断;**未装机**。
+- **待真机验收**:① 点播→直播→点播,回点播看 `echo-p4 re-attach` 且无新内核创建,画面/控制正常;② 直播起播无黑帧/无残留海报;
+  ③ 直播期间不出现点播通知与预载日志;④ 退出直播后点播进度继续落盘;⑤ 直播切台/换解码器/时移与改造前一致;⑥ 直播退后台暂停、回前台恢复。
+
+## 播放服务化 P5:清理固化(2026-09-14,用户"开始 p5")
+
+代码层的收尾:播放层**只剩一条路径**(引擎持有播放器 + 服务托管 + 页面挂摘),回滚开关移除。
+
+- **删双路径**:`PlayContainer` 去掉 `serviceMode` 分支 —— 构造期固定 `engine = PlaybackService.engine(activity)` +
+  `scheduler = engine.controller()`;播放器固定取 `engine.player()`(不再 `new MyVideoView`);删 `bindPlayerToPage()`
+  (进度落盘/状态监听只在引擎侧,页面的 `initViewModel()` 一并删除);`hostDestroy` 固定 `engine.detach(this)`
+  (删 `onHostDestroy/releaseFetch/release` 分支);`setData` 固定走 `engine.setData(session)` + D6 接管判定;
+  `hostResume` 的重挂判定去掉开关判断。**`PlayContainer` 1647 → 1551 行**(相对初版 3074 行 **-50%**)。
+- **删直播双路径**:`LivePlayActivity` 去掉 `serviceMode` —— 固定 `PlaybackService.engine(this).also { it.enterLive() }.player()`,
+  `onDestroy` 固定 `exitLive()`(不 release)。
+- **删门面与旧服务**:`PlaybackNotification.java`、`MusicPlaybackService.java` 删除(含 manifest 条目);
+  控制器三处会话调用直连 `PlaybackService.isSupported/updateSession/stopSession`。
+- **删开关**:`HawkConfig.PLAYBACK_SERVICE` 移除(回滚通道关闭)。
+- **文档/注释同步**:`PlaybackService`/`PlaybackEngine`/`ImgUtil` 里对旧音乐服务的 `{@link}` 引用改为当前实现。
+- **验证**:`assembleDebug` + `testDebugUnitTest` BUILD SUCCESSFUL、`read_lints` 无诊断、全库已无 `MusicPlaybackService`/`PlaybackNotification`/`PLAYBACK_SERVICE` 残留引用、单测无相关依赖;**未装机**。
+- **🔍 静态回归审查(真机功能测试通过后的复核)**:审查方式 = 逐条比对"改造前页面在做什么 vs 现在谁在做" + 挂摘/所有权/空值时序 + 残留符号扫描。
+  **发现并修复 4 处真实回归**:① 直播接管时点播会话残留(P3 归属守卫拒停 → 通知+wake/wifi 锁残留进直播、点通知会叠音)→ 新增
+  `PlaybackService.forceStopSession(ctx)`;② 退页面后通知按钮归属旧页面(弱引用回收后按钮失效,且已暂停时无状态变化不会刷新)→
+  `detach()` 末尾补 `controller.updateMusicSession()`;③ `attach()` 调 `exitLive()` 会清掉页面构造期刚设的控制器(返回点播页后丢失手势/按键)
+  → 拆出 `exitLiveState()`(只切人格);④ 引擎已释放后 `setData` NPE → 加 `engine == null || isReleased()` 守卫。
+  另删死代码 `PlaybackService.stop(Context)`。
+  **已确认无回归**:`new MyVideoView(` 全库只剩引擎 1 处;弹幕再绑定(`DanmuLoadController` → `setDanmuView`)OK;
+  `PreloadCoordinator.scheduleEvaluate(null)` 自带空守卫;引擎长期持有的 `SourceViewModel` 是自 new 的、不含 Context/Activity 引用(不泄漏页面);
+  挂摘对称、页面/直播无残留双路径。
+  待复测:上述 4 处场景 + hprof 实例数复测。
+- **🐞 真机 bug 修复(2026-09-14,用户反馈:P4 引入,两个症状同一根因链)**
+  - **症状**:① 看直播后退出回首页,直播声音还在;② 点历史里的点播卡片进详情页,播放的却是直播画面。
+  - **根因 1(P4 主因)**:直播页 `onDestroy` 把改造前的 `mVideoView?.release()` 换成了 `exitLive()`,而 `exitLive()` 只切"人格"
+    (还回进度管理器/磁盘缓存标记、清控制器)**没有停流** → 直播流在引擎里继续播 → 退到首页仍有声;点播页 attach 后容器里就是这段直播。
+  - **根因 2(D6 接管误判,放大成"播错内容")**:直播不经过会话通道(LivePlayerManager 直接操作播放器),`engine.session()` 仍是上一次点播的会话;
+    而 D6 判定只看"播放器实例在 + 状态非 ERROR/IDLE" → 打开**同一部/同一集**的点播卡片时被判成"同片接管",**直接跳过取流** → 点播页播着直播。
+  - **修复**:① `exitLive()` 增加 `videoView.release()`(停流 + 释放内核,与改造前直播页销毁语义一致,直播无后台播放);
+    ② `enterLive()` 置 `session = null`(直播不走会话通道,点播会话立刻失效);③ D6 判定加 `!engine.isLiveMode()` 守卫(纵深防御)。
+  - **修正后的 P4 边界**(此前文档写错):直播页销毁会**释放内核**,故"点播→直播→点播"回点播会重建一次内核(与改造前相同);
+    不再出现"退到首页还有直播声 / 点播页播直播"。P4 保留的收益仍是:直播与点播**共用同一个 MyVideoView 与播放器对象**(不再多出一整套播放器)、
+    直播期点播侧(进度/预载/媒体会话/弹幕)短路、进入直播时自动收回点播页面与会话。
+  - 待复测:直播退出后首页无声、点播卡片进入播放的是点播、点播→直播→点播来回 3 轮、直播切台/时移照旧。
+- **注意(风险)**:P5 之后**没有开关可切回旧结构** —— 若真机发现 P2–P4 的问题,只能修引擎路径或回退提交。
+  Spec §3-P5 的出口条件(**全量回归 + hprof 复测归档**:12 次详情页进出后 `DetailActivity/PlayContainer/ExoPlayer`
+  实例数对比改造前 ExoPlayer×36 / 249 线程)**仍未执行**,待测试机接入后按各阶段 features.md 记录末尾清单一次性回归。
+
+## 🔍 第二轮静态审查(直播 bug 修复后,2026-09-14)
+
+按"接管判定必须校验内容归属 + 旧销毁动作逐条对照"的思路复查,**又发现并修复 1 处同类漏洞 + 1 处边缘遗漏**:
+
+- **① D6 接管仍有"只看实例不看内容"的漏洞(修复)**:判定原用 `engine.session().playbackKey()`,而会话在 `setData` 时就登记了 ——
+  **取流失败 / 被外部播放器接走**时播放器里其实还是上一部(或已释放),此时重进同一部会被判成"同片接管"→ 播错内容(与"点播页播直播"同源)。
+  修:控制器新增 `startedPlaybackKey` —— 只有**地址真正交给播放器**(`startVideoPlayback` 里 `markContentStarted()`)才记录归属,
+  `startSession` 时清空;D6 判定改比 `startedPlaybackKey`,并保留 `!isLiveMode()` + 实例在 + 非 ERROR/IDLE 三重条件。
+- **② "直播暂停→去点播→回直播"人格不对(修复)**:点播页 attach 会把人格切回点播(`exitLiveState`),回直播后播放中的直播流会带着
+  点播的进度管理器/边播缓存继续跑。修:引擎新增 `enterLiveState()`(只切人格,不暂停/不清控制器/不释放),直播页 `onResume` 调用。
+- **③ 死代码清理**:`PlaybackService.isAlive()`、`PlaybackEngine.session()` getter(P5 与本次改动后无调用者)删除。
+- **确认无需处理**:外挂播放器场景 —— `playerType >= 10` 时控制器先 `view.releasePlayer()`,`getMediaPlayer()` 为空 → D6 不会误判。
+
+**已知遗漏(非缺陷,待补)**:
+① Spec §4 真机全清单 + P5 的 hprof 复测(12 次进出实例数 vs 基线 ExoPlayer×36/249 线程)**未执行**;
+② 点播→直播→点播:回点播后内核已释放(黑屏),需点播放才会取流续播(与改造前一致);
+③ 通知栏"上一集/下一集"在无页面(引擎宿主)时无效(旧实现 owner 也是页面弱引用,行为一致);
+④ 无页面时预载暂停(旧行为一致);⑤ 影视退页面保留暂停实例(P2 收益的代价,常驻一个内核)。
+
+## ✅ 退出播放页语义改回"退页面即停"(2026-09-14,用户拍板 A + 保留实例)
+
+- **决定**:退出播放页(返回上一级/首页)**一律停播 + 撤通知 + 释放 wake/wifi 锁**,影视与音乐都不再后台继续;
+  但**保留播放器实例**不 release,下次进详情页直接复用(保住 P2 的"跨页不重建内核")。与 fongmi 默认语义一致
+  (fongmi:页面 finish 且无 PiP/后台音频/媒体 client → 服务 `shutdown()` = 停播 + 撤通知 + 停服务)。
+- **实现**(`PlaybackEngine.detach` 重写):① `pause()`;② **`saveCurrentProgress()`**;③ **`stopPlaybackKeepPlayer()`**
+  (PREPARING/BUFFERING 时 pause 无效,刚点播放就退出会在后台自己播起来);④ `controller.stopPlaybackForPageExit()`
+  (清会话标记 + 撤在途取流与三处超时 + 停会话);⑤ `PlaybackService.forceStopSession()` 兜底撤通知与锁;
+  ⑥ 清页面控制器/弹幕引用 + 容器摘回 + 桥切回 headless。
+- **两个"不 release 就会漏"的点(本次补齐)**:① 改造前进度靠 `release()` 落盘 → 现在必须显式 `saveCurrentProgress()`
+  (fork 新增 public 包装),否则"退出→再进"丢失续播位置;② 在途取流/解析不停会在后台把这一集播起来。
+- **fork 新增**:`VideoView.saveCurrentProgress()`(包装 protected saveProgress)与 `VideoView.stopPlaybackKeepPlayer()`
+  (stop 内核但保留实例,下一次起播走 reusePlayer 的 reset 路径)。
+- 编译/单测通过;**待真机**:退出详情页无声 + 通知消失;再进同一部从上次位置续播且不重建内核;
+  刚点播放立刻退出不会在后台响;退后台(非退出页面)仍沿用原语义(纯音频继续、影视暂停)。
+
+## ✅ 架构评审 + 第三/四/五轮静态审查(2026-09-14,五轮收敛;全程 assembleDebug + 单测 + lint 绿)
+
+以下修复按时间序压缩归档(完整推演见 `.codebuddy/memory/2026-09-14.md`):
+
+- **🐞「快速返回再重新进入」显示错乱(4 处修复)**:新页 onCreate/onResume 早于旧页 onStop/onDestroy 导致
+  ①标题不下发(D6 接管不走 `play()`)→ `publishTitle()` + 接管分支补 `engine.setData/markContentStarted`;
+  ②新控制器拿不到已播状态 → fork `setVideoController` 挂载时回灌 `setPlayState/setPlayerState` + `startProgress()`;
+  ③旧页 hostDestroy 误撤新页在途取流(共享调度层)→ 归属守卫 `stillOwner` + `saveCurrentProgress()` 提到守卫前;
+  ④(后续架构评审 3 项把该收尾挪到会话边界,`stillOwner` 补丁随之删除)。
+- **核查结论(选集/换线未受改造影响)**:切集链路不经过 `setData`,与 D6 无关;借机修掉 fork `stopPlaybackKeepPlayer`
+  的隐患 —— 已 PAUSED 再 stop 成 IDLE 会形成"IDLE+内核仍在",此后 `start()` 走 `initPlayer()` 新建内核覆盖旧的(泄漏)。
+- **架构评审第 1 项(空闲 TTL 释放引擎)**:`detach()` 后 60s(`IDLE_RELEASE_DELAY_MS`)无人取用则 `release()` +
+  `PlaybackService.onEngineReleased`(清静态引用,服务不 stopSelf);配套自愈 `PlayContainer.reviveEngineIfReleased()`
+  收口到所有播放入口(`playViaScheduler`/`setData`/`replay`),`DanmuLoadController.setVideoView()` 弹幕换绑。
+- **架构评审第 2 项(页面不再直接 release,所有权收口)**:新增 `PlaybackEngine.releasePlayer()`(释放内核、保留引擎、
+  清 D6 依据);点播页 4 处 / 直播页 8 处 `videoView.release()` 全部改走它,两条桥同一入口。
+- **架构评审第 3 项(在途收尾挪到会话边界)**:新增 `PlaybackController.cancelInFlight()`(三处超时+取流+解析),
+  由 `startSession()`(会话边界)与 `stopPlaybackForPageExit()`(停播)触发;页面销毁只收页面私有资源 ——
+  理由:页面销毁与新页面 attach 的先后由系统决定,拿页面销毁当收尾会误撤新页面的在途动作(嗅探 WebView 因此跨页复用)。
+- **第三轮审查(5 高危+若干)**:①直播接管后旧点播页被回收会停掉直播(`detach` 加 `liveMode` 守卫,且 detach 须在
+  liveMode 置位**之前**);②回直播前台缺收尾(`enterLiveState` 补 detach+撤会话);③`exitLive` 无归属校验(加 `!liveMode`
+  前置守卫 —— 教训:守卫不得读自己将要写的标志位,初版写在 `exitLiveState` 之后恒真,复查抓回);④引擎自释放 × 新引擎
+  竞态(`onEngineReleased` 不再 stopSelf);⑤D6 接管不重置会话状态(playbackStarted/triedLines/userPickedLine/
+  m3u8ProxyUrl/switchStopPending → `startSession` 统一复位)。另:`stopPlaybackForPageExit` 补 `stopParse`、
+  `onHostDestroy` 补三处超时收尾、`selectMyAudioTrack/selectMyVideoTrack/initSubtitleView` 判空、
+  fork 加 `getVideoController()` + 直播页 `rebindLiveControllerIfNeeded()`。
+- **第四轮审查(5 处迟到回调类)**:①引擎状态监听加 `released` 总守卫(防空通知+无人释放的锁);②`PlaybackService.updateSession`
+  校验 `engine != null`;③revive 换引擎前先 `scheduler.stopPlaybackForPageExit()`(防旧内容播到新播放器);
+  ④EventBus 重复解注册加 `isRegistered` 守卫;⑤`release()` 末尾补 `forceStopSession`(绕过归属守卫放锁)。
+- **第五轮审查(用户"审查一下播放层有没有错误和遗漏";可达性复核)**:①**exitLive 顺序污染进度(高可达)**——
+  `exitLiveState()` 先还回点播 progressManager,随后 `release()` 内部 `saveProgress` 把 mCurrentPosition(已被直播位置
+  刷新)+ mProgressKey(残留的点播 key)写进点播进度缓存 → **release 提到 exitLiveState 之前**(此时进度管理器仍 null);
+  ②**直播页回前台恢复点播内容**(enterLiveState 只切人格,PAUSED 被 resume 恢复)→ 返回 boolean + release 停死内核 +
+  直播页 `replayCurrentChannelAfterTakeover()`;**可达性修正**:经查 `MainActivity` 为 standard 启动模式,直播页后台时
+  launcher/通知/多任务都回栈顶(直播页本身),该路径当前不可达,修复属防御性(画中画/深链/ROM 差异时兑现);
+  ③`play()` 裸取 NPE/IOOBE(历史恢复集号越界)→ `currentSeries()` clamp + 失败走换线兜底;④HeadlessView
+  `startVideoPlayback` 补复用/释放防线(顺带修 PAUSED 下 setUrl+start 播旧 URL);⑤字幕选择判空。
+- **方法论教训(静态推演的可达性)**:审查报出的 bug 必须回答"用户什么操作序列能走到这个状态"——launchMode/通知
+  intent/多任务是入口层事实,只看播放层代码会高估触发概率;被质疑时反向重查时序,反而挖出真正可达的 exitLive 顺序问题。
+
+## ✅ 真机回归通过,播放服务化收口(2026-09-14,用户"真机测试没问题,更新一下文档")
+
+- **用户确认**:五轮审查修复后的构建真机测试无问题(进出详情页播放器不重建、退页面即停+再进续播、
+  点播↔直播来回、切集/换线/换源、通知/锁/弹幕/字幕等日常路径走查通过)。
+- **Spec 收口**(`avbox-playback-service-spec.md`):状态行与 §3 进度块改 **P0–P5 ✅**;§4 加结果行 ——
+  §4-6(实例创建日志埋点)与 §4-7(hprof 量化复测,基线 ExoPlayer×36/249 线程)**未采集数据**,如需量化归档可后补。
+- **遗留(可选)**:hprof 量化复测未做;`enterLiveState` 修复中的"重播当前频道"路径当前无真实入口(见上)。
+- 此后播放层不再安排新的静态审查轮次;后续改动按普通回归对待。
