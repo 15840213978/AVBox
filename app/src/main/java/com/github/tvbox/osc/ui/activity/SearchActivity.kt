@@ -247,7 +247,7 @@ class SearchViewModel : ViewModel() {
                     }
 
                     override fun convertResponse(response: okhttp3.Response): String =
-                        response.body?.string().orEmpty()
+                        response.body.string()
 
                     override fun onError(response: com.lzy.okgo.model.Response<String>) {
                         super.onError(response)

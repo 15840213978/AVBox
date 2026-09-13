@@ -781,7 +781,7 @@ fun SubtitleSearchSheet(sheet: SubtitleSearchSheetState, onDismiss: () -> Unit) 
         val observer = androidx.lifecycle.Observer<com.github.tvbox.osc.bean.SubtitleData> { data ->
             mainHandler.post {
                 loading = false
-                val list = data?.subtitleList
+                val list = data.subtitleList
                 if (list == null) {
                     Toast.makeText(context, "未查询到匹配字幕", Toast.LENGTH_SHORT).show()
                     return@post
@@ -991,7 +991,7 @@ fun CastSheet(sheet: CastSheetState, onDismiss: () -> Unit) {
 
                     override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
                         val ok = try {
-                            response.body?.string() == "ok"
+                            response.body.string() == "ok"
                         } finally {
                             response.close()
                         }
@@ -1145,7 +1145,7 @@ fun EpisodeSheet(sheet: EpisodeSheetState, onDismiss: () -> Unit) {
                         val bounds = Rect()
                         var maxTextWidth = 1
                         for (episode in sheet.episodes) {
-                            val name = episode?.name ?: ""
+                            val name = episode.name
                             if (name.isEmpty()) continue
                             paint.getTextBounds(name, 0, name.length, bounds)
                             if (bounds.width() > maxTextWidth) maxTextWidth = bounds.width()
@@ -1167,7 +1167,7 @@ fun EpisodeSheet(sheet: EpisodeSheetState, onDismiss: () -> Unit) {
                 ) {
                     itemsIndexed(sheet.episodes) { idx, episode ->
                         SheetButton(
-                            text = episode?.name ?: "",
+                            text = episode.name,
                             selected = idx == sheet.currentIndex,
                             onClick = {
                                 onDismiss()

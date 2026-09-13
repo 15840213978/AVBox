@@ -849,7 +849,7 @@ class LivePlayActivity : BaseActivity() {
         } else {
             OkGo.get<String>(realUrl).execute(object : AbsCallback<String>() {
                 override fun convertResponse(response: okhttp3.Response): String {
-                    return response.body?.string() ?: ""
+                    return response.body.string()
                 }
 
                 override fun onSuccess(response: Response<String>) {
@@ -1002,7 +1002,7 @@ class LivePlayActivity : BaseActivity() {
                 items.add(item)
             }
         }
-        (liveSettingGroupList.getOrNull(0) as? LiveSettingGroup)?.liveSettingItems = items
+        liveSettingGroupList.getOrNull(0)?.liveSettingItems = items
     }
 
     fun visibleSettingGroups(): List<LiveSettingGroup> {
@@ -1279,7 +1279,7 @@ class LivePlayActivity : BaseActivity() {
         videoView.start()
         shiyiTimeC = getCatchupDurationSeconds(epg)
         tsDuration = PlayerUtils.safeTimeMs(shiyiTimeC.toLong() * 1000)
-        tsPosition = PlayerUtils.safeTimeMs(videoView.currentPosition.toLong())
+        tsPosition = PlayerUtils.safeTimeMs(videoView.currentPosition)
         // 时移条每秒跟随播放前进(2026-09-13 修复:此前该 Runnable 从未被 post,
         // 回看时滑块与「位置/时长」文本只有拖动才更新)
         startTimeshiftTicker()
@@ -1318,7 +1318,7 @@ class LivePlayActivity : BaseActivity() {
             val videoView = mVideoView ?: return
             // 已退出回看则不再自续(兜底:即使某条退出路径漏了 removeCallbacks 也会停下)
             if (!isSHIYI) return
-            tsPosition = PlayerUtils.safeTimeMs(videoView.currentPosition.toLong())
+            tsPosition = PlayerUtils.safeTimeMs(videoView.currentPosition)
             mHandler.postDelayed(this, 1000)
         }
     }
@@ -1644,7 +1644,7 @@ class LivePlayActivity : BaseActivity() {
                     return
                 }
                 val body = try {
-                    response.body?.string() ?: ""
+                    response.body.string()
                 } finally {
                     response.close()
                 }
@@ -1855,7 +1855,8 @@ class LivePlayActivity : BaseActivity() {
         val compactName = trimName.replace("-", "").replace(" ", "")
         val cctvMatcher = Pattern.compile("(?i)^(CCTV\\d+(?:\\+|K)?)(?:[\\u4e00-\\u9fa5].*|$)").matcher(compactName)
         if (cctvMatcher.matches()) {
-            return cctvMatcher.group(1).uppercase(Locale.ROOT)
+            // group(1) 是 Java 平台类型(String!),matches() 成立时它必然存在;显式非空断言等价于原语义
+            return cctvMatcher.group(1)!!.uppercase(Locale.ROOT)
         }
         if (compactName.uppercase(Locale.ROOT).startsWith("CCTV")) {
             return compactName.uppercase(Locale.ROOT)
@@ -2045,7 +2046,9 @@ class LivePlayActivity : BaseActivity() {
         val matcher = CATCHUP_TOKEN_PATTERN.matcher(source)
         val result = StringBuffer()
         while (matcher.find()) {
-            matcher.appendReplacement(result, Matcher.quoteReplacement(formatCatchupToken(matcher.group(1), epg)))
+            // 同上:捕获组必然存在,显式非空断言把平台类型 String! 收紧为 String
+            val token = matcher.group(1)!!
+            matcher.appendReplacement(result, Matcher.quoteReplacement(formatCatchupToken(token, epg)))
         }
         matcher.appendTail(result)
         return result.toString()
@@ -2054,7 +2057,8 @@ class LivePlayActivity : BaseActivity() {
     private fun formatCatchupToken(token: String, epg: Epginfo): String {
         val matcher = CATCHUP_TAG_PATTERN.matcher(token)
         if (!matcher.find()) return ""
-        val tag = matcher.group(1)
+        // 与上面同理:find() 成立时捕获组存在,显式非空断言收紧平台类型
+        val tag = matcher.group(1)!!
         if (tag.startsWith("utcend:")) return (epg.enddateTime!!.time / 1000).toString()
         if (tag.startsWith("utc:")) return (epg.startdateTime!!.time / 1000).toString()
         val bracketIndex = tag.indexOf(')')

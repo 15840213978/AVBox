@@ -883,7 +883,7 @@ class DetailViewModel : ViewModel() {
     private fun candidateKey(video: Movie.Video): String =
         (video.sourceKey ?: "") + "|" + (video.id ?: "")
 
-    private fun candidateKey(key: String, id: String): String = (key ?: "") + "|" + (id ?: "")
+    private fun candidateKey(key: String, id: String): String = "$key|$id"
 
     // ============ 选集 / 线路 / 清晰度 / 收藏 ============
 
@@ -1063,7 +1063,7 @@ class DetailViewModel : ViewModel() {
         var matched = -1
         var best = 0
         target.forEachIndexed { i, series ->
-            val score = episodeMatchScore(current.name, currentEpisode, series?.name)
+            val score = episodeMatchScore(current.name, currentEpisode, series.name)
             if (score > best) {
                 best = score
                 matched = i
@@ -1080,7 +1080,7 @@ class DetailViewModel : ViewModel() {
         var matched = -1
         var best = 0
         target.forEachIndexed { i, series ->
-            val score = episodeMatchScore(current.name, currentEpisode, series?.name)
+            val score = episodeMatchScore(current.name, currentEpisode, series.name)
             if (score > best) {
                 best = score
                 matched = i

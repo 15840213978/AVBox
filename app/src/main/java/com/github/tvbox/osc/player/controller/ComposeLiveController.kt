@@ -23,7 +23,7 @@ import kotlin.math.abs
  *   2) 播放状态转发(onPlayStateChanged → 直播页自动换源状态机)。
  * - 旧 LiveController(含 BaseController 基类)随本类落地后退役。
  */
-class ComposeLiveController @JvmOverloads constructor(
+class ComposeLiveController(
     context: Context,
 ) : BaseVideoController(context),
     GestureDetector.OnGestureListener,

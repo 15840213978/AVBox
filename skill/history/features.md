@@ -484,6 +484,17 @@ interface 'com.github.catvod.spider.merge.Pu' in call to
   ⑤ **没发布的代码不要背迁移包袱** —— 本次为一个不存在的需求写了完整的搬运 + 纠偏 + 标记体系,最后全部删除;先确认"有没有存量数据"再决定要不要迁移,能省掉整条链路与一整个缺陷面;
   ⑥ 单元测试要覆盖**语义契约**而不只是算法:当时的 19 例全是纯解码逻辑,迁移的"键不存在不得写入"没有任何测试覆盖,所以缺陷一路走到真机。
 
+## 代码整洁:Kotlin 编译警告 25 → 5(2026-09-13,用户要求"行为等价的纯收紧")
+
+- **背景**:CI 日志里有 25 条 Kotlin 编译警告(不影响构建)。按"是否值得动"分四类处理,**只做行为等价的三类**,弃用 API 迁移留待单独排期。
+- **类别一 · 无效注解(1 条)**:`ComposeLiveController` 的 `@JvmOverloads constructor(context: Context)` —— 构造函数没有任何默认参数,注解完全无效(HEAD 里就有的历史遗留,不是本次改动引入)。删注解;`ComposeVideoController` 那个有默认参数、注解有效,**没动**。
+- **类别三 · 冗余调用(11 条)**:`data?.subtitleList` → `data.subtitleList`(编译器的非空判定是权威,这类警告可放心直接删,推断错误会变成编译错误而不是运行期问题);`response.body?.string()` → `body.string()`(OkHttp 5 的 `body` 非空);`episode?.name ?: ""` → `episode.name`(`sheet.episodes` 是 `List<VodSeries>` 非空元素);`series?.name` → `series.name`;`(key ?: "") + "|" + (id ?: "")` → `"$key|$id"`(`key`/`id` 形参非空);`(getOrNull(0) as? LiveSettingGroup)?.x` → `getOrNull(0)?.x`(`liveSettingGroupList` 已是 `List<LiveSettingGroup>`,转换冗余);`currentPosition.toLong()` → `currentPosition`(`currentPosition` 本就是 `Long`)。
+- **类别四 · 平台类型收紧(4 条)**:`LivePlayActivity` 的 catchup 解析里 `Matcher.group(1)` 是 Java 平台类型 `String!`,Kotlin 2.4 起会警告"nullable receiver"且传给 `String` 形参时类型不匹配。改为**显式非空断言** `matcher.group(1)!!` —— 与文件里既有的 `epg.startdateTime!!` 风格一致;断言成立的前提(`matches()`/`find()` 已返回 true、且两个正则都有捕获组)在注释里写明,等价于原语义,且把平台类型真正收紧成 `String`。
+- **顺手**:`LivePlayActivity` 里 `response.body.string() ?: ""` 去掉多余 `?: ""`(我删掉 `?.` 后它就成了"elvis 恒返回左值",编译器会新报一条警告 —— 这类"修一条冒一条"要跟着收干净)。
+- **未做(类别二,弃用 API,需交互回归)**:4 处 `Slider(...)` 弃用(应迁 `rememberSliderState` + `Slider(state, ...)`,但项目多处是"松手才落盘"的自持 state 模式,得逐个验证)、1 处 `onBackPressed()` 弃用(应迁 `onBackPressedDispatcher`;spec §4.7 记录过竖屏切集 `BackHandler` 的返回键语义,动它要回归返回行为)。
+- **结果**:警告 **25 → 5 条**,剩下的正好是上述 5 条弃用 API。`compileDebugKotlin` + `compileDebugJava` + 单测 32 例(20+7+5)全过。
+- **可复用经验**:Kotlin 的 "Unnecessary safe call / Elvis always returns left operand / redundant cast" 这类警告**可以放心批量清理** —— 编译器既然判定接收者非空,写错会直接变编译错误,不存在"删了才炸"的风险;而 "Only safe calls allowed on nullable receiver" 属于**真的类型缺口**(Java 平台类型),要用注释写明断言前提再收紧。
+
 ## 媒体通知扩展到影视内容(2026-09-13,用户报"播放影视也和音乐一样下拉通知栏能看到")
 
 - **需求(用户原文)**:「播放影视也和音乐一样下拉通知栏能看到」。
