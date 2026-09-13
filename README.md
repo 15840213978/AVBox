@@ -1,8 +1,10 @@
 # AVBox
+
 - 基于 https://github.com/q215613905/TVBoxOS
 - 参考了 https://github.com/FongMi/TV
 
 # 声明
+
 - AVBox只是个空壳播放器：
 - 不内置任何影视、直播、频道、节目单或订阅服务。
 - 不提供任何视频内容、下载内容或版权资源。
@@ -13,3 +15,14 @@
 打包分发请保留出处
 https://github.com/CatVodTVOfficial/TVBoxOSC
 https://github.com/q215613905/TVBoxOS
+
+# 截图展示
+
+<table>
+  <tr>
+    <td align="center"><img src="images/1.jpg" width="270"/><br/><sub>首页</sub></td>
+    <td align="center"><img src="images/2.jpg" width="270"/><br/><sub>播放页</sub></td>
+    <td align="center"><img src="images/3.jpg" width="270"/><br/><sub>个历史页</sub></td>
+    <td align="center"><img src="images/4.jpg" width="270"/><br/><sub>设置页</sub></td>
+   </tr>
+</table>

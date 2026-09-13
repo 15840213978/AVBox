@@ -1,7 +1,5 @@
 name: Build Release APK
 
-# 手动触发:仓库 Actions 页 → Build Release APK → Run workflow,填版本号(如 v1.0.0)。
-# 与 build.yml 的区别:本工作流**建 Release 并上传 APK 资产**,build.yml 只上传 Actions artifact。
 on:
   workflow_dispatch:
     inputs:
@@ -18,7 +16,6 @@ on:
 permissions:
   contents: write
 
-# 仓库根目录就是 Gradle 根工程(android 源码不在子目录里)
 defaults:
   run:
     working-directory: .
@@ -35,10 +32,7 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-          # 不在这里开 gradle 缓存:下面 gradle/actions/setup-gradle@v5 已负责缓存,重复配置会互相干扰
-
-      # Chaquopy 需要一个"构建期 Python"来处理 pip 依赖;runner 自带版本不确定,
-      # 固定 3.10 以对齐 pyramid/build.gradle.kts 里 chaquopy { version = "3.10" } 的运行时。
+          
       - name: Set up Python 3.10 (Chaquopy build Python)
         uses: actions/setup-python@v6
         with:
@@ -47,10 +41,6 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v5
 
-      # compileSdk 37 / ndk 27.2.12479018 / build-tools 在 runner 预装 SDK 里不一定有,显式装。
-      # ⚠️ 平台包名从 API 36 起带次版本号:是 `platforms;android-37.0` 而不是 `platforms;android-37`
-      # (后者在仓库里不存在,sdkmanager 会 "Failed to find package" 并退出 1)。这里不硬编码,直接从
-      # 可用列表里选 —— 同时覆盖"将来出现 android-37.1"和"只认 android-37"两种拼法。
       - name: Install required SDK/NDK & verify
         run: |
           set -euo pipefail
@@ -83,8 +73,6 @@ jobs:
       - name: chmod gradlew
         run: chmod +x gradlew
 
-      # 密钥库与签名口令本就随仓库入库(项目规范要求 .key/ 入库),故无需从 secrets 还原;
-      # 这里只做一次存在性/口令齐全校验,缺了就早失败,别等打完包才发现是未签名包。
       - name: Verify signing material
         run: |
           test -f .key/app-release.jks || { echo "::error::缺少 .key/app-release.jks"; exit 1; }
@@ -119,10 +107,11 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ github.event.inputs.version }}
-          name: AVBox ${{ github.event.inputs.version }}
+          name: ${{ github.event.inputs.version }}
           files: ${{ steps.apk.outputs.path }}
           prerelease: ${{ github.event.inputs.prerelease == 'true' }}
           fail_on_unmatched_files: true
-          generate_release_notes: true
+          generate_release_notes: false
+          body: ""
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
