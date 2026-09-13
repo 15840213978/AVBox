@@ -124,6 +124,7 @@ import xyz.doikki.videoplayer.controller.BaseVideoController;
 import xyz.doikki.videoplayer.player.AbstractPlayer;
 import xyz.doikki.videoplayer.player.ProgressManager;
 import xyz.doikki.videoplayer.player.VideoView;
+import xyz.doikki.videoplayer.render.TextureRenderViewFactory;
 
 public class PlayContainer extends FrameLayout implements CustomAdapt {
 
@@ -165,11 +166,12 @@ public class PlayContainer extends FrameLayout implements CustomAdapt {
 
     /** 由 Compose 宿主在页面不可见时调用(对应旧 Fragment onPause/onHiddenChanged(true)) */
     public void hostPause() {
-        if (mVideoView != null && !exitingPreview && !hasAudioOnlyPlayback()) {
+        // 只有**确定是纯音频**(TRUE)才不退后台暂停;影视(FALSE)与「轨道信息未知(null)」都按既有行为暂停 ——
+        // 迁移前 `!Boolean.TRUE.equals(getAudioOnlyPlayback())` 正是这个语义(null 落到 pause 分支);
+        // 迁移中改写成 `!hasAudioOnlyPlayback()` 后 **null 变成了「不暂停」**:起播瞬间 getTrackInfo()
+        // 返回 null 时影视会被留在后台继续出声(行为回归,但只在极窄的时间窗内可观测)。本次恢复三态判定。
+        if (mVideoView != null && !exitingPreview && !Boolean.TRUE.equals(isAudioOnlyPlayback())) {
             lifecyclePaused = mVideoView.isPlaying();
-            // 退后台不显示暂停浮层(2026-09-13):否则这一瞬间画出的"暂停"浮层会被系统任务快照
-            // (后台管理卡片)拍进去,看起来像"一退后台就被暂停了"(实际回前台会自动续播)。
-            // 回前台由 hostResume 复位;用户手动暂停后回前台,暂停浮层照常出现。
             if (mController != null) mController.setLifecyclePaused(true);
             mVideoView.pause();
         }
@@ -407,6 +409,8 @@ public class PlayContainer extends FrameLayout implements CustomAdapt {
             public void onPlayStateChanged(int playState) {
                 if (playState == VideoView.STATE_PLAYING && mVideoView != null) {
                     mVideoView.showVideoFrame();
+                    // 纯音频渲染兜底(2026-09-13):URL 预判漏网(无后缀音乐直链)时,轨道信息就绪后补切
+                    ensureAudioOnlyRender();
                     // 正片稳定播放 → 延迟评估下一集预载(预载方案第一期)
                     if (preloadCoordinator != null) {
                         preloadCoordinator.scheduleEvaluate(buildPreloadSnapshot());
@@ -436,7 +440,7 @@ public class PlayContainer extends FrameLayout implements CustomAdapt {
                         switchingPlayback = false;
                         audioPlayback = false;
                     } else if (isStartedPlayState(playState)) {
-                        // 起播成功:有音频轨则维护会话/通知(影视同样),并结束切换态
+                        // 起播成功:有音频轨则维护会话/通知(影视同样,见 updateMusicSession 的语义拆分)
                         if (hasPlayableAudio() || audioPlayback) {
                             switchingPlayback = false;
                             audioPlayback = true;
@@ -1159,6 +1163,13 @@ public class PlayContainer extends FrameLayout implements CustomAdapt {
                         } else {
                             PlayerHelper.updateCfg(mVideoView, mVodPlayerCfg);
                         }
+                        // 纯音频 URL 预判(2026-09-13):音乐直链没有视频帧,SurfaceView 渲染会"洞穿"应用窗口 ——
+                        // 任务快照里播放器区域变白、回前台透视桌面(详见 MyVideoView.switchRenderToTexture)。
+                        // 这里直接改用 TextureView 起播,补住「起播 → 轨道信息就绪」之间退后台的空窗;
+                        // 误判(音频后缀实为视频)无功能损失,TextureView 照常渲染画面。
+                        if (looksLikeAudioUrl(url)) {
+                            mVideoView.setRenderViewFactory(TextureRenderViewFactory.create());
+                        }
                         mController.hidePauseRoot();
                         boolean reusePlayer = !forceExoPlayer && mVideoView.getMediaPlayer() != null;
                         if (!reusePlayer) hideTip();
@@ -1581,10 +1592,52 @@ public class PlayContainer extends FrameLayout implements CustomAdapt {
         return trackInfo != null && !trackInfo.getAudio().isEmpty();
     }
 
-    /** 是否为纯音频(有音轨且无视频轨):决定退后台是否保持播放 */
-    private boolean hasAudioOnlyPlayback() {
+    /**
+     * 是否为「纯音频」——**三态**:TRUE=有音轨且无视频轨、FALSE=确定是影视、**null=取不到轨道信息(未知)**。
+     *
+     * <p>「未知」必须与「假」分开,这是从旧的 `getAudioOnlyPlayback()`(返回可为 null 的 Boolean)继承的语义;
+     * 2026-09-13 的 Hawk→KV 迁移把它抹平成 boolean,同一个概念在两处对「未知」给出了不同结论。各调用点的正确用法:
+     * <ul>
+     *   <li>[hostPause] 退后台是否保持播放:用 `!Boolean.TRUE.equals(...)` —— 只有确定是纯音频才不停,
+     *       与迁移前一致(null 落到 pause 分支);</li>
+     *   <li>播放器封面兜底(见 [updateMusicSession]):用 `Boolean.TRUE.equals(...)` —— 只有确定是纯音频才显示封面,
+     *       未知时不显示(宁可不出封面,也不能冒把视频压成海报的风险)。</li>
+     * </ul>
+     */
+    private Boolean isAudioOnlyPlayback() {
         TrackInfo trackInfo = currentTrackInfo();
-        return trackInfo != null && !trackInfo.getAudio().isEmpty() && trackInfo.getVideo().isEmpty();
+        if (trackInfo == null || trackInfo.getAudio().isEmpty()) return null;
+        return trackInfo.getVideo().isEmpty();
+    }
+
+    /**
+     * 纯音频渲染兜底(2026-09-13):确认纯音频且当前是 SurfaceView 时热切换为 TextureView。
+     * 动机与机制见 [MyVideoView.switchRenderToTexture];此处只处理 URL 预判([looksLikeAudioUrl])
+     * 漏网的无后缀音乐直链 —— STATE_PLAYING 时轨道信息已就绪,判定与 [isAudioOnlyPlayback] 同源。
+     * 换集/换源下一次起播 PlayerHelper.updateCfg 会按用户设置恢复渲染类型,影视不受影响。
+     */
+    private void ensureAudioOnlyRender() {
+        if (mVideoView == null) return;
+        if (!Boolean.TRUE.equals(isAudioOnlyPlayback())) return;
+        if (mVideoView.isSurfaceRenderActive()) {
+            mVideoView.switchRenderToTexture();
+        }
+    }
+
+    /**
+     * 常见纯音频直链后缀预判(仅用于起播前选渲染视图;误判无功能损失 —— TextureView 照常渲染视频)。
+     * 注意只看去 query/fragment 后的后缀:音乐直链常带签名参数(.mp3?sign=...), playlist(m3u8) 绝不能命中。
+     */
+    private static boolean looksLikeAudioUrl(String url) {
+        if (url == null || url.isEmpty()) return false;
+        String lower = url.toLowerCase();
+        int query = lower.indexOf('?');
+        if (query >= 0) lower = lower.substring(0, query);
+        int fragment = lower.indexOf('#');
+        if (fragment >= 0) lower = lower.substring(0, fragment);
+        return lower.endsWith(".mp3") || lower.endsWith(".m4a") || lower.endsWith(".aac")
+                || lower.endsWith(".flac") || lower.endsWith(".wav") || lower.endsWith(".ogg")
+                || lower.endsWith(".oga") || lower.endsWith(".opus") || lower.endsWith(".wma");
     }
 
     /** 取当前播放器的轨道信息;拿不到(未起播/不支持)返回 null */
@@ -1608,7 +1661,17 @@ public class PlayContainer extends FrameLayout implements CustomAdapt {
         // 有音频轨就维护会话与通知(影视/音乐一视同仁);拿不到轨道信息时沿用上一次的判定结果
         Boolean hasAudio = hasPlayableAudio();
         if (hasAudio) audioPlayback = true;
-        if (audioPlayback && TextUtils.isEmpty(playArtwork) && mVodInfo != null && !TextUtils.isEmpty(mVodInfo.pic)) {
+        // ⚠️ 封面(artworkView)盖在渲染 Surface 之上,只能给「纯音频」兜底,绝不能给影视占位:
+        // 影视一旦在这里 setArtwork,视频就被压成一张海报 —— 现象「有声音、只有海报,EXO/IJK 一致、
+        // 与分辨率无关」。三个条件缺一不可:
+        //   ① Boolean.TRUE.equals(isAudioOnlyPlayback()):只有**确定**是纯音频才允许 —— 影视(FALSE)结构性杜绝;
+        //      轨道信息未知(null)时也不放行(宁可不出封面,也不冒把视频压成海报的风险);
+        //   ② 画面未就绪(!isStartedPlayState):兜底任何「画面已出却仍显示封面」的时序;
+        //   ③ audioPlayback:沿用的既有门槛。
+        // 2026-09-13 回归修复:此前条件只判 audioPlayback(只要有音轨就为 true)→ 压住所有视频。
+        if (audioPlayback && Boolean.TRUE.equals(isAudioOnlyPlayback()) && mVideoView != null
+                && !isStartedPlayState(mVideoView.getCurrentPlayState())
+                && TextUtils.isEmpty(playArtwork) && mVodInfo != null && !TextUtils.isEmpty(mVodInfo.pic)) {
             playArtwork = mVodInfo.pic;
             mVideoView.setArtwork(playArtwork);
         }
@@ -2115,9 +2178,7 @@ public class PlayContainer extends FrameLayout implements CustomAdapt {
             mController.showParse(false);
             return;
         }
-        // 预解析结果复用(预载方案第一期):该集预载时已取流成功且预载数据以该 url 为 key,
-        // 直接复用结果跳过二次取流——时效签名类源每次取流 url 都会变,不复用则预载永不命中;
-        // 复用结果的 proKey/subtKey 已替换为真实键,走与 playResultObserver 完全相同的处理路径
+        
         if (preloadCoordinator != null) {
             JSONObject preResult = preloadCoordinator.consumeResult(progressKey);
             if (preResult != null) {
@@ -2130,12 +2191,7 @@ public class PlayContainer extends FrameLayout implements CustomAdapt {
         sourceViewModel.getPlay(sourceKey, mVodInfo.playFlag, progressKey, vs.url, subtitleCacheKey);
     }
 
-    /**
-     * 构建下一集预载评估快照(预载方案第一期):
-     * 下一集 = episodes[playIndex+1](倒序显示不影响播放顺序,规格 §3);
-     * nextKey/subtKey 与真实播放键同构,保证命中时 url+headers+key 全对齐。
-     * 无下一集/系列数据缺失时返回 null(评估静默跳过)。
-     */
+
     private PreloadCoordinator.Snapshot buildPreloadSnapshot() {
         try {
             if (mVodInfo == null || mVodInfo.seriesMap == null) return null;
@@ -2349,20 +2405,12 @@ mController.getLyricView().setTextSize(previewMode ? 16 : 24);
 }
 }
 
-/** 详情页预览态点击视频区域：唤起/收起控制器菜单栏（不再触发全屏） */
 public void toggleControllerControls() {
 if (mController != null) {
 mController.toggleControlBar();
 }
 }
 
-    /**
-     * 换源点击即停:立即释放当前播放实例,新源详情返回前旧源不再出声(旧行为是继续播到新源 setData 才 release)。
-     * 进度先落盘并记进 pendingInherit*:新源 progressKey 不同,取流时由 play → inheritProgressIfNeeded 接着看;
-     * 详情页回滚原源时 progressKey 相同,release 已落盘的位置直接复用。
-     * 与生命周期停播(hostPause)的差别:置 switchStopPending 丢弃在途取流结果,并保留进度继承;
-     * 之后由新源就绪的 [setData] → [play] 接管,或由详情页回滚重新 setData。
-     */
     public void stopForSourceSwitch(String tip) {
         if (mVideoView == null) return;
         cancelPlayTimeout();
@@ -2373,8 +2421,7 @@ mController.toggleControlBar();
         reusePlayerOnSwitch = false;
         releasePlayerOnSwitch = false;
         stopMusicSessionForFailedPlayback();
-        // 必须先 getCurrentPosition() 刷新 mCurrentPosition:VideoView.release() 的 saveProgress 读的是该字段,
-        // 不刷新则可能把上次查询的旧值(甚至 0)落盘
+        
         long position = mVideoView.getCurrentPosition();
         pendingInheritKey = progressKey;
         pendingInheritProgress = position;
@@ -2389,10 +2436,6 @@ mController.toggleControlBar();
         if (!TextUtils.isEmpty(tip)) setTip(tip, true, false);
     }
 
-    /**
-     * 换源未落地(目标源不可用/兜底候选全败)进空态时调用:只清"切换片源中"提示,不碰播放器自身错误提示。
-     * 无在途换源停播时为空操作。
-     */
     public void clearSourceSwitchTip() {
         if (!switchStopPending) return;
         hideTipOnUiThread();

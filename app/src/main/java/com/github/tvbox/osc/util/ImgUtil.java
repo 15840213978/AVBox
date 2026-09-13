@@ -12,6 +12,7 @@ import android.text.TextUtils;
 import android.widget.ImageView;
 
 import coil3.SingletonImageLoader;
+import coil3.request.Disposable;
 import coil3.request.ImageRequest;
 import coil3.target.ImageViewTarget;
 
@@ -110,6 +111,54 @@ public class ImgUtil {
                 .target(new ImageViewTarget(view))
                 .build();
         SingletonImageLoader.get(App.getInstance()).enqueue(request);
+    }
+
+    /**
+     * 播放器封面专用加载入口:与 {@link #load} 的区别是 **①不画占位图/错误图、②把请求句柄交回调用方**。
+     *
+     * <p>① 为什么不画占位/错误图:那些 drawable 是给**卡片**(180×240)设计的,而播放器封面是
+     * MATCH_PARENT 的整块画面区 —— 一旦被 `FIT_CENTER` 放大铺到全屏,就会呈现为一块与视频无关的
+     * 浅色/白色矩形(真机实测:纯音频退到多任务时画面区变白、回前台又闪成透明)。
+     * 播放器区只认「真正加载成功的图」,加载期间保持黑底(与视频未起播时一致)。
+     *
+     * <p>② 为什么要句柄:Coil 3 的 {@code ImageViewTarget} 走内部 {@code ViewTargetRequestManager},
+     * 该管理器只认识自己注册过的请求、不暴露取消入口;而播放器封面每换集/换线都要换图,
+     * 旧请求的迟到回调会把过期海报盖到新画面上。返回 {@link Disposable} 由
+     * {@code MyVideoView.clearArtwork()} 负责 {@code dispose()}(Coil 的 dispose 会同步把
+     * {@code isDisposed} 置真并取消 job,晚到的 onSuccess 不再落地)。
+     *
+     * @return 请求句柄;地址无效时返回 null(此时已直接设兜底图,无需取消)
+     */
+    public static Disposable loadPlayerArtwork(String url, ImageView view) {
+        view.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        if (isInvalidImageUrl(url)) {
+            view.setImageDrawable(createTextDrawable("TVBox", 0, 0, 1));
+            return null;
+        }
+        ImageRequest request = new ImageRequest.Builder(App.getInstance())
+                .data(url)
+                .target(new ArtworkTarget(view))
+                .build();
+        return SingletonImageLoader.get(App.getInstance()).enqueue(request);
+    }
+
+    /**
+     * 播放器封面的 Target:**只有 onSuccess 才落地**,onStart(占位)/onError 一律不改视图。
+     * 视图保持自身黑底 → 永远不会出现"加载中/加载失败的浅色矩形盖住视频"。
+     * 失败也不落错误图:播放器区的正确兜底是黑底,而不是一张与内容无关的图。
+     * (与 {@code MusicPlaybackService.updateArtwork} 里取通知封面用的是同一种写法)
+     */
+    private static final class ArtworkTarget implements coil3.target.Target {
+        private final ImageView view;
+
+        ArtworkTarget(ImageView view) {
+            this.view = view;
+        }
+
+        @Override
+        public void onSuccess(coil3.Image image) {
+            view.setImageDrawable(coil3.Image_androidKt.asDrawable(image, view.getResources()));
+        }
     }
 
     public static int getRandomColor() {

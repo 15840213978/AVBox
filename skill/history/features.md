@@ -509,6 +509,29 @@ interface 'com.github.catvod.spider.merge.Pu' in call to
 - **验证**:`compileDebugJava` 通过(无 `getAudioOnlyPlayback` 残留),已 `installDebug` 到 `V2425A`。
 - **真机验证点**:①播放影视内容 → 下拉通知栏出现标题/集数/封面 + 播放暂停按钮;②切集后通知里的集数跟着变;③在通知里点暂停/播放,播放器状态同步;④**退后台视频仍会暂停**(与改动前一致);⑤播放纯音频(音乐源)行为不变,退后台继续播;⑥电视模式下(UI_MODE_TELEVISION)不建通知(`MusicPlaybackService.isSupported`)。
 
+## ⚠️ 回归修复:上面那次"通知扩展到影视"引入的「有声无画」(2026-09-13 白天,用户报"只有海报、EXO/IJK 都一样")
+
+- **现象**:任何视频起播后**只有海报画面、声音完全正常**;EXO 与 IJK 表现一致;与分辨率/码率无关(4K 网盘源最早被发现,实际所有源都中招);release/debug 一致 —— 一度被误判为 R8 裁剪或 media3 1.9→1.11 升级所致(两者均已排除:release dex 里 `MediaCodecVideoRenderer` / `FfmpegAudioRenderer` / `TextureRenderView` / `SurfaceRenderView` 全部健在)。
+- **真机定位手段(可复用)**:`adb shell uiautomator dump` + `dumpsys SurfaceFlinger --list`。视图树显示播放器容器里 `artworkView`(封面 `ImageView`,MATCH_PARENT)**与 `surfaceView` 同处 `mPlayerContainer`,且封面在其之上**;而 SurfaceFlinger 里该应用的 `ActivityRecord` z=2 > `SurfaceView(...)(BLAST)` z=-2 —— 即 **app 窗口整体压在视频层之上**,所以窗口内的封面一旦 VISIBLE 就会把视频完全盖住(而 `showVideoFrame()` 只管 `frameCover`,管不到封面)。
+- **根因**:上面那次改动把起播分支写成 `audioPlayback = true`(判据从"纯音频"变成"有音轨"),而 `audioPlayback` 同时是 `updateMusicSession()` 里给 `mVideoView.setArtwork()` 的开关 → **所有带音轨的视频都会去 setArtwork,把画面压成一张海报**。`playArtwork` 由取流结果的 `artwork` 字段回填,源里没给 artwork/lyric 时它一直是空串,于是该分支每次 `updateMusicSession` 都命中。
+- **修复(两处,`PlayContainer` + `MyVideoView`)**:
+  ① `updateMusicSession()` 的封面分支补上 `Boolean.TRUE.equals(isAudioOnlyPlayback())`(只有**确定**是纯音频才放行)与画面未就绪 `!isStartedPlayState(...)`(兜底任何"画面已出仍显示封面"的时序)两个条件;
+  ② `MyVideoView.showVideoFrame()`(画面已出的那一枪)顺手 `clearArtwork()`,把**「有画面」与「显示封面」做成互斥**,任何未来的时序回归都会被这一枪兜住。
+- **⚠️ 保持不动的部分**:`audioPlayback` 仍表示"有音频轨",继续驱动会话/通知(影视也能下拉看到),**通知功能不受影响**。**教训:`audioPlayback` 这个名字下面挂了两个用途(通知 / 封面),改它的赋值语义必须同时核对两个调用点。**
+
+### 同批修掉的两个连带缺陷(用户要求"做 1 和 2")
+
+1. **纯音频判定恢复三态**(`hasAudioOnlyPlayback()` → `Boolean isAudioOnlyPlayback()`,返回 null = 取不到轨道信息)。
+   迁移把它压成 boolean 后,**同一个概念在两处对「未知」给出不同结论**:
+   - `hostPause()` 退后台是否保持播放:迁移前是 `!Boolean.TRUE.equals(getAudioOnlyPlayback())` → **null 会正常暂停**;迁移后 `!hasAudioOnlyPlayback()` 让 **null 变成"不暂停"** → 起播瞬间 `getTrackInfo()` 返回 null 时,影视退后台会继续出声。本次恢复成 `!Boolean.TRUE.equals(...)`,与迁移前一致。
+   - 封面兜底:用 `Boolean.TRUE.equals(...)` —— 只有确定是纯音频才显示封面。
+   ⚠️ **两个调用点的用法不同且都不能改**:一个要"只有确定是纯音频才特殊对待",另一个要"只有确定是纯音频才放行封面"。规则写在 `isAudioOnlyPlayback()` 的 javadoc 里。
+2. **封面在途图片请求改为可取消**:`clearArtwork()` 原来只做 `GONE + setImageDrawable(null)`,而 Coil 3 的 `GenericViewTarget.onSuccess()` **不检查视图可见性**(读过 3.6.2 源码确认),晚到的位图照样落到 ImageView 上 —— 换集/换线/换源时可能把过期海报盖到新画面上。现在:
+   - `ImgUtil.loadPlayerArtwork(url, view)` 返回 `Disposable`(新增入口,与 `load()` 的唯一区别是把请求句柄交回调用方);
+   - `MyVideoView.setArtwork()` 先 `cancelArtworkRequest()` 再发新请求;`clearArtwork()` 先取消再隐藏。
+   - 依据(读 `coil-core-android-3.6.2-sources.jar`):`ViewTargetRequestManager.dispose()` 会**同步**把 `currentDisposable` 置 null(`ViewTargetDisposable.isDisposed` 随即为 true)并 `post` 一个主线程取消任务;`OneShotDisposable.isDisposed = !job.isActive`。**不依赖 Coil 的 `ViewTargetRequestManager`,自己持有句柄 = 取消语义明确可证。**
+
+
 ## 权限梳理:补通知权限申请 + 移除 5 项零引用敏感权限(2026-09-13,用户选"权限一起重新梳理")
 
 - **触发**:用户问"当前项目是否需要通知权限"。核查结论:清单里声明了 `POST_NOTIFICATIONS`,但**代码里从未申请** —— targetSdk 37,Android 13+ 该权限是运行时权限、默认拒绝,于是 `MusicPlaybackService` 的 `startForeground` 通知不显示(服务能起,但用户看不到播放控制,部分 ROM 还会限制无可见通知的前台服务)。

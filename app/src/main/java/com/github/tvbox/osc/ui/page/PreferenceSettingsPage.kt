@@ -29,10 +29,6 @@ import com.github.tvbox.osc.ui.components.TopBarActionBox
 import com.github.tvbox.osc.util.HawkConfig
 import kotlin.math.roundToInt
 
-/**
- * 偏好设置页(2026-09-12 用户定稿):设置 tab 入口,收纳原设置页的通用偏好项。
- * 卡片顺序(用户指定):自动换线 → M3U8 净化 → 无痕模式 → 弹幕开关 → 弹幕 API → 长按倍速 → 缓冲时间 → 搜索线程。
- */
 @Composable
 fun PreferenceSettingsScreen(onNavigateBack: () -> Unit, vm: SettingsViewModel = viewModel()) {
     val state by vm.state
