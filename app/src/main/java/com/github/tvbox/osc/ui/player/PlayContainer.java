@@ -104,12 +104,13 @@ import java.util.ArrayList;
 import java.io.File;
 import java.net.URLEncoder;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.LinkedHashMap;
-import java.util.LinkedList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Queue;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -179,6 +180,9 @@ public class PlayContainer extends FrameLayout implements CustomAdapt {
 
     /** 由 Compose 宿主在页面销毁时调用(对应旧 Fragment onDestroyView) */
     public void hostDestroy() {
+        // 2026-09-13 23:40 SIGSEGV 排查:退出播放页后 ~1.2s 进程静默死亡(无 tombstone/无 Fatal signal),
+        // 释放链路加分步落盘日志(echo-music 前缀),复现时定位最后走到的步骤
+        LOG.i("echo-music destroy: hostDestroy enter");
         audioPlayback = false;
         switchingPlayback = false;
         MusicPlaybackService.stop(getContext(), this);
@@ -204,14 +208,17 @@ public class PlayContainer extends FrameLayout implements CustomAdapt {
             danmuLoadController = null;
         }
         if (mVideoView != null) {
+            LOG.i("echo-music destroy: before mVideoView.release");
             mVideoView.release();
             mVideoView = null;
+            LOG.i("echo-music destroy: after mVideoView.release");
         }
         stopLoadWebView(true);
         stopParse();
         if (mController != null) mController.stopOther();
         // 置空须在 stopLoadWebView 之后:其内部以 mActivity 判空决定是否销毁 WebView
         mActivity = null;
+        LOG.i("echo-music destroy: hostDestroy done");
     }
 
     @Override
@@ -504,6 +511,11 @@ public class PlayContainer extends FrameLayout implements CustomAdapt {
                 autoRetryCount = 0;
                 hasAutoSwitchedPlayer = false;
                 triedLineFlags.clear();
+                // 复位"已在播放中"标记(2026-09-13):replay 用于切内核/重播,原标记只在
+                // play()(换集/换源)复位 —— 切内核后起播失败会被 errorWithRetry 误判为
+                // "已在播放中"而静默 return(不提示、不自动重试,表现为"没有画面且毫无反应");
+                // 复位后由 STATE_PLAYING → markPlaybackStarted() 重新置位。
+                playbackStarted = false;
                 if(replay){
                     play(true);
                 }else {
@@ -708,35 +720,44 @@ public class PlayContainer extends FrameLayout implements CustomAdapt {
 
     /** SAF 选中回调:content:// 拷贝到缓存目录再按文件路径渲染(Exo/IJK 双内核兼容) */
     public void onLocalSubtitlePicked(android.net.Uri uri) {
-        if (!isAttached()) return;
+        // 后台拷贝期间页面可能已销毁(hostDestroy 会置 mActivity=null):Activity 先快照到局部变量,
+        // 拷贝完成回主线程时再判一次宿主存活。原实现后台线程直接读 mActivity 字段 ——
+        // 拷贝大文件时按返回必 NPE,且 catch 分支再次访问字段造成二次 NPE(非主线程未捕获 = 进程崩溃)。
+        final android.app.Activity activity = mActivity;
+        if (activity == null || activity.isFinishing()) return;
         new Thread(() -> {
             try {
-                String name = queryDisplayName(uri);
+                String name = queryDisplayName(activity, uri);
                 if (name == null || !name.contains(".")) name = "local_subtitle.srt";
                 name = name.replaceAll("[\\\\/:*?\"<>|]", "_");
-                File dst = new File(mActivity.getCacheDir(), "subtitle_" + System.currentTimeMillis() + "_" + name);
-                try (java.io.InputStream in = mActivity.getContentResolver().openInputStream(uri);
+                File dst = new File(activity.getCacheDir(), "subtitle_" + System.currentTimeMillis() + "_" + name);
+                try (java.io.InputStream in = activity.getContentResolver().openInputStream(uri);
                      java.io.FileOutputStream out = new java.io.FileOutputStream(dst)) {
                     byte[] buf = new byte[8192];
                     int len;
                     while ((len = in.read(buf)) > 0) out.write(buf, 0, len);
                 }
                 String path = dst.getAbsolutePath();
-                mActivity.runOnUiThread(() -> {
+                activity.runOnUiThread(() -> {
+                    // 页面已销毁:放弃渲染(播放器已 release),防对已置空的 mVideoView 操作
+                    if (!isAttached()) return;
                     LOG.i("echo-Local Subtitle Path: " + path);
                     setSubtitle(path);
                 });
             } catch (Exception e) {
                 LOG.e("echo-Local Subtitle copy err: " + e);
-                mActivity.runOnUiThread(() ->
-                        android.widget.Toast.makeText(mActivity, "读取字幕文件失败", android.widget.Toast.LENGTH_SHORT).show());
+                activity.runOnUiThread(() -> {
+                    if (isAttached()) {
+                        android.widget.Toast.makeText(activity, "读取字幕文件失败", android.widget.Toast.LENGTH_SHORT).show();
+                    }
+                });
             }
         }).start();
     }
 
-    /** SAF 文件显示名(用于保留字幕扩展名,渲染器按扩展名选解析器) */
-    private String queryDisplayName(android.net.Uri uri) {
-        try (android.database.Cursor c = mActivity.getContentResolver().query(uri, null, null, null, null)) {
+    /** SAF 文件显示名(用于保留字幕扩展名,渲染器按扩展名选解析器);Activity 由调用方传入,防销毁后读空字段 */
+    private String queryDisplayName(android.app.Activity activity, android.net.Uri uri) {
+        try (android.database.Cursor c = activity.getContentResolver().query(uri, null, null, null, null)) {
             if (c != null && c.moveToFirst()) {
                 int idx = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME);
                 if (idx >= 0) return c.getString(idx);
@@ -1606,16 +1627,26 @@ public class PlayContainer extends FrameLayout implements CustomAdapt {
     }
 
     /**
-     * 纯音频渲染兜底(2026-09-13):确认纯音频且当前是 SurfaceView 时热切换为 TextureView。
-     * 动机与机制见 [MyVideoView.switchRenderToTexture];此处只处理 URL 预判([looksLikeAudioUrl])
-     * 漏网的无后缀音乐直链 —— STATE_PLAYING 时轨道信息已就绪,判定与 [isAudioOnlyPlayback] 同源。
-     * 换集/换源下一次起播 PlayerHelper.updateCfg 会按用户设置恢复渲染类型,影视不受影响。
+     * 渲染类型与轨道类型对齐(2026-09-13,双向兜底):
+     * <ul>
+     *   <li>确认纯音频且当前是 SurfaceView → 热切换 TextureView:动机与机制见
+     *       [MyVideoView.switchRenderToTexture];此处只处理 URL 预判([looksLikeAudioUrl])
+     *       漏网的无后缀音乐直链 —— STATE_PLAYING 时轨道信息已就绪。</li>
+     *   <li>确认有视频轨 → 按用户设置恢复渲染视图(2026-09-13 修复):回放走 reusePlayer 路径时
+     *       fork 的 replay 不重建 RenderView、PlayerHelper.updateCfg 只改工厂,纯音频热切 Texture
+     *       后播视频集会一直留在 TextureView,与"画面渲染"设置不符;类型一致时该调用直接返回。</li>
+     * </ul>
+     * 轨道信息未知(null:未起播/不支持)时两边都不动,避免误切。
      */
     private void ensureAudioOnlyRender() {
         if (mVideoView == null) return;
-        if (!Boolean.TRUE.equals(isAudioOnlyPlayback())) return;
-        if (mVideoView.isSurfaceRenderActive()) {
-            mVideoView.switchRenderToTexture();
+        Boolean audioOnly = isAudioOnlyPlayback();
+        if (Boolean.TRUE.equals(audioOnly)) {
+            if (mVideoView.isSurfaceRenderActive()) {
+                mVideoView.switchRenderToTexture();
+            }
+        } else if (Boolean.FALSE.equals(audioOnly)) {
+            mVideoView.ensureRenderViewMatchesConfig();
         }
     }
 
@@ -1793,9 +1824,9 @@ public class PlayContainer extends FrameLayout implements CustomAdapt {
         try {
             LOG.i("echo-autoRetry restore player: " + mVodPlayerCfg.optInt("pl", -1) + " -> " + autoSwitchedPlayerType);
             mVodPlayerCfg.put("pl", autoSwitchedPlayerType);
-            mVodInfo.playerCfg = mVodPlayerCfg.toString();
+            // 只恢复内存态 + UI(2026-09-13):自动切换已不再写 mVodInfo.playerCfg/EventBus(见
+            // ComposeVideoController.switchPlayer),此处无需再持久化;原两行会把记录重写成原值(多余 IO)。
             mController.setPlayerConfig(mVodPlayerCfg);
-            EventBus.getDefault().post(new RefreshEvent(RefreshEvent.TYPE_REFRESH, mVodPlayerCfg));
         } catch (Throwable th) {
             th.printStackTrace();
         } finally {
@@ -1814,7 +1845,8 @@ public class PlayContainer extends FrameLayout implements CustomAdapt {
         }
 
         lastRetryTime = currentTime;  // 更新上次调用时间
-        if (loadFoundVideoUrls != null && loadFoundVideoUrls.size() > 0) {
+        // ConcurrentLinkedQueue.size() 是 O(n) 遍历且弱一致(并发 add 时可能读到 0);isEmpty() 为 O(1) 且更准确
+        if (loadFoundVideoUrls != null && !loadFoundVideoUrls.isEmpty()) {
             autoRetryFromLoadFoundVideoUrls();
             return true;
         }
@@ -2036,14 +2068,19 @@ public class PlayContainer extends FrameLayout implements CustomAdapt {
 
     void autoRetryFromLoadFoundVideoUrls() {
         String videoUrl = loadFoundVideoUrls.poll();
-        HashMap<String,String> header = loadFoundVideoUrlsHeader.get(videoUrl);
+        // 调用方只判了队列非空(isEmpty),检查与 poll 之间队列仍可能被 WebView 网络线程消费、
+        // 或被新一轮 initParseLoadFound 重置清空 —— 队列空时 poll 返回 null,必须提前返回,
+        // 否则 playUrl(null) 会在 url.startsWith 处 NPE(2026-09-13 复查加固)
+        if (videoUrl == null) return;
+        HashMap<String, String> header = loadFoundVideoUrlsHeader.get(videoUrl);
         playUrl(videoUrl, header);
     }
 
     void initParseLoadFound() {
         loadFoundCount.set(0);
-        loadFoundVideoUrls = new LinkedList<String>();
-        loadFoundVideoUrlsHeader = new HashMap<String, HashMap<String, String>>();
+        // 并发容器(2026-09-13):网络线程可能正持旧引用读写,替换引用对旧对象无害、新对象立即生效
+        loadFoundVideoUrls = new ConcurrentLinkedQueue<>();
+        loadFoundVideoUrlsHeader = new ConcurrentHashMap<>();
     }
 
     public void setPlayTitle(boolean show)
@@ -2307,35 +2344,10 @@ public class PlayContainer extends FrameLayout implements CustomAdapt {
     }
 
     private HashMap<String, String> getHeaders(JSONObject object) {
-        if (object == null) return null;
-        HashMap<String, String> headers = new HashMap<>();
-        appendHeaders(headers, object.opt("header"));
-        appendHeaders(headers, object.opt("headers"));
-        return headers.isEmpty() ? null : headers;
-    }
-
-    private void appendHeaders(HashMap<String, String> headers, Object rawHeaders) {
-        if (rawHeaders == null || rawHeaders == JSONObject.NULL) return;
-        try {
-            JSONObject json = null;
-            if (rawHeaders instanceof JSONObject) {
-                json = (JSONObject) rawHeaders;
-            } else if (rawHeaders instanceof String) {
-                String text = ((String) rawHeaders).trim();
-                if (!TextUtils.isEmpty(text)) {
-                    json = new JSONObject(text);
-                }
-            }
-            if (json == null) return;
-            Iterator<String> keys = json.keys();
-            while (keys.hasNext()) {
-                String key = keys.next();
-                if (!TextUtils.isEmpty(key)) {
-                    headers.put(key, json.optString(key, ""));
-                }
-            }
-        } catch (Throwable ignored) {
-        }
+        // 2026-09-13:与预载侧(PreloadCoordinator.extractHeaders)共用 PlayerHelper.extractPlayHeaders ——
+        // 两侧口径必须逐字一致(含 String 形式的 header),否则预载与播放的 keyOf(url,headers) 不匹配,
+        // 共享 SimpleCache 的「下一集预载」永不命中
+        return PlayerHelper.extractPlayHeaders(object);
     }
 
     private void putHeaders(JSONObject target, HashMap<String, String> headers) throws JSONException {
@@ -2776,9 +2788,12 @@ mController.toggleControlBar();
 
     // webview
     private WebView mSysWebView;
-    private final Map<String, Boolean> loadedUrls = new HashMap<>();
-    private LinkedList<String> loadFoundVideoUrls = new LinkedList<>();
-    private HashMap<String, HashMap<String, String>> loadFoundVideoUrlsHeader = new HashMap<>();
+    // ⚠️ WebView 嗅探回调 shouldInterceptRequest 在**非 UI 线程**执行(javadoc 明确)且不保证串行,
+    // 以下三个集合同时被网络线程(写)与主线程(读/重建)访问,必须是并发容器(2026-09-13 修复数据竞争):
+    // 引用本身会被 initParseLoadFound() 替换,故加 volatile 让网络线程立即可见新对象。
+    private final Map<String, Boolean> loadedUrls = new ConcurrentHashMap<>();
+    private volatile Queue<String> loadFoundVideoUrls = new ConcurrentLinkedQueue<>();
+    private volatile Map<String, HashMap<String, String>> loadFoundVideoUrlsHeader = new ConcurrentHashMap<>();
     private final AtomicInteger loadFoundCount = new AtomicInteger(0);
 
     void loadWebView(String url) {
@@ -3004,6 +3019,12 @@ mController.toggleControlBar();
                         stopLoadWebView(false);
                         SuperParse.stopJsonJx();
                         url = loadFoundVideoUrls.poll();
+                        // ⚠️ 队列可能已被并发消费(主线程 autoRetryFromLoadFoundVideoUrls)或被新一轮
+                        // initParseLoadFound 重置(字段现在 volatile,替换后本线程立即可见新队列),
+                        // 此时 poll 返回 null —— 不做处理的话 null 会传给 getCookie(url)/playUrl(url),
+                        // 在 playUrl 的 url.startsWith 处抛 NPE(WebView 网络线程未捕获 = 进程崩溃)。
+                        // 放弃本次拦截即可:WebView 已在 stopLoadWebView 后导航 about:blank(2026-09-13 复查加固)
+                        if (url == null) return null;
                         mHandler.removeMessages(MSG_PARSE_TIMEOUT);
                         String cookie = CookieManager.getInstance().getCookie(url);
                         if(!TextUtils.isEmpty(cookie))headers.put("Cookie", " " + cookie);//携带cookie

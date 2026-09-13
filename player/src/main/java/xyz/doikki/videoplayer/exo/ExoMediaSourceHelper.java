@@ -24,6 +24,7 @@ import java.io.File;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.TreeMap;
 
 import okhttp3.OkHttpClient;
 
@@ -90,7 +91,8 @@ public final class ExoMediaSourceHelper {
         MediaItem mediaItem = buildMediaItem(uri, headers);
         DataSource.Factory factory = createDataSourceFactory(mediaItem);
         if (isCache) {
-            factory = getCacheDataSourceFactory(factory);
+            // headers 取自 MediaItem(已归一化:过滤内部标记/trim),预载侧与播放侧 key 同源
+            factory = getCacheDataSourceFactory(factory, getHeadersFrom(mediaItem));
         }
         switch (contentType) {
             case C.TYPE_DASH:
@@ -256,12 +258,50 @@ public final class ExoMediaSourceHelper {
                 || path.endsWith(".amr");
     }
 
-    private DataSource.Factory getCacheDataSourceFactory(DataSource.Factory upstream) {
+    /**
+     * 边播缓存数据源(2026-09-13 修复「跨线路串缓存」):
+     * media3 默认的 CacheKeyFactory 只认 dataSpec.key/uri —— 同一 URL 配不同 Referer/UA/token
+     * 的源会互相读到对方写到盘上的数据;此处改为「分片 uri + 规范化 headers」作为 key。
+     *
+     * <p>两侧一致性(预载写盘 / 播放读盘):预载侧 {@code PreloadMediaSourceFactory} 与播放侧
+     * 都经 {@link #getMediaSource(String, Map, boolean)} → 本方法,headers 均取自
+     * {@link #getHeadersFrom(MediaItem)}(已过滤 HEADER_FORMAT 等内部标记),故 key 完全同源;
+     * 规范化规则(排序/trim/大小写不敏感)与预载侧 {@code PreloadManagerHolder.keyOf} 保持一致。
+     *
+     * <p>无 headers 时保持 media3 默认行为(key=uri),不改变原有命中语义。
+     */
+    private DataSource.Factory getCacheDataSourceFactory(DataSource.Factory upstream, Map<String, String> headers) {
         Cache cache = mCache != null ? mCache : getSharedCache(mAppContext);
-        return new CacheDataSource.Factory()
+        CacheDataSource.Factory factory = new CacheDataSource.Factory()
                 .setCache(cache)
                 .setUpstreamDataSourceFactory(upstream)
                 .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR);
+        final String keySuffix = headerKeySuffix(headers);
+        if (!keySuffix.isEmpty()) {
+            factory.setCacheKeyFactory(dataSpec -> dataSpec.uri + keySuffix);
+        }
+        return factory;
+    }
+
+    /** headers → 磁盘缓存 key 后缀(格式与 PreloadManagerHolder.keyOf 一致:排序 + trim + 大小写不敏感) */
+    private static String headerKeySuffix(Map<String, String> headers) {
+        if (headers == null || headers.isEmpty()) {
+            return "";
+        }
+        Map<String, String> sorted = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        for (Map.Entry<String, String> entry : headers.entrySet()) {
+            if (entry.getKey() != null && entry.getValue() != null) {
+                sorted.put(entry.getKey().trim(), entry.getValue().trim());
+            }
+        }
+        if (sorted.isEmpty()) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        for (Map.Entry<String, String> entry : sorted.entrySet()) {
+            sb.append('\n').append(entry.getKey()).append(':').append(entry.getValue()).append(';');
+        }
+        return sb.toString();
     }
 
     /**

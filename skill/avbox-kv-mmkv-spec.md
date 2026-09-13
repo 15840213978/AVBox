@@ -187,6 +187,7 @@ public final class KV {
 | R7 | §4.6 `echo-kv*` 打点 | 仅保留**事件级**日志(类型登记表装载/类型解不出/解码失败);正常读写不打点 | 热路径(如播放器每帧读设置)打点会淹没有效信息;日志前缀已加入 `util/LOG.FILE_LOG_PREFIXES` |
 | R8 | ——(原方案未提及) | 迁移(已删除)期间暴露的两个真实缺陷被固化修复:`KVMigrate` 必须先判键存在性;`KVCodec` 用 `containsKey` 而非 `getValueSize` 判存在性 | 见 §9。前者随迁移一起删除,后者是**现行代码**的修复,必须保留 |
 | R9 | §7-Q2 隐含"gson 保持 ≤2.12 直到迁移完成" | **gson 2.10.1 → 2.14.0**(用户要求,2026-09-13) | 原约束只服务于 Hawk 的集合读取;Hawk 已彻底移除,约束消失。KV 侧只用稳定 API(`TypeToken.get` / 显式 Type),不碰 gson 内部实现 ⇒ 升级零改动,编译 + 19 例单测通过。**这也是本次迁移的验收点之一(G3 解除 gson 版本枷锁)** |
+| R10 | ——(迁移完成后审查发现) | **修复登记类型与写入类型不一致**:`LIVE_WEB_HEADER` 由 `register(key, "")`(String)改为 `new TypeToken<HashMap<String,String>>(){}`;并新增单测 `KVKeySpecTest.liveWebHeader_roundTripDecodesAsStringMap` 锁死"写入类型 == 登记类型" | `ApiConfig.loadLives` 写入的是 `HashMap<String,String>`(header/ua),登记成 String 会让读取侧 Gson 用 String 解析对象原文抛错,又被 `KV.get(key)`(quiet 副本)静默吞成 null ⇒ **直播源配置的 UA/Referer/header 全部失效**(2026-09-13 全量缺陷审查发现)。教训:新增/修改复杂键必须按"写入值的实际类型"登记 |
 
 ## 9. 2026-09-13 崩溃复盘(教训保留,相关代码已删除)
 

@@ -85,6 +85,12 @@ class HomeViewModel : ViewModel() {
     private val loaders = HashMap<String, PartitionLoader>()
     /** 分区第一页并发限流(§4.1:限流 2~3) */
     private val loadSemaphore = Semaphore(2)
+    /**
+     * 首页加载代次(2026-09-13 修复许可泄漏):每次 loadHome() 自增。
+     * requestPartition 在拿到信号量许可后校验代次,旧一轮排队协程直接放弃 ——
+     * 否则 loadHome() 已 release 的 loader 会被旧协程再次请求,回调永不到来,许可永久泄漏。
+     */
+    private var loadGeneration = 0
     private var loadingSourceKey: String? = null
     /** 2026-09-11:首页加载看门狗。spider 线程池被卡死时 sortResult/listResult 永不回调,
      * 之前会永久停留在骨架屏;超时后把 Loading 态改写为 Error,UI 显示错误+重试 */
@@ -146,8 +152,10 @@ class HomeViewModel : ViewModel() {
         EventBus.getDefault().unregister(this)
         sortViewModel.sortResult.removeObserver(sortObserver)
         actionViewModel.actionResult.removeObserver(actionObserver)
-        loaders.values.forEach { it.release() }
+        // 与 loadHome() 同款:先快照再 clear、最后 release(防 release 唤醒的协程改 map 撞迭代器)
+        val staleLoaders = ArrayList(loaders.values)
         loaders.clear()
+        staleLoaders.forEach { it.release() }
     }
 
     @Subscribe(threadMode = ThreadMode.MAIN)
@@ -178,8 +186,16 @@ class HomeViewModel : ViewModel() {
         sortsLoaded.value = false
         rec.value = Rec(PartitionState.Loading, emptyList())
         partitions.value = emptyList()
-        loaders.values.forEach { it.release() }
+        // 2026-09-13 崩溃修复:必须"先快照 → clear → 再 release" ——
+        // release() 会同步 resume 挂起的协程(释放的信号量会继续唤醒排队者),若在遍历 loaders
+        // 期间发生 HashMap 修改(如被唤醒的协程 getOrPut 建新 loader),迭代器立刻抛
+        // ConcurrentModificationException(实测:首页加载中切源必崩)。快照后遍历的是副本,
+        // 与 map 解耦;clear 先行则保证 release 引发的任何 map 操作都不再撞迭代器。
+        val staleLoaders = ArrayList(loaders.values)
         loaders.clear()
+        staleLoaders.forEach { it.release() }
+        // 代次自增:令仍在排队等许可的上一轮协程在拿到许可后放弃(见 requestPartition 的许可泄漏修复)
+        loadGeneration++
         // 重启看门狗:20s 内未完成整页加载则 Loading 转 Error 态
         // (2026-09-12 用户定稿 45s→20s;兜底 spider 线程池卡死永不回调,防永久加载)
         watchdogJob?.cancel()
@@ -272,9 +288,24 @@ class HomeViewModel : ViewModel() {
     private class LoaderResult(val stale: Boolean, val absXml: AbsXml?)
 
     private fun requestPartition(current: Partition, page: Int) {
+        // 2026-09-13 修复许可泄漏:排队协程可能在 loadHome() release 全部 loader 之后才拿到许可,
+        // 若照旧向「observer 已被移除」的旧 loader 发请求,回调永不到来 →
+        // suspendCancellableCoroutine 续体永不 resume → withPermit 许可永久泄漏
+        // (两次即耗尽 Semaphore(2):分区永久 Loading,看门狗转 Error 后重试仍卡死,只能杀进程)。
+        // 代次校验:loadHome() 自增 loadGeneration,上一轮的排队协程据此直接放弃
+        // (不请求、不写状态,许可正常归还)。
+        // ⚠️ loader 必须在协程外**同步**获取(2026-09-13 崩溃回归教训):一旦移进 withPermit 内,
+        // release() 唤醒排队协程时会执行 loaders.getOrPut → 修改 HashMap,而 loadHome() 正
+        // 在遍历 loaders → ConcurrentModificationException(实测:首页加载中切源必崩)。
+        // 两处配合缺一不可:同步获取防"遍历期间改 map",代次校验防"请求已 release 的 loader 致许可泄漏"。
+        val generation = loadGeneration
         val loader = loaders.getOrPut(current.sort.id) { PartitionLoader(current.sort) }
         scope.launch {
             loadSemaphore.withPermit {
+                // 代次不符 = 上一轮加载的排队协程;loader 已 release = 本协程在 loadHome() 遍历
+                // release 期间被唤醒(代次尚未自增)但目标 loader 已释放 —— 两种情况都不得再请求
+                // (observer 已移除,回调永不到来),直接放弃并归还许可。
+                if (generation != loadGeneration || loader.released) return@withPermit
                 val result = suspendCancellableCoroutine<LoaderResult> { cont ->
                     loader.request(page) { r -> if (cont.isActive) cont.resume(r) }
                 }
@@ -347,6 +378,11 @@ class HomeViewModel : ViewModel() {
         var busy: Boolean = false
             private set
 
+        /** 已随 loadHome()/onCleared() 释放(observer 已移除):不得再发起请求,否则回调永不到来 */
+        @Volatile
+        var released: Boolean = false
+            private set
+
         private val observer = Observer<AbsXml> { abs: AbsXml? ->
             val current = pending
             pending = null
@@ -366,6 +402,7 @@ class HomeViewModel : ViewModel() {
         }
 
         fun release() {
+            released = true
             pending?.invoke(LoaderResult(stale = true, absXml = null))
             pending = null
             busy = false

@@ -400,6 +400,12 @@ class DetailViewModel : ViewModel() {
     private var switchSnapshot: SwitchSnapshot? = null
 
     // ---- 换源/相关推荐聚合搜索 ----
+    /**
+     * 本轮聚合搜索编号(token 带 "detail_" 前缀,仅本实例内比较;取值 = 进程级自增 [SEARCH_SEQ])。
+     * ⚠️ 不能用实例内自增(从 0 起步):详情页可以叠加(相关推荐卡片 `jumpToDetail` 新建实例、
+     * 旧实例不销毁仍继续跑聚合搜索并 post),两个实例的首搜都会是 "detail_1" ⇒ 旧实例的迟到
+     * 结果会通过新实例的 token 校验,把另一部片名的搜索结果混进「相关推荐」(2026-09-13 修复)。
+     */
     private var searchToken = 0
     private var searchTitle = ""
 
@@ -603,7 +609,8 @@ class DetailViewModel : ViewModel() {
         if (title.isEmpty()) return
         if (sourcesSearching.value && searchTitle == title) return
         searchTitle = title
-        searchToken += 1
+        // 进程级自增:保证跨实例(详情页叠加)的 token 不复用,旧实例迟到结果会被校验丢弃
+        searchToken = SEARCH_SEQ.incrementAndGet()
         val myToken = searchToken
         val tokenStr = "detail_$myToken"
         val checked = SearchHelper.getSourcesForSearch()
@@ -1130,6 +1137,12 @@ class DetailViewModel : ViewModel() {
     }
 
     companion object {
+        /**
+         * 进程级聚合搜索序号:token("detail_" 前缀)跨实例不复用的保证 —— 详情页叠加时,
+         * 旧实例的迟到结果必然与新实例的 token 不等,被 [onSearchResultEvent] 的校验丢弃。
+         */
+        private val SEARCH_SEQ = java.util.concurrent.atomic.AtomicInteger(0)
+
         private const val DETAIL_FALLBACK_DETAIL_TIMEOUT_MS = 6000L
         private const val SOURCE_SEARCH_TIMEOUT_MS = 30_000L
         private const val SOURCE_SEARCH_CONCURRENCY = 6

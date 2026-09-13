@@ -58,6 +58,10 @@ public class App extends Application {
         // Coil 单例:海报地址约定的请求头注入(Compose UI 图片管线)
         com.github.tvbox.osc.ui.components.VodImages.INSTANCE.init(this);
         FileUtils.cleanPlayerCache();
+        // 「清除缓存」遗留的 Exo 视频缓存清理(2026-09-13):clearCache 不直接删该目录(进程级 SimpleCache
+        // 常驻,直删会"内存索引/磁盘失配"),改为启动早期删除 —— 必须早于首次 getSharedCache,且目录删除
+        // 属耗时 IO,放后台线程(无待清理标记时仅一次 exists() 检查,零开销)
+        new Thread(FileUtils::purgeExoCacheIfPending, "exo-cache-purge").start();
     }
 
     private void initParams() {

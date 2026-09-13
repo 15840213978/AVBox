@@ -87,10 +87,12 @@ fun PreloadSettingsScreen(onNavigateBack: () -> Unit, vm: SettingsViewModel = vi
                         },
                     )
                 }
-                // 边播边缓存(第二期扩展):点播全程走磁盘缓存数据源(直播页不启用);与预载共用同一缓存实例
+                // 边播边缓存(第二期扩展,2026-09-13 默认关):点播全程走磁盘缓存数据源(直播页不启用);
+                // 与预载共用同一缓存实例。开启会对本地代理源(网盘)引入 EXO 起播失败风险,故默认关+副标题提示。
                 SettingsCard(SettingsCardPosition.MIDDLE) {
                     SettingsSwitchRow(
                         title = "边播边缓存",
+                        subtitle = "开启后可能导致EXO播放器无法使用",
                         checked = state.playCache,
                         onCheckedChange = { vm.put(HawkConfig.PLAY_CACHE, it) },
                     )

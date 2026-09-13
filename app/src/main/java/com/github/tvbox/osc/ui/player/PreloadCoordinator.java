@@ -12,6 +12,7 @@ import com.github.tvbox.osc.util.DefaultConfig;
 import com.github.tvbox.osc.util.HawkConfig;
 import com.github.tvbox.osc.util.LOG;
 import com.github.tvbox.osc.util.MD5;
+import com.github.tvbox.osc.util.PlayerHelper;
 import com.github.tvbox.osc.util.thunder.Jianpian;
 import com.github.tvbox.osc.viewmodel.SourceViewModel;
 import com.github.tvbox.osc.player.PreloadManagerHolder;
@@ -341,25 +342,15 @@ public final class PreloadCoordinator {
                 || url.startsWith("http://localhost") || url.startsWith("https://localhost");
     }
 
+    /**
+     * 预解析结果的请求头提取(2026-09-13 修复):必须与播放侧共用同一实现 ——
+     * 原先这里只认 {@code JSONObject} 形态,而播放侧({@code PlayContainer.getHeaders} →
+     * {@code PlayerHelper.extractPlayHeaders})还认 JSON 字符串形态;源返回
+     * {@code "header":"{\"User-Agent\":\"...\"}"} 时两侧 headers 不等,
+     * {@code PreloadManagerHolder.tryAcquire} 的 {@code keyOf(url,headers)} 匹配失败
+     * (日志持续 {@code echo-preload-miss: key mismatch}),预载内存数据永不命中、带宽白花。
+     */
     private static HashMap<String, String> extractHeaders(JSONObject info) {
-        if (info == null) return null;
-        // 结果 JSON 的 header/headers 字段(与 PlayContainer.getHeaders 同语义)
-        HashMap<String, String> headers = new HashMap<>();
-        try {
-            for (String field : new String[]{"header", "headers"}) {
-                Object raw = info.opt(field);
-                if (!(raw instanceof JSONObject)) continue;
-                JSONObject json = (JSONObject) raw;
-                java.util.Iterator<String> keys = json.keys();
-                while (keys.hasNext()) {
-                    String key = keys.next();
-                    if (key != null && !key.isEmpty()) {
-                        headers.put(key, json.optString(key, ""));
-                    }
-                }
-            }
-        } catch (Throwable ignored) {
-        }
-        return headers.isEmpty() ? null : headers;
+        return PlayerHelper.extractPlayHeaders(info);
     }
 }

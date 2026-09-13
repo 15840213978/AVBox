@@ -124,6 +124,25 @@ public class MyVideoView extends VideoView implements DrawHandler.Callback {
         addDisplay();
     }
 
+    /**
+     * 渲染视图与当前 RenderViewFactory 配置不一致时按工厂重建(2026-09-13 修复)。
+     *
+     * <p>背景(与 [switchRenderToTexture] 配套):纯音频会热切成 TextureView;但换集走 reusePlayer
+     * 路径(fork 的 {@code VideoView.replay(false)} → {@code startPrepare},两个分支都不会调用
+     * addDisplay),而 {@code PlayerHelper.updateCfg} 只改工厂、不重建视图 —— 于是之后有视频的
+     * 集数会继续留在 TextureView 上渲染,与"画面渲染"设置不符。addDisplay() 会移除旧视图并按
+     * 当前工厂新建(即热切换);类型一致(绝大多数场景)时本方法直接返回,零开销、无闪烁。
+     */
+    public void ensureRenderViewMatchesConfig() {
+        // mRenderView 空 = 尚未挂载(下次 start() 会按工厂创建);
+        // mMediaPlayer 空 = 无播放器可挂载 —— addDisplay 内 attachToPlayer(null) 属未定义调用,
+        // 直接返回更稳(与 clearVideoFrame 的判空风格一致)
+        if (mRenderView == null || mMediaPlayer == null) return;
+        boolean expectedSurface = !(mRenderViewFactory instanceof TextureRenderViewFactory);
+        if (expectedSurface == isSurfaceRenderActive()) return;
+        addDisplay();
+    }
+
     public void setArtwork(String url) {
         if (TextUtils.isEmpty(url)) {
             clearArtwork();

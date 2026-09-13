@@ -22,7 +22,17 @@ import java.util.Map;
  * `-keepattributes Signature`,而 `TypeToken` 子类那条规则带 `allowoptimization` ——
  * 所以"release 下泛型签名是否还在"必须**在 R8 后的字节码上**验证,不能只看 debug。
  *
- * <p>跑法:`gradlew :app:testReleaseUnitTest`(走 R8 产物);debug 跑同名测试则是不混淆基线。
+ * <p>跑法:debug 基线 = `gradlew :app:testDebugUnitTest`。
+ * ⚠️ 原写的 `:app:testReleaseUnitTest` 在当前 AGP 配置下**已不存在**(工程里只有 testDebugUnitTest),
+ * release/R8 验证改为对产物 dex 做静态检查(2026-09-13 实测有效):
+ * <pre>
+ *   dexdump -a &lt;classes*.dex&gt; | findstr /C:"annotation/Signature"
+ * </pre>
+ * 判据:每个 `* extends TypeToken` 的匿名子类都应带
+ * `VISIBILITY_SYSTEM Ldalvik/annotation/Signature; value={...}`。
+ * ⚠️ 不要用"在 dex 里搜完整签名串"的方式判断 —— D8 会把签名**拆成片段**存储
+ * (如 "Lcom/google/gson/reflect/TypeToken&lt;" "Ljava/util/HashMap&lt;" "Ljava/lang/String;" "&gt;;&gt;;"),
+ * 完整字符串在池里根本不存在,直接搜索必然落空(2026-09-13 亲测踩坑)。
  */
 public class KVKeySpecTest {
 
@@ -79,6 +89,27 @@ public class KVKeySpecTest {
         assertTrue(unusedGuard.isEmpty());
         assertEquals(TypeToken.get(Boolean.class).getType(),
                 spec.typeOf(com.github.tvbox.osc.util.HawkConfig.GESTURE_CONTROL_DISABLED));
+    }
+
+    /**
+     * 2026-09-13 修复的回归锁:直播源配置的 header/ua 由 ApiConfig 写入的是 HashMap&lt;String,String&gt;,
+     * 一旦登记成 String,读取侧 Gson 会用 String 解析对象原文抛错、被 KV.get(key)(quiet 副本)静默吞成
+     * null —— 症状是直播源的 UA/Referer 全部失效。此测试跑真实 KVKeySpec 注册表 + KVDecoder 往返,
+     * 保证"写入类型 == 登记类型"。
+     */
+    @Test
+    public void liveWebHeader_roundTripDecodesAsStringMap() {
+        com.github.tvbox.osc.util.kvcodec.KVDecoder decoder =
+                new com.github.tvbox.osc.util.kvcodec.KVDecoder();
+        decoder.setRegistry(spec);
+        Map<String, String> header = new HashMap<>();
+        header.put("User-Agent", "Mozilla/5.0");
+        header.put("Referer", "http://example.com/");
+        String raw = decoder.encode(header);
+        Object decoded = decoder.decode("live_web_header", raw, null);
+        assertTrue("应解出 Map,实际 " + (decoded == null ? "null" : decoded.getClass()), decoded instanceof Map);
+        assertEquals("Mozilla/5.0", ((Map<?, ?>) decoded).get("User-Agent"));
+        assertEquals("http://example.com/", ((Map<?, ?>) decoded).get("Referer"));
     }
 
     @Test

@@ -8,6 +8,7 @@ import com.github.tvbox.osc.util.AudioTrackMemory;
 import com.github.tvbox.osc.util.HawkConfig;
 import com.github.tvbox.osc.util.LOG;
 import com.github.tvbox.osc.util.KV;
+import com.github.tvbox.osc.util.PlayerHelper;
 import androidx.media3.common.C;
 import androidx.media3.common.Format;
 import androidx.media3.common.MimeTypes;
@@ -152,7 +153,17 @@ public class ExoPlayer extends ExoMediaPlayer {
         // ② 普通点播(MyVideoView 点播标记 + 设置「边播边缓存」) → 边播边缓存,回拖/重看/弱网读盘命中;
         // 直播页未打点播标记恒不走;未命中部分照常走网络
         boolean preloadTarget = PreloadManagerHolder.isPreloadTargetUrl(path);
-        boolean playCache = useDiskCache && KV.get(HawkConfig.PLAY_CACHE, true);
+        boolean playCache = useDiskCache && KV.get(HawkConfig.PLAY_CACHE, false);
+        // 本地代理 URL 跳过磁盘缓存(2026-09-13):CacheDataSource 与 App 内代理(网盘 spider 自建/
+        // M3U8 净化/DASH)的区间读取语义不兼容 —— 实测夸克 4K mp4 源需跳读文件尾 moov 时抛
+        // ERROR_CODE_IO_READ_POSITION_OUT_OF_RANGE 致 EXO 无法起播(关掉边播缓存即可正常播放)。
+        if (PlayerHelper.isLocalProxyUrl(path)) {
+            if (preloadTarget || playCache) {
+                LOG.i("echo-play-cache-skip-local-proxy: " + path);
+            }
+            preloadTarget = false;
+            playCache = false;
+        }
         if (preloadTarget || playCache) {
             MediaSource cached = mMediaSourceHelper.getMediaSource(path, headers, true);
             if (cached != null) {

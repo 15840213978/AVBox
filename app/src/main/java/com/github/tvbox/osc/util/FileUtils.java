@@ -252,28 +252,88 @@ public class FileUtils {
         return String.format(Locale.US, "%.2fGB", bytes / 1024.0 / 1024 / 1024);
     }
 
+    /** Exo 边播缓存目录名:与 ExoMediaSourceHelper 的共享 SimpleCache 目录保持一致 */
+    private static final String EXO_CACHE_DIR_NAME = "exo-video-cache";
+    /** 「清除缓存」写下的待清理标记:由 {@link #purgeExoCacheIfPending()} 在下次启动早期执行 */
+    private static final String PENDING_EXO_CLEAR_FLAG = "clear_exo_cache.pending";
+
     /**
-     * 清理应用缓存(内部 + 外部,含 Exo 视频缓存目录 exo-video-cache)。
+     * 清理应用缓存(内部 + 外部)。2026-09-13 调整:**不再直接删除 exo-video-cache**
+     * —— 进程级共享 SimpleCache 常驻且从不 release,目录/索引被删会造成"内存索引与磁盘失配",
+     * 虽有 CacheDataSource 的 FLAG_IGNORE_CACHE_ON_ERROR 兜底(不崩溃),但缓存命中率会退化到进程结束。
+     * 改为写"待清理"标记,由 {@link #purgeExoCacheIfPending()} 在下次启动早期
+     * (SimpleCache 尚未创建时)真正删除该目录。
      * 与系统设置里的「清除缓存」同语义,因此也会清掉已下载的爬虫 jar 缓存(cache/jar/),
      * 下次启动按需重新下载;{@link #EXTERNAL_CACHE_KEEP_DIR} 用户数据保留不动。
-     * 不 release 正在使用的 SimpleCache:media3 对缓存文件缺失按 miss 处理
-     * (CacheDataSource 带 FLAG_IGNORE_CACHE_ON_ERROR),后续播放重新回源写盘;
      * 只清空目录内容、保留目录本身。耗时 IO,须在后台线程调用。
      */
     public static void clearCache() {
-        cleanDirectory(getCacheDir());
+        // ① 先落"待清理"标记:即使后续删除过程异常,下次启动仍会补上 exo 缓存的清理
+        try {
+            writeSimple(new byte[0], pendingExoClearFlag());
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        // ② 内部缓存:逐项删除、跳过 exo-video-cache(外部存储不可用时 Exo 会回落到内部 cacheDir)
+        File cacheDir = getCacheDir();
+        File[] innerFiles = cacheDir.listFiles();
+        if (innerFiles != null) {
+            for (File one : innerFiles) {
+                if (EXO_CACHE_DIR_NAME.equals(one.getName())) continue;
+                try {
+                    deleteFile(one);
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
+        }
+        // ③ 外部缓存:跳过用户数据(config)与 exo 视频缓存
         File externalCacheDir = App.getInstance().getExternalCacheDir();
         if (externalCacheDir == null) return;
         File[] files = externalCacheDir.listFiles();
         if (files == null) return;
         for (File one : files) {
-            if (EXTERNAL_CACHE_KEEP_DIR.equals(one.getName())) continue;
+            if (EXTERNAL_CACHE_KEEP_DIR.equals(one.getName()) || EXO_CACHE_DIR_NAME.equals(one.getName())) continue;
             try {
                 deleteFile(one);
             } catch (Exception e) {
                 e.printStackTrace();
             }
         }
+    }
+
+    /**
+     * 「清除缓存」遗留的 Exo 视频缓存清理(2026-09-13):在 App 启动早期调用,
+     * **必须早于 ExoMediaSourceHelper.getSharedCache 的首次创建**(SimpleCache 尚未持有目录/索引时删除才安全)。
+     * 无待清理标记时仅一次文件存在性检查,零开销;有标记时删除 exo-video-cache 目录(含索引),
+     * 内容清空才清除标记,否则保留标记待下次启动重试(删除中途进程被杀也保留标记,下次继续)。
+     * 目录删除为耗时 IO,须在后台线程调用。
+     */
+    public static void purgeExoCacheIfPending() {
+        File flag = pendingExoClearFlag();
+        if (!flag.exists()) return;
+        File exoDir = new File(getExternalCachePath(), EXO_CACHE_DIR_NAME);
+        LOG.i("echo-exo-cache-purge-start: " + exoDir.getAbsolutePath());
+        try {
+            // deleteFile 对非空目录只清内容、保留目录本身,故下方还需按残留情况收尾
+            deleteFile(exoDir);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        File[] remaining = exoDir.exists() ? exoDir.listFiles() : null;
+        if (remaining == null || remaining.length == 0) {
+            exoDir.delete(); // 已清空:顺手删掉空目录本身
+            flag.delete(); // 确认清理完成后才清标记:删除失败/进程中途被杀都保留标记,下次启动继续
+            LOG.i("echo-exo-cache-purge-done");
+        } else {
+            // 少量文件删除失败:保留标记,下次启动重试
+            LOG.i("echo-exo-cache-purge-incomplete: " + remaining.length);
+        }
+    }
+
+    /** 「清除缓存」遗留的待清理标记文件(见 {@link #clearCache()} 的说明) */
+    private static File pendingExoClearFlag() {
+        return new File(getFilePath(), PENDING_EXO_CLEAR_FLAG);
     }
 
     public static void clearSpiderCacheFiles() {

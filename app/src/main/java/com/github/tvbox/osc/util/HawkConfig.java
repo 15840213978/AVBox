@@ -82,7 +82,11 @@ public class HawkConfig {
     /** 下一集预载时长(秒,20~120 步长 10,第二期参数化):控制预载数据范围(内存缓冲 + 磁盘写盘) */
     public static final String PRELOAD_DURATION = "preload_duration";
     public static final int PRELOAD_DURATION_DEFAULT = 60;
-    /** 边播边缓存(第二期扩展,默认开):点播全程走磁盘缓存数据源(直播页不启用,见 MyVideoView 点播标记) */
+    /**
+     * 边播边缓存(第二期扩展,**默认关**,2026-09-13 由默认开改关):点播全程走磁盘缓存数据源
+     * (直播页不启用,见 MyVideoView 点播标记)。改关原因:CacheDataSource 与 App 内本地代理
+     * (spider 自建/网盘)的区间读取语义不兼容,实测导致 EXO 起播失败(设置页已加提示副标题)。
+     */
     public static final String PLAY_CACHE = "play_cache";
     /**
      * Exo 共享缓存容量 MB(128~4096 步长 128,默认 512):

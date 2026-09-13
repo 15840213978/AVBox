@@ -834,12 +834,17 @@ class ComposeVideoController @JvmOverloads constructor(
         return super.onBackPressed()
     }
 
+    /**
+     * 自动重试切换内核(EXO⇄IJK,仅由 PlayContainer.autoRetry 调用)。
+     *
+     * 只刷新 UI 状态与本次播放配置,**不**调用 listener?.updatePlayerCfg() ——
+     * 后者会把自动切换结果写进该剧的播放记录("设置里是 EXO 却永远用 IJK"的根因,2026-09-13 修复);
+     * 自动切换是临时容错,只对本次会话生效,下次播放仍先按用户设置/记录尝试。
+     * 手动切内核(onPlayerClicked/onPlayerLongClicked)不在此列,仍持久化(按剧记忆语义)。
+     */
     override fun switchPlayer(): Boolean {
         val cfg = playerConfig ?: JSONObject()
-        return PlayerSwitchUseCase.switchPlayer(cfg) {
-            updatePlayerCfgState()
-            listener?.updatePlayerCfg()
-        }
+        return PlayerSwitchUseCase.switchPlayer(cfg) { updatePlayerCfgState() }
     }
 
     override fun stopOther() {

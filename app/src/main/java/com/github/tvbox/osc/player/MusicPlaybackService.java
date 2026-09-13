@@ -238,6 +238,11 @@ public class MusicPlaybackService extends Service {
             return;
         }
         if (ACTION_UPDATE.equals(action)) {
+            // 服务已被 stopPlaybackService 停止(mediaSession 已置 null)但实例尚未销毁时,
+            // PlayContainer 的播放状态回调仍可能投递 UPDATE —— 此时不能再走下去:
+            // acquirePlaybackLocks 会重新持锁且无人释放(电量泄漏)、startForeground 会让通知复活、
+            // buildNotification 曾在真机上直接 NPE 崩溃(2026-09-13 实锤路径)
+            if (mediaSession == null) return;
             acquirePlaybackLocks();
             title = intent.getStringExtra(EXTRA_TITLE);
             subtitle = intent.getStringExtra(EXTRA_SUBTITLE);
@@ -265,6 +270,9 @@ public class MusicPlaybackService extends Service {
                     public void onSuccess(coil3.Image image) {
                         // toBitmap 保证软件位图,通知 RemoteViews 不接受硬件位图
                         artwork = coil3.Image_androidKt.toBitmap(image);
+                        // 图片下载期间服务可能已被停止(mediaSession 被置 null):此时再刷新通知会
+                        // 在 buildNotification() 内对 null mediaSession 取 sessionToken 而崩溃(2026-09-13 修复)
+                        if (mediaSession == null) return;
                         updateSession();
                         NotificationManager manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
                         if (manager != null) manager.notify(NOTIFICATION_ID, buildNotification());
@@ -319,7 +327,9 @@ public class MusicPlaybackService extends Service {
                 .setShowWhen(false)
                 .setOngoing(playing)
                 .setDeleteIntent(actionIntent(ACTION_STOP))
-                .setStyle(new MediaStyle().setMediaSession(mediaSession.getSessionToken())
+                // mediaSession 可能已被 stopPlaybackService 置 null(封面异步回调晚于停止):
+                // 这里判空兜底,防 getSessionToken() NPE(2026-09-13 修复)
+                .setStyle(new MediaStyle().setMediaSession(mediaSession == null ? null : mediaSession.getSessionToken())
                         .setShowActionsInCompactView(1, 2, 3));
         if (artwork != null) builder.setLargeIcon(artwork);
         builder.addAction(new NotificationCompat.Action(R.drawable.media_action_placeholder, "", actionIntent(ACTION_PLACEHOLDER)));

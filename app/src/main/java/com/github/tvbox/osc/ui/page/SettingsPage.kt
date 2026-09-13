@@ -182,7 +182,7 @@ class SettingsViewModel : ViewModel() {
         bufferTimes = KV.get(HawkConfig.BUFFER_TIMES, HawkConfig.BUFFER_TIMES_DEFAULT),
         preloadNextEpisode = KV.get(HawkConfig.PRELOAD_NEXT_EPISODE, false),
         preloadDuration = KV.get(HawkConfig.PRELOAD_DURATION, HawkConfig.PRELOAD_DURATION_DEFAULT),
-        playCache = KV.get(HawkConfig.PLAY_CACHE, true),
+        playCache = KV.get(HawkConfig.PLAY_CACHE, false),
         exoCacheSizeMb = KV.get(HawkConfig.EXO_CACHE_SIZE_MB, HawkConfig.EXO_CACHE_SIZE_MB_DEFAULT),
         apiUrl = KV.get(HawkConfig.API_URL, ""),
         apiLines = KV.get(HawkConfig.API_LINE_LIST, ArrayList()),
@@ -408,8 +408,7 @@ fun SettingsPage(vm: SettingsViewModel = viewModel(), bottomPadding: Dp = 0.dp) 
                         onClick = { aboutSheet = true },
                     )
                 }
-                // 访问 GitHub 仓库(2026-09-12;文案与图标对齐 示例文件/android 关于详情页的对应项):
-                // 跳转功能暂未接入 —— 先落入口与视觉,点击占位不做事;接入时在 onClick 内打开仓库地址
+            
                 SettingsCard(SettingsCardPosition.LAST) {
                     SettingsRow(
                         title = "访问 GitHub 仓库",
@@ -439,11 +438,6 @@ fun SettingsPage(vm: SettingsViewModel = viewModel(), bottomPadding: Dp = 0.dp) 
 
 }
 
-/**
- * 设置页顶部应用信息卡(2026-09-12 用户定稿,照参考图):
- * 左侧「AVBox」大字 + 「TVBox升级版」介绍 + 版本号圆角胶囊,右侧应用图标(ic_launcher-playstore);
- * 背景 primaryContainer → tertiaryContainer 对角渐变(随主题动态取色),28dp 圆角。
- */
 @Composable
 private fun AppInfoHeaderCard(versionName: String) {
     val scheme = MaterialTheme.colorScheme
@@ -517,7 +511,7 @@ private fun AboutSheet(versionName: String, onDismiss: () -> Unit) {
                 )
             }
             Text(
-                text = "本软件只提供聚合展示功能，所有资源来自网上，软件不参与任何内置，制作、上传、储存、下载等内容，也不接受任何捐赠、打赏、付费等谋利行为，软件仅供开源学习参考, 请于安装后24小时内删除。\n\n打包分发请保留出处\nhttps://github.com/CatVodTVOfficial/TVBoxOSC\nhttps://github.com/q215613905/TVBoxOS",
+                text = "本软件只提供聚合展示功能，所有资源均来自互联网，软件不参与任何内置、制作、上传、储存、下载等内容，也不接受任何捐赠、打赏、付费等谋利行为，软件仅供开源学习参考, 请于安装后24小时内删除。\n\n打包分发请保留出处\nhttps://github.com/CatVodTVOfficial/TVBoxOSC\nhttps://github.com/q215613905/TVBoxOS",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.padding(top = 8.dp),
@@ -540,12 +534,6 @@ private fun currentLineIndex(state: SettingsState): Int {
 /** 项目仓库地址(2026-09-12 用户提供):设置页「访问 GitHub 仓库」入口跳转目标 */
 private const val GITHUB_REPO_URL = "https://github.com/XiaochangXu/AVBox"
 
-/**
- * 用系统浏览器打开外部链接。直接用隐式 Intent,不做 resolveActivity 预检:
- * Android 11+ 的包可见性限制只作用于 resolveActivity/queryIntentActivities,隐式 Intent 启动不受影响,
- * 因此无需在 Manifest 里声明 queries;预检反而会在未声明时误判"没有浏览器"。
- * 设备确实无应用可处理时捕获异常提示,不崩溃。
- */
 private fun openExternalUrl(context: Context, url: String) {
     try {
         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))

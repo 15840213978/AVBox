@@ -585,6 +585,46 @@ interface 'com.github.catvod.spider.merge.Pu' in call to
 - **遗留说明(已查,非本次问题)**:`detail` 页的"快速搜索"(`DetailActivity.startSourceSearch`)**不走这份会话缓存**,而是每次 `SearchHelper.getSourcesForSearch()` 按当前地址现取,所以不受本 bug 影响。但那里只按 `isSearchable()` 过滤、又在后续按 `isQuickSearch()` 过滤,两个口径不一致 —— 属既有行为,本次不动。
 - **验证**:新增 `SearchHelperTest` 5 例(纯判定与 Android 解耦后单测),含"部分匹配也必须判过期"这一用户实测形态;`KVDecoderTest` 20 例 + `SearchHelperTest` 5 例全过,编译通过。**真机复现路径待用户确认**(切源 → 直接搜索,应可搜到新源的全部可搜源)。
 
+## 缺陷修复(全量审查 P0×4):首页限流许可泄漏 / 直播 header 失效 / 音乐封面 NPE / 本地字幕 NPE(2026-09-13,用户"先修复p0")
+
+本轮来自一次全量代码审查(完整清单见 `.codebuddy/memory/2026-09-13.md`),按用户指示先修 4 个 P0。
+
+1. **首页分区限流许可永久泄漏**(`ui/page/HomeViewModel.kt`):`requestPartition` 原在 `launch` **之外** `loaders.getOrPut`,排队协程在 `loadHome()` release 全部 loader 之后才拿到许可,仍向「observer 已移除」的旧 loader 发请求 → 回调永不到来 → `suspendCancellableCoroutine` 续体永不 resume → `Semaphore(2)` 许可永久泄漏。触发=首页加载中切源/下拉刷新(20 分区 × 限流 2 必然排队);后果=分区永久 Loading,看门狗转 Error 后**重试同样卡死,只能杀进程**。修复=**loader 获取移进 `withPermit` 内** + 新增 `loadGeneration`(`loadHome()` 自增,旧代次协程拿到许可后直接放弃、正常归还许可)。09-12 只修了"pending 被覆盖"分支,本条是漏掉的"release 后再 request"。
+2. **直播源 header/ua 全失效(KV 迁移回归)**(`util/kv/KVKeySpec.java`):`LIVE_WEB_HEADER` 登记为 String,实际写入 `HashMap<String,String>`(`ApiConfig.loadLives`) → 读取侧 Gson 用 String 解析对象原文抛错、被 `KV.get(key)`(quiet 副本)静默吞成 null → `liveChannelHeader()` 恒 null(5 处 `setUrl` 全失 header)。修复=改注册 `TypeToken<HashMap<String,String>>` + **新增回归单测** `KVKeySpecTest.liveWebHeader_roundTripDecodesAsStringMap`(真实注册表 + KVDecoder 往返);KV spec §8 追加 R10。
+3. **音乐停止后封面回调 NPE**(`player/MusicPlaybackService.java`):Coil `onSuccess` 在服务停止(`mediaSession=null`)后仍会执行 → `buildNotification()` 取 sessionToken NPE。修复=onSuccess 先判空 return + `buildNotification()` 内 `mediaSession == null ? null : getSessionToken()` 双保险(`MediaStyle.setMediaSession(null)` 是官方支持路径)。
+4. **本地字幕拷贝期间退出详情页 NPE**(`ui/player/PlayContainer.java`):后台线程读字段 `mActivity`(hostDestroy 已置 null)→ NPE,且 catch 分支二次访问 → 二次 NPE(非主线程未捕获 = 杀进程)。修复=**Activity 快照到局部变量** + 回主线程后 `isAttached()` 再判一次;`queryDisplayName` 改为接收 activity 参数。
+
+- **验证**:`assembleDebug` BUILD SUCCESSFUL;`KVDecoderTest` 20/20 + `KVKeySpecTest` 8/8(含新增 1 例)全过;read_lints 无诊断。
+- **待真机**:装机被 `No connected devices` 阻断(测试机未连接)。真机验证点 —— ①首页加载中切源/下拉刷新,分区正常出数据、不再永久转圈;②配置了 header/ua 的直播源能正常播放(修复前 403/黑屏);③播放音乐切歌后立即停止/退页不崩;④选本地字幕后立即返回不崩。
+
+## 复查:P0 修复的新问题排查 + KV 类型注册表的 R8 验证方法(2026-09-13,用户要求"检查 p0 的另外几条修复是否引入了新的问题")
+
+- **① 首页限流(`HomeViewModel`)**:CME 回归已修(见上一条);本轮复查完整时序 —— 遍历 `loaders` 期间被唤醒的旧协程由 `loader.released` 拦下、遍历结束后被唤醒的由 `loadGeneration` 拦下,两条路径都不泄漏许可、也不请求陈旧 loader;`retryPartition/loadMorePartition/applyFilter/refreshPartitions` 均在同一代次内调用,不受影响。**结论:无新问题**。
+- **② 直播 header(`KVKeySpec`)**:类型链路三方一致(写入 `HashMap<String,String>` / 注册 `HashMap<String,String>` / 读取点期望 `HashMap`);历史落盘数据(`\u0001json:{...}`)按新类型可直接解出,无需数据迁移;全项目仅 `LivePlayActivity` 一处读取。**结论:无新问题**。
+- **③ 音乐 NPE(`MusicPlaybackService`)**:`onSuccess` 提前 return 不影响 `artwork` 赋值(赋值在其之前);`buildNotification()` 的 null 分支实际**不可达**(4 个调用点全部前置判空:onStartCommand 在 onCreate 之后 / handleIntent 已判空 / pauseForSwitch 仅服务活跃期 / onSuccess 已判空);`handleIntent` 的 ACTION_UPDATE 判空不误伤首次启动(onCreate 已建 mediaSession);`MediaStyle.setMediaSession(null)` 有官方 null 保护。**结论:无新问题**,且顺带堵住"服务停止后 `acquirePlaybackLocks` 复活持锁 + 通知复活"。
+- **④ 本地字幕(`PlayContainer`)**:Activity 快照 + 回主线程 `isAttached()` 复判;`queryDisplayName` 唯一调用点已同步改签名;主线程串行保证 `hostDestroy` 与回调不交错(`mVideoView` 置 null 在 `mActivity` 置 null 之前,但两者同在主线程一次性执行,回调不可能观察到"mActivity 非空而 mVideoView 已空"的中间态)。**结论:无新问题**。
+- **R8/泛型签名验证(方法与踩坑,重要)**:
+  - `:app:testReleaseUnitTest` **任务在当前 AGP 配置下不存在**(只有 testDebugUnitTest)→ `KVKeySpecTest` 头部注释已更新为可执行的替代验证方法。
+  - **正确方法**:`dexdump -a <classes*.dex> | findstr /C:"annotation/Signature"` —— 每个 `* extends TypeToken` 的匿名子类应显示 `VISIBILITY_SYSTEM Ldalvik/annotation/Signature; value={...}`。**实测(重新 `assembleRelease` 后的产物)KVKeySpec$1~$10 全部保留**,含本次新增的 LIVE_WEB_HEADER 项:`TypeToken<HashMap<String,String>>` ×2 + `TypeToken<HashMap<String,HashMap<String,String>>>` ×1。
+  - **⚠️ 踩坑**:**不要用"在 dex 里搜完整签名串"判断签名是否保留** —— D8 会把泛型签名**拆成片段**存储(如 `"Lcom/google/gson/reflect/TypeToken<" "Ljava/util/HashMap<" "Ljava/lang/String;" ">;>;"`),完整字符串在字符串池里不存在,直接字节搜索必然误判为"签名丢失"(本次为此白排查一轮,差点误改 proguard 规则)。
+- **验证**:`assembleRelease` BUILD SUCCESSFUL(4m10s,+本轮静态检查);`:app:testDebugUnitTest` 通过;read_lints 无诊断;临时文件(dex/dump/脚本)已清理。
+
+## 缺陷修复:预载 headers 口径统一 + 边播缓存 key 纳入 headers(2026-09-13,用户"这两个问题是否存在,如果属实请修复")
+
+两条均经代码级核实**属实**,已修复并装机。
+
+1. **预载「下一集秒开」对字符串形式 header 的源永不命中**(`PreloadCoordinator` vs `PlayContainer`):
+   - **核实**:`PreloadCoordinator.extractHeaders` 只处理 `JSONObject` 形态,而播放侧 `PlayContainer.getHeaders` → `appendHeaders` 还处理 **JSON 文本形态**(`"header":"{\"User-Agent\":\"...\"}"`)。源用字符串形式时预载侧 `headers=null`、播放侧 `headers={User-Agent:...}` → `PreloadManagerHolder.tryAcquire` 的 `keyOf(url,headers)` 不等 → 预载内存数据永不命中(日志持续 `echo-preload-miss: key mismatch`),仅剩磁盘兜底,预载带宽白花。
+   - **修复**:提取逻辑上收为 `PlayerHelper.extractPlayHeaders(JSONObject)`(+ `appendJsonHeaders` 辅助),**预载与播放共用同一实现**;`PlayContainer.getHeaders` 与 `PreloadCoordinator.extractHeaders` 均改为委托调用,删除 `PlayContainer.appendHeaders` 死代码(连 `java.util.Iterator` import 一并清掉)。
+2. **边播缓存 key 只含 uri → 跨线路串缓存**(`ExoMediaSourceHelper`):
+   - **核实**:`getCacheDataSourceFactory` 未设 `CacheKeyFactory`,走 media3 默认(key=`dataSpec.uri`)。同一 URL 配不同 Referer/UA/token 的源会互相读盘命中对方数据;且与预载侧 `keyOf(url+headers)` 口径不一致。
+   - **修复**:`getCacheDataSourceFactory(upstream, headers)` 新增 `setCacheKeyFactory(dataSpec -> dataSpec.uri + headerKeySuffix(headers))`;`headers` 取自 `getHeadersFrom(MediaItem)`(**归一化产物**:已过滤 `TVBox-Format`、值 trim),`headerKeySuffix` 用 `TreeMap(CASE_INSENSITIVE_ORDER)` 排序 + trim,格式与预载 `keyOf` 一致(`\nk:v;`)。
+   - **两侧同源论证**:预载侧 `PreloadMediaSourceFactory` 与播放侧都走 `getMediaSource(uri, headers, isCache=true)` → 同一个 `getCacheDataSourceFactory`;headers 也都由 `buildMediaItem/getHeadersFrom` 归一化 → key 逐字符一致(前提"两侧 headers 相同"由修复 1 保证)。
+   - **副作用**:旧条目(key=uri)不再被引用,随 512MB LRU 自动淘汰,**无需数据迁移**;无 headers 时保持 media3 默认行为(key=uri)不变。
+
+- **验证**:`assembleDebug`(25s)+ `installDebug`(21s,已装 V2425A)成功;read_lints 无诊断;全量单测通过。
+- **真机验证点**:①开启「下一集预载」→ 播完自动切下一集应"秒开"且有「下一集已就绪」Toast(修复前字符串 header 源只有磁盘兜底);②同一 URL 不同鉴权头的源不再互相串缓存;③开启「边播边缓存」正常播放/回拖无异常(缓存 key 变更后首次播放走冷缓存,属预期)。
+
 ## 缺陷修复:纯音频(音乐)SurfaceView 渲染洞穿 —— 快照变白/回前台透视桌面(2026-09-13,用户报三联症状)
 
 - **现象**:竖屏详情页播音乐(易听音乐,纯音频)应用内画面黑色(正常);退后台 → 多任务卡片播放器区域**变白**;从桌面回前台 → 过渡动画中播放器区域**闪烁透视到桌面**。用户实测补充:**仅 SurfaceView 渲染有此问题,TextureView 三症状全无**。
@@ -601,9 +641,82 @@ interface 'com.github.catvod.spider.merge.Pu' in call to
 - **真机验证点**:①设置保持「画面渲染: SurfaceView」播音乐 → 退后台多任务卡片播放器区域黑色(不再变白);②回前台过渡不透视桌面;③音乐后台续播正常;④正常视频画面/声音/进度正常(渲染仍走 SurfaceView);⑤切线路/清晰度/换集后音乐仍正常。
 - **已知限制(未覆盖)**:直播页(广播类纯音频频道)不在本次修复范围(LivePlayerManager 独立链路);无后缀的音频直链/代理地址在轨道信息就绪前有短暂 Surface 窗口(秒级)。
 
+### 补修:纯音频热切 TextureView 后不恢复渲染类型(2026-09-13,用户核实并要求修复)
+
+> ⚠️ 本节**更正上一节的一个错误认知**:上文"换集/换源下次 `updateCfg` 按用户设置恢复渲染类型,影视不受影响"在 **reusePlayer 路径不成立**(见下)。
+
+- **核实(属实)**:`VideoView.addDisplay()` 是**唯一**的渲染视图重建入口(移除旧视图 + 按当前工厂新建;全部调用点仅 `startPlay():(216)` 与手动 `MyVideoView.switchRenderToTexture(:124)`),而 `replay(false)` 的两个分支(`keepRenderViewOnReset()` → `startPrepare(false)`;普通 → `startPrepare(true,true)` 只 rebind)**都不调用它**。于是:纯音频把渲染热切成 TextureView 后,换到有视频的集走 reusePlayer 路径 → `PlayerHelper.updateCfg` 只改工厂、不重建视图 → **后续视频集继续留在 TextureView 渲染**,与「画面渲染」设置不符。
+- **修复(双向对齐)**:
+  1. `MyVideoView.ensureRenderViewMatchesConfig()`(新增):`mRenderView == null` 直接返回(留给下次 `start()` 创建);否则比较"工厂期望类型"(`!(mRenderViewFactory instanceof TextureRenderViewFactory)`)与"实际类型"(`isSurfaceRenderActive()`),**不一致才 `addDisplay()` 重建** —— 类型一致(绝大多数场景)时零开销、无闪烁。
+  2. `PlayContainer.ensureAudioOnlyRender()` 扩为双向:确定纯音频 → Texture(既有);**确定有视频轨 → `ensureRenderViewMatchesConfig()` 恢复用户设置**(新增);轨道信息未知(null)两边都不动,避免误切。
+  - 调用时机仍是 STATE_PLAYING 钩子(轨道信息已就绪、`showVideoFrame()` 已先执行,层级无冲突)。
+- **安全性核对**:`addDisplay()` 复用既有热切换路径(纯音频 Surface→Texture 已实测) —— 旧视图 `removeView` 触发 surfaceDestroyed→`setDisplay(null)`、新视图 attachToPlayer + surfaceCreated→setDisplay,Exo/IJK 均安全;artwork/frameCover 层级不受影响(新 RenderView 固定插 index 0,二者此时均已隐藏)。
+- **验证**:`assembleDebug` + `installDebug` + 单测 BUILD SUCCESSFUL(35s);read_lints 无诊断。
+- **真机验证点**:①先播一首音乐(纯音频)→ 切到有视频的剧集 → 画面应为 SurfaceView 渲染(与「画面渲染」设置一致;修复前保持 Texture);②纯音频→纯音频、视频→视频不受影响(不触发重建);③设置选 TextureView 时任何切换都不重建(期望=实际)。
+
+## 缺陷修复:WebView 嗅探共享集合并发竞争 + 「清除缓存」不再直删在用 SimpleCache(2026-09-13,用户"一起做吧")
+
+两条均为此前全量审查中"属实但未修"的项,一并修复并装机。
+
+1. **WebView 嗅探回调与主线程共享集合(数据竞争)**:
+   - **事实**:`shouldInterceptRequest` 的官方 javadoc 明确"在非 UI 线程调用"且**不承诺串行**;`PlayContainer` 的三个共享集合(`loadedUrls` HashMap、`loadFoundVideoUrls` LinkedList、`loadFoundVideoUrlsHeader` HashMap)同时被网络线程(写)与主线程(读/重建)访问且**零同步** → 嗅探地址丢失、header 读不一致 → 解析随机失败(极端时集合损坏抛异常)。
+   - **修复**:换并发容器 —— `loadedUrls`/`loadFoundVideoUrlsHeader` → `ConcurrentHashMap`;`loadFoundVideoUrls` → `ConcurrentLinkedQueue`(字段改 `volatile Queue<>`:因 `initParseLoadFound()` 会替换引用,volatile 保证网络线程立即可见新对象);`autoRetryFromLoadFoundVideoUrls` 补 `videoUrl == null` 判空(**ConcurrentHashMap 不接受 null 键**,旧 HashMap 允许);`size() > 0` → `!isEmpty()`(O(1) 且弱一致下更准确);删 `java.util.LinkedList` import。
+   - **顺带核实(非问题)**:`stopLoadWebView`(网络线程调用)内部已用 `runOnUiThread` 包住 WebView 操作;`mHandler.removeMessages` 跨线程调用是 Handler 线程安全操作;`playUrl` 走 `EventBus.post` + `runOnUiThread`。
+
+2. **「清除缓存」不再直接删除在用 SimpleCache 目录(方案 C:下次启动清理)**:
+   - **事实**:`clearCache()` 会删除 `exo-video-cache`(含 `cached_content_index.exi`),而进程级共享 `SimpleCache` 常驻不 release → 内存索引与磁盘失配(有 `FLAG_IGNORE_CACHE_ON_ERROR` 兜底不崩,但缓存命中率退化到进程结束)。
+   - **方案取舍**:A.release+重建 ❌(播放中 release 会让播放器后续 `startReadWrite` 断言失败 → IllegalStateException,比现状更糟);B.跳过不删 ✅但不彻底;**C.下次启动清理(采用)**。
+   - **实现**:`FileUtils.clearCache()` 改为 ①先写"待清理"标记 → ②删除内部缓存(逐项、跳过 `exo-video-cache`——外部存储不可用时 Exo 会回落到内部) → ③删除外部缓存(跳过 `config` 用户数据与 `exo-video-cache`);新增 `FileUtils.purgeExoCacheIfPending()`(无标记时仅一次 `exists()` 检查 = 零开销;有标记时删除目录,"清空才清标记,否则恢复标记待下次重试");`App.onCreate` 在 `cleanPlayerCache()` 后用后台线程调用(`exo-cache-purge`,**必须早于首次 `getSharedCache`**)。
+   - **已知取舍**:点完"清除缓存"后设置页占用**仍包含** exo 视频缓存(下次启动后归零)—— 换取了"播放中清缓存不中断播放"的安全性。
+
+- **验证**:`assembleDebug` + `installDebug` + 单测 BUILD SUCCESSFUL(30s,已装 V2425A);read_lints 无诊断。
+- **真机验证点**:①需 WebView 嗅探的解析源连续使用,不再出现"获取播放地址为空"类随机失败;②设置页「清除缓存」正常;③清缓存后**下次启动**再看占用,exo 视频缓存已归零;④清缓存期间正在播放的视频不中断。
+
+### 复查修正(2026-09-13,用户"审查一下是否引入了错误")
+
+- **结论**:并发容器替换本身无错(编译通过、语义等价、`initParseLoadFound` 替换引用 + volatile 可见性成立),但复查发现 3 处需加固:
+  1. **`poll()` 返回 null 的下游 NPE(本轮 volatile 改动放大了触发面)**:字段改 volatile 后,`add` 与 `poll` 两次读之间若被 `initParseLoadFound()` 替换引用,网络线程的 poll **必然**落到新(空)队列 → 返回 null → `CookieManager.getCookie(null)` / `playUrl(null)` 在 `url.startsWith` 处 **NPE**(WebView 网络线程未捕获 = 进程崩溃)。修复:`checkIsVideo` poll 后 `if (url == null) return null;`(放弃本次拦截;`stopLoadWebView` 已把 WebView 导航到 about:blank)。
+  2. **`autoRetryFromLoadFoundVideoUrls` 判空不完整**(上一轮只护了 header 查表):调用方只判 `isEmpty()`,检查与 poll 之间队列仍可能被消费/重置 → `playUrl(null)` 主线程 NPE。修复:poll 后 `if (videoUrl == null) return;`。
+  3. **`purgeExoCacheIfPending` 标记清理顺序**:原"先删标记、失败再写回"在被杀(清缓存后下次启动、删除中转瞬退出)时会丢标记,残留不再清理。改为**清理确认完成后才删标记**(失败/被杀均保留标记,下次启动继续)。
+- **顺带增强**:`LOG.FILE_LOG_PREFIXES` 增加 `"echo-exo-cache"` —— purge 的 start/done/incomplete 三条事件日志可落盘 `files/preload_debug.log`(此前该前缀不在白名单,且本机 ROM 抓不到 logcat,无法真机验证该功能)。
+- **验证**:`assembleDebug` + `installDebug` + 单测 BUILD SUCCESSFUL(41s,已装 V2425A);read_lints 无诊断。
+
 ## 缺陷修复:真机两起崩溃(2026-09-13,用户报"应用刚刚是不是发生了崩溃",crash buffer 抓到)
 
 - **崩溃①(11:52,旧构建)**:`NullPointerException: JSONObject.getInt on null` ← `PlayContainer.getSavedProgress` 读 `mVodPlayerCfg.getInt("st")` 为 null(原 try 只 catch `JSONException`,NPE 直接穿透);触发链 = 详情页**中央播放键**(`PlayerCenterControls → onPlayPauseClicked → ControlWrapper.togglePlay → start() → startPlay → ProgressManager.getSavedProgress`),即 `setInitBundle` 之前的空窗期点中央播放。**修复**:`st = (mVodPlayerCfg == null) ? 0 : mVodPlayerCfg.optInt("st", 0)`(顺手用 optInt 免掉 try/catch),空窗期点击不崩、片头跳过按 0 处理。
 - **崩溃②(12:39,新构建)**:`IllegalArgumentException: Key "玩偶|131202" was already used` ← 详情页**相关推荐 LazyRow**(`RelatedSection` 的 item key = `sourceKey|id`)。根因:`DetailViewModel` 聚合搜索回调里 `relatedVideos.value = relatedVideos.value + related` **多源追加不去重**,同一 sourceKey|id 出现两次(玩偶源返回重复条目)即撞 key 闪退。**修复**:追加前按 `candidateKey(sourceKey|id)` 去重(`mapTo(HashSet)` 建 seen 集 + `seen.add` 过滤,同源同 id 留第一条;每次搜索 `relatedVideos` 重置,seen 随之重建)。
 - **与渲染修复无关**:两处崩溃路径均不在纯音频渲染修复的改动范围(装机构建时间线佐证:崩溃①在 12:19:32 装机前、②在其后但属既有缺陷)。
 - **验证**:`:app:assembleDebug` BUILD SUCCESSFUL。真机复测点:①详情页加载完成前立刻点中央播放键不崩;②滚动/等待相关推荐加载不崩(玩偶源可复现时);③相关推荐无重复卡片。
+
+## 缺陷修复:搜索页两处竞态(2026-09-13,用户"这个问题是否属实"→"修复")
+
+用户对全量审查清单里的两条竞态质询真伪,逐环核实**均属实**(竞态、非必现),随后修复并装机。
+
+1. **跨实例 token 撞号 → 旧搜索的迟到结果写进新一轮列表(用户可感知)**:
+   - **事实**:`token` 是 `SearchViewModel` **实例字段**(实例内自增、从 0 起步)⇒ **每个新实例的首搜 token 都是 "1"**;而结果经**进程级 EventBus** 分发(`SourceViewModel` 的 `xml/json/postEmptySearchResult` 在 `searchResult == result` 时 `EventBus.post(TYPE_SEARCH_RESULT, data)`,`data.searchToken` 即传入 token)。旧实例退出只做 `unregister` + `viewModelScope` 取消 —— **不会中断** type=3 的阻塞爬虫(`JsSpider.call` 是 `pending.get(CALL_TIMEOUT_MS)` 阻塞等待,最长约 30s;`JsLoader.stopAll()` 只是 `spider.cancelByTag()` 按 tag 取消 HTTP),跑完照常 post。新实例的 `onSearchResultEvent` 只校验 token 字符串 ⇒ A 的 "1" == B 的 "1" 通过校验 → `updateResult` 把 A 的结果写进 B 的列表(B 已出结果时被 A 覆盖,持久到下次重搜)。
+   - **修复**:`token` 取值改为**进程级自增**(`companion` 内 `AtomicInteger SEARCH_SEQ`;`search()` 里 `token = SEARCH_SEQ.incrementAndGet()`)⇒ 跨实例永不复用,旧实例迟到事件的 token 校验必然失败被丢弃;同实例内 `myToken != token` 的"旧轮次作废"语义不变。
+2. **旧轮 finally 误删新一轮同源表项 → 该源空转 30s、进度条不消失**:
+   - **事实**:新一轮先 `complete` 旧表项 + `clear()` 再按源重新登记;旧轮协程的 `finally { pendingSources.remove(bean.key) }` **一参删除、只认 key**。旧轮某源若正卡在阻塞的 `getSearch`(许可仍在手),其 finally 会**晚于**新一轮把同源表项放回 Map 之后才执行 → 删掉新一轮的表项 → 该源结果到达时 `pendingSources.remove(sourceKey)?.complete(Unit)` 返回 null、deferred 永不完成 → 只能等 `withTimeoutOrNull(30s)` 超时 → `awaitAll` 推迟 → `running=false` 推迟(结果其实已显示,但顶部波浪进度条继续转),该源还白占一个许可。
+   - **修复**:`finally { pendingSources.remove(bean.key, done) }` —— `ConcurrentHashMap` **二参删除**,只在值仍是「本轮那份」deferred 时才移除,跨轮误删不可能再发生。
+3. **同类外溢一并修复:`DetailActivity` 聚合搜索(复查"是否引入新错误"时发现的既有缺陷)**:
+   - 详情页可**叠加**(相关推荐卡片 → `jumpToDetail` → 普通 `startActivity`,旧实例不销毁、聚合搜索协程继续跑并 post),而它的 token 是 `"detail_"` + 实例内自增 ⇒ 两实例首搜都是 `detail_1` → 旧实例迟到结果通过新实例校验(`DetailActivity.kt:651`)→ 新实例「相关推荐」混入另一部片名的搜索结果(返回旧实例反向同样被污染)。
+   - **修复**:`DetailViewModel.searchToken` 取值改进程级自增(companion `AtomicInteger SEARCH_SEQ`;`"detail_"` 前缀不变)⇒ 跨实例不复用。其 `pendingSearchDone.remove(bean.key)`(一参)因三处 `startSourceSearch()` 调用点都有"不并发"守卫、无跨轮重叠,维持不动。
+- **验证**:`assembleDebug` + `installDebug` + 单测 BUILD SUCCESSFUL(页面竞态修复 28s;DetailActivity 补充修复后 30s);read_lints 无诊断。
+- **真机复测点**:①搜索 A → 退出搜索页 → 重进搜 B:B 的列表不应出现 A 的结果、也不应被 A 的迟到结果覆盖(需慢源,如 type=3 爬虫);②连续快速重搜(上一轮有慢源):结果出全后顶部进度条应及时消失(不再悬挂约 30s)。
+
+## 缺陷修复:M3U8 去广告内容改「带键槽位」(2026-09-13,用户质询"是否属实"→选"完整方案")
+
+用户对全量审查清单 ⑥ 质询真伪,逐环核实**属实但低概率/后果有限**,随后按用户选择的完整方案修复并装机。
+
+- **核实结论**:
+  - 机制属实:`RemoteServer.m3u8Content` 是 **`public static` 非 volatile 的无参单槽**;`M3u8PurifyUseCase` 每次净化都覆盖(**连无广告走直链的集也写**,窗口比原判断更大);`proxyUrl = getAddress(true) + "proxyM3u8"` **不带任何身份参数**;服务端 `startsWith("/proxyM3u8")` 无校验直接吐当前值 ⇒ 切集后旧播放器的重试/重连/切内核重拉会拿到"最后一次净化"的新一集列表。
+  - 严重性有限:`/proxyM3u8` 的**唯一消费者是本机播放器**(投屏 `getCastUrl` 会把代理 URL 换回 source URL;`/proxy?type=m3u8&url=` 那条路本就请求级无状态),旧播放器重拉又多发生在切换瞬间 ⇒ 现实后果多为一次瞬时错误,而非持续串集。
+  - 可见性一条修正:无同步/无 volatile 属实(JMM 无 happens-before),但写侧是 **OkGo 回调(默认主线程)** 而非工作线程;写读之间隔着 socket I/O ⇒ 陈旲读现实不可见,属理论问题。
+- **修复(完整方案)**:
+  1. `M3u8PurifyUseCase.processM3u8Content`:**只在真正走代理时才写入**(无广告不再无谓覆盖在播集槽位);`proxyUrl` 拼 `?k=<key>`;
+  2. `RemoteServer`:`public static String m3u8Content` → **带键槽位**(访问序 LRU,保留最近 4 条):`putM3u8Content(content)` 返回键、`getM3u8Content(key)` 按键取(同步化,顺带消除无 volatile 的可见性问题);
+  3. `/proxyM3u8` 读 `?k=`:**键缺失/不匹配返 404**(旧播放器走既有失败链路),命中才吐内容。
+  - **为什么用 4 槽 LRU 而非严格单键**:自动重试(autoRetry)会重放 `webPlayUrl`(带旧键的代理 URL),严格单键会让"同一集重试"在净化重入后 404 成环;LRU 保证在播集反复重拉始终命中。
+- **回归面核对**:`isM3u8ProxyUrl`(等值比较,proxyUrl 双方同为带 k 的字符串)✓;`getCastUrl`(仍能识别代理 URL 并换回 source)✓;`playUrl` 的 `startsWith("http://127.0.0.1")` 直通分支不受影响 ✓;进程重启后重新净化产生新键 ✓;无任何持久化 ✓。
+- **验证**:`assembleDebug` + `installDebug` + 单测 BUILD SUCCESSFUL(30s);read_lints 无诊断。
+- **真机复测点**:①带广告的 m3u8 源正常去广告播放(提示"已移除视频广告 N 条");②同一集内切内核/重试仍能正常播放(旧键仍有效);③快速切集后不出现"上一集/下一集画面串台";④投屏该源仍推送原始播放地址(不经本地代理)。

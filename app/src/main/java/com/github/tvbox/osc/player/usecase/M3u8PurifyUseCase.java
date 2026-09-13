@@ -112,12 +112,15 @@ public final class M3u8PurifyUseCase {
 
     private void processM3u8Content(String url, String content, HashMap<String, String> headers) {
         String basePath = getBasePath(url);
-        RemoteServer.m3u8Content = M3u8.purify(basePath, content);
-        if (RemoteServer.m3u8Content == null || M3u8.currentAdCount == 0) {
+        String purified = M3u8.purify(basePath, content);
+        // 2026-09-13:只在真正走代理时才写入内容槽 —— 无广告(走直链)的集不写,
+        // 避免把在播集的槽位冲掉;proxyUrl 带本次生成的键(?k=),服务端按键取内容
+        if (purified == null || M3u8.currentAdCount == 0) {
             LOG.i("echo-m3u8内容解析：未检测到广告");
             callback.startPlayUrl(url, headers);
         } else {
-            String proxyUrl = ControlManager.get().getAddress(true) + "proxyM3u8";
+            String key = RemoteServer.putM3u8Content(purified);
+            String proxyUrl = ControlManager.get().getAddress(true) + "proxyM3u8?k=" + key;
             callback.onM3u8ProxyUrl(proxyUrl, url);
             callback.startPlayUrl(proxyUrl, headers);
             Toast.makeText(context, "已移除视频广告 " + M3u8.currentAdCount + " 条", Toast.LENGTH_SHORT).show();

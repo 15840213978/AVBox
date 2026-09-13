@@ -16,12 +16,15 @@ import com.github.tvbox.osc.player.thirdparty.RemoteTVBox;
 import com.github.tvbox.osc.player.thirdparty.VlcPlayer;
 import com.github.tvbox.osc.util.KV;
 
+import android.text.TextUtils;
+
 import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.text.DecimalFormat;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Iterator;
 
 import tv.danmaku.ijk.media.player.IjkLibLoader;
 import xyz.doikki.videoplayer.player.PlayerFactory;
@@ -181,6 +184,63 @@ public class PlayerHelper {
                 return new IjkMediaPlayer(context, codec);
             }
         });
+    }
+
+    /**
+     * 本地代理 URL 判定(2026-09-13):spider 自建代理(网盘)/M3U8 净化/DASH 代理都是
+     * 127.0.0.1 上 App 内服务的地址,不是稳定的可随机访问 HTTP 文件源。
+     * 边播缓存的 CacheDataSource 与这类 URL 的区间读取语义不兼容 —— 实测夸克 4K mp4 源
+     * 需跳读文件尾 moov 时抛 ERROR_CODE_IO_READ_POSITION_OUT_OF_RANGE,EXO 直接无法起播
+     * (关掉边播缓存即恢复正常);直连 URL(可随机访问)不受影响。
+     * 故这类 URL 跳过磁盘缓存,与预载侧 PreloadCoordinator 的排除口径一致。
+     */
+    public static boolean isLocalProxyUrl(String url) {
+        if (url == null) return false;
+        return url.startsWith("http://127.0.0.1") || url.startsWith("https://127.0.0.1")
+                || url.startsWith("http://localhost") || url.startsWith("https://localhost");
+    }
+
+    /**
+     * 从 getPlay 结果 JSON 提取请求头(header/headers 字段,兼容 JSONObject 与 JSON 文本两种形态)。
+     *
+     * <p>2026-09-13 修复:预载({@code PreloadCoordinator.extractHeaders})与播放
+     * ({@code PlayContainer.getHeaders})必须共用本方法 —— 此前预载侧只认 JSONObject、
+     * 播放侧还认 String,源返回 {@code "header":"{\"User-Agent\":\"...\"}"} 时两侧的
+     * {@code keyOf(url,headers)} 不一致,预载内存数据永不命中(仅剩磁盘兜底)。
+     *
+     * @return 提取到的请求头(键值均原样保留,不 trim);无任何头时返回 null(与旧实现语义一致)
+     */
+    public static HashMap<String, String> extractPlayHeaders(JSONObject playResult) {
+        if (playResult == null) return null;
+        HashMap<String, String> headers = new HashMap<>();
+        appendJsonHeaders(headers, playResult.opt("header"));
+        appendJsonHeaders(headers, playResult.opt("headers"));
+        return headers.isEmpty() ? null : headers;
+    }
+
+    /** 合并单个 header(s) 字段:接受 JSONObject 或 JSON 文本;非法内容静默跳过(保持旧行为) */
+    public static void appendJsonHeaders(HashMap<String, String> headers, Object rawHeaders) {
+        if (headers == null || rawHeaders == null || rawHeaders == JSONObject.NULL) return;
+        try {
+            JSONObject json = null;
+            if (rawHeaders instanceof JSONObject) {
+                json = (JSONObject) rawHeaders;
+            } else if (rawHeaders instanceof String) {
+                String text = ((String) rawHeaders).trim();
+                if (!TextUtils.isEmpty(text)) {
+                    json = new JSONObject(text);
+                }
+            }
+            if (json == null) return;
+            Iterator<String> keys = json.keys();
+            while (keys.hasNext()) {
+                String key = keys.next();
+                if (!TextUtils.isEmpty(key)) {
+                    headers.put(key, json.optString(key, ""));
+                }
+            }
+        } catch (Throwable ignored) {
+        }
     }
 
     public static String getPlayerName(int playType) {

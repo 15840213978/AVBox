@@ -149,6 +149,13 @@ class SearchViewModel : ViewModel() {
     /** 热搜榜:豆瓣当日热播片名 Top10(KV 缓存 home_hot/home_hot_day,当日有效) */
     val hotSearch = MutableStateFlow<List<String>>(emptyList())
 
+    /**
+     * 本轮搜索编号(仅本实例内比较;取值 = 进程级自增 [SEARCH_SEQ])。
+     * ⚠️ 不能用实例内自增(从 0 起步):每个新实例的首搜都会是 "1",而结果经**进程级 EventBus**
+     * 分发、旧实例的迟到任务(退出只 unregister+取消 viewModelScope,不会中断 type=3 阻塞爬虫)
+     * 也会 post —— 旧实例的 "1" 会通过新实例首搜(token="1")的 token 校验,把 A 的结果写进 B
+     * 的列表(2026-09-13 修复)。
+     */
     private var token = 0
     // 搜索线程数(2026-09-12):设置页滑块可调(16/32/48/64),search() 入口对比 KV 变化后重建;
     // 旧协程持有旧实例引用,release 后旧实例即被 GC,无泄漏
@@ -158,6 +165,12 @@ class SearchViewModel : ViewModel() {
     private val scope = viewModelScope
 
     companion object {
+        /**
+         * 进程级搜索序号:token 跨实例(跨搜索页)不复用的保证 —— 旧实例的迟到结果
+         * 必然与新实例的 token 不等,被 [onSearchResultEvent] 的 token 校验丢弃。
+         */
+        private val SEARCH_SEQ = java.util.concurrent.atomic.AtomicInteger(0)
+
         /** 单源超时:与 SourceViewModel 内部 future.get(30s) 约定一致 */
         private const val SEARCH_TIMEOUT_MS = 30_000L
 
@@ -274,7 +287,8 @@ class SearchViewModel : ViewModel() {
             semaphorePermits = configured
             semaphore = Semaphore(configured)
         }
-        token += 1
+        // 进程级自增:保证跨实例(退出重进后)的 token 不复用,旧实例迟到结果会被校验丢弃
+        token = SEARCH_SEQ.incrementAndGet()
         val myToken = token
         val tokenStr = myToken.toString()
         searchedTitle.value = t
@@ -325,7 +339,12 @@ class SearchViewModel : ViewModel() {
                                     done.await()
                                 }
                             } finally {
-                                pendingSources.remove(bean.key)
+                                // 二参删除:只在值仍是「本轮那份」deferred 时才移除。
+                                // 一参 remove(key) 会误删新一轮登记的同源表项 —— 旧轮慢源的 finally
+                                // 可能晚于新一轮登记才执行(它卡在阻塞的 getSearch 里)⇒ 新一轮该源的
+                                // deferred 永不完成,只能等 withTimeoutOrNull(30s) 超时,running 迟迟
+                                // 不置 false、顶部进度条不消失(2026-09-13 修复)
+                                pendingSources.remove(bean.key, done)
                             }
                         }
                     }

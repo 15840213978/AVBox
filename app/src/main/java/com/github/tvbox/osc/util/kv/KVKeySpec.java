@@ -78,7 +78,6 @@ public final class KVKeySpec implements KVDecoder.TypeRegistry {
         register(HawkConfig.LIVE_CHANNEL, "");
         register(HawkConfig.DOH_JSON, "");
         register(HawkConfig.LIVE_API_URL, "");
-        register(HawkConfig.LIVE_WEB_HEADER, "");
         register(HawkConfig.NOW_DATE, "");
         register(HawkConfig.REMOTE_TVBOX, "");
         register(HawkConfig.DANMU_API, "");
@@ -162,6 +161,11 @@ public final class KVKeySpec implements KVDecoder.TypeRegistry {
         register(HawkConfig.LIVE_GROUP_LIST, TypeToken.get(JsonArray.class));
 
         // ---- 映射 ----
+        // 直播源配置的 header/ua:ApiConfig 写入的就是 HashMap<String,String>(KV.put),
+        // 这里必须登记同一类型 —— 此前登记成 String,读取侧 Gson 用 String 解析对象原文直接抛错,
+        // 又被 KV.get(key)(quiet 副本)静默吞成 null,症状=直播源配置的 UA/Referer/header 全部失效
+        register(HawkConfig.LIVE_WEB_HEADER, new TypeToken<HashMap<String, String>>() {
+        });
         // 源级卡片点击策略:HashMap<sourceKey, "detail">
         register(HawkConfig.SOURCE_CARD_POLICY, new TypeToken<HashMap<String, String>>() {
         });
