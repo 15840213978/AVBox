@@ -2,9 +2,6 @@
 agp = "9.3.2"
 chaquopy = "17.0.0"
 compileSdk = "37"
-# NDK:本模块不编译原生代码,声明它只为让 AGP 找到 llvm-strip —— 否则 strip(DebugSymbols)
-# 任务会因缺少工具而"原样拷贝",未剥离符号的 .so 直接进 APK(如 androidx.sqlite:sqlite-bundled
-# 带来的 libsqliteJni.so,arm64 下单文件 1.25MB)。版本取本机已安装的稳定版。
 ndk = "27.2.12479018"
 minSdk = "24"
 targetSdk = "37"
@@ -26,14 +23,10 @@ okhttp = "5.5.0"
 room = "3.0.3"
 androidxSqlite = "2.7.1"
 okio = "3.18.2"
-# 背景:旧 Hawk 2.0.1(停更)用匿名 TypeToken 捕获类型变量推集合元素类型,在 gson 2.13+ 直接抛异常,
-# 故曾把 gson 锁在 2.10.1。2026-09-13 KV(MMKV)迁移完成、Hawk 与迁移代码全部移除后该约束消失 ——
-# KV 侧只使用稳定 API(`TypeToken.get(...)` / 显式 Type),不依赖任何 gson 内部实现。
 gson = "2.14.0"
 autosize = "1.2.1"
 xstream = "1.4.21"
 eventbus = "3.3.1"
-# KV 存储(2026-09-13 起为唯一实现):mmap + protobuf 编码,单进程模式不加密(见 avbox-kv-mmkv-spec §4.4)
 mmkv = "2.4.2"
 junit = "4.13.2"
 danmakuFlameMaster = "0.9.25"
@@ -42,23 +35,14 @@ xxPermissions = "28.3"
 jsoup = "1.23.2"
 commonsIo = "2.22.0"
 juniversalchardet = "1.0.3"
-# zxing:爬虫 jar 运行期要用 com.google.zxing.*(生成二维码),宿主源码"零引用"属正常,勿当孤儿依赖删。
 zxingCore = "3.5.4"
-# 脱糖:minSdk 24 下把 java.time / java.util.stream / java.nio.file 改写为 j$ 实现(防低版本 NoClassDefFoundError);
-# 选 nio 变体(对齐参考工程 fongmi),D8 按需打包。
 desugarJdkLibs = "2.1.5"
-# ⚠️ 不要给宿主加 slf4j(2026-09-12 实测,已加过又撤回):爬虫 jar 已把 slf4j-api shade 进混淆包,
-# 宿主提供标准绑定时类型不匹配 → IncompatibleClassChangeError;什么都不加时它正常回落到 NOP。
-# player: media3 1.11.1 + jellyfin ffmpeg 软解 1.9.0+1(上游最高,未跟进 1.11);
-# 已 javap 核对 DecoderAudioRenderer/SimpleDecoder 等抽象方法签名一致,兼容(2026-09-13,1.11.1 为 1.11.0 补丁版,ABI 不变)。
 media3 = "1.11.1"
 media3FfmpegDecoder = "1.9.0+1"
 androidxAnnotation = "1.10.0"
 dkplayerUi = "3.3.7"
 quickjsWrapper = "3.2.3"
 composeBom = "2026.09.00"
-# material3 必须留在 1.5.0 通道:项目用了 ContainedLoadingIndicator / rememberBottomSheetState /
-# Modifier.pullToRefresh 等 expressive API(@ExperimentalMaterial3ExpressiveApi),1.4.0 稳定版没有。
 material3 = "1.5.0-alpha28"
 androidxActivityCompose = "1.13.0"
 androidxLifecycleRuntime = "2.11.0"
