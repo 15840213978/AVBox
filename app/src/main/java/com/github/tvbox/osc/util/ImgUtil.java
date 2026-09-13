@@ -14,7 +14,6 @@ import android.widget.ImageView;
 import coil3.SingletonImageLoader;
 import coil3.request.Disposable;
 import coil3.request.ImageRequest;
-import coil3.target.ImageViewTarget;
 
 import com.github.tvbox.osc.api.ApiConfig;
 import com.github.tvbox.osc.base.App;
@@ -26,8 +25,6 @@ import java.util.Random;
 
 import android.util.LruCache;
 import me.jessyan.autosize.utils.AutoSizeUtils;
-
-import static coil3.Image_androidKt.asImage;
 
 public class ImgUtil {
     // BugReview #25:无界静态缓存,每张占位图约 170KB(180x240 ARGB_8888),长列表浏览累积数百 MB;
@@ -88,29 +85,6 @@ public class ImgUtil {
         String base64Data = base64Str.substring(base64Str.indexOf(",") + 1);
         byte[] decodedBytes = android.util.Base64.decode(base64Data, android.util.Base64.DEFAULT);
         return BitmapFactory.decodeByteArray(decodedBytes, 0, decodedBytes.length);
-    }
-
-    /**
-     * 播放器封面等 View 体系加载入口(MyVideoView artwork)。
-     * Coil 单例(VodImages.init 注册)的网络拦截器负责剥离 url 的
-     * @Headers= / @Cookie= / @User-Agent= / @Referer= 附加参数并注入请求头。
-     */
-    public static void load(String url, ImageView view, int roundingRadius, int newWidth, int newHeight, String label, ImageView.ScaleType scaleType) {
-        view.setScaleType(scaleType);
-        if (roundingRadius <= 0) roundingRadius = 1;
-        Drawable fallback = createTextDrawable(TextUtils.isEmpty(label) ? "TVBox" : label, newWidth, newHeight, roundingRadius);
-        Drawable placeholder = createImagePlaceholderDrawable(newWidth, newHeight, roundingRadius);
-        if (isInvalidImageUrl(url)) {
-            view.setImageDrawable(fallback);
-            return;
-        }
-        ImageRequest request = new ImageRequest.Builder(App.getInstance())
-                .data(url)
-                .placeholder(asImage(placeholder))
-                .error(asImage(fallback))
-                .target(new ImageViewTarget(view))
-                .build();
-        SingletonImageLoader.get(App.getInstance()).enqueue(request);
     }
 
     /**
@@ -194,29 +168,6 @@ public class ImgUtil {
         float x = width / 2f;
         float y = (height - fontMetrics.bottom - fontMetrics.top) / 2f;
         canvas.drawText(text, x, y, paint);
-        Drawable drawable = new BitmapDrawable(App.getInstance().getResources(), bitmap);
-        drawableCache.put(key, drawable);
-        return drawable;
-    }
-
-    private static Drawable createImagePlaceholderDrawable(int width, int height, float cornerRadius) {
-        if (width <= 0) width = 180;
-        if (height <= 0) height = 240;
-        if (cornerRadius <= 0) cornerRadius = 1;
-        String key = "placeholder_" + width + "x" + height + "_" + (int) cornerRadius;
-        Drawable cached = drawableCache.get(key);
-        if (cached != null) return cached;
-
-        Bitmap bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
-        Canvas canvas = new Canvas(bitmap);
-
-        Bitmap icon = BitmapFactory.decodeResource(App.getInstance().getResources(), com.github.tvbox.osc.R.drawable.icon_img_placeholder);
-        if (icon != null) {
-            float left = (width - icon.getWidth()) / 2f;
-            float top = (height - icon.getHeight()) / 2f;
-            canvas.drawBitmap(icon, left, top, null);
-        }
-
         Drawable drawable = new BitmapDrawable(App.getInstance().getResources(), bitmap);
         drawableCache.put(key, drawable);
         return drawable;

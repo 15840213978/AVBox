@@ -78,7 +78,6 @@ public final class KVKeySpec implements KVDecoder.TypeRegistry {
         register(HawkConfig.LIVE_CHANNEL, "");
         register(HawkConfig.DOH_JSON, "");
         register(HawkConfig.LIVE_API_URL, "");
-        register(HawkConfig.NOW_DATE, "");
         register(HawkConfig.REMOTE_TVBOX, "");
         register(HawkConfig.DANMU_API, "");
         register(HawkConfig.THEME_PALETTE_STYLE, "");
@@ -91,7 +90,6 @@ public final class KVKeySpec implements KVDecoder.TypeRegistry {
         register(HawkConfig.PLAY_RENDER, 0);
         register(HawkConfig.PLAY_SCALE, 0);
         register(HawkConfig.LIVE_PLAY_SCALE, 0);
-        register(HawkConfig.PLAY_TIME_STEP, 0);
         register(HawkConfig.DOH_URL, 0);
         register(HawkConfig.HISTORY_NUM, 0);
         register(HawkConfig.LIVE_CONNECT_TIMEOUT, 0);
@@ -118,7 +116,6 @@ public final class KVKeySpec implements KVDecoder.TypeRegistry {
         register(HawkConfig.LIVE_CHANNEL_REVERSE, false);
         register(HawkConfig.LIVE_CROSS_GROUP, false);
         register(HawkConfig.LIVE_SHOW_NET_SPEED, false);
-        register(HawkConfig.LIVE_SHOW_RESOLUTION, false);
         register(HawkConfig.LIVE_SHOW_TIME, false);
         register(HawkConfig.IJK_CACHE_PLAY, false);
         register(HawkConfig.M3U8_PURIFY, false);
@@ -146,8 +143,6 @@ public final class KVKeySpec implements KVDecoder.TypeRegistry {
         });
         register(HawkConfig.API_HISTORY, new TypeToken<ArrayList<String>>() {
         });
-        register(HawkConfig.EPG_HISTORY, new TypeToken<ArrayList<String>>() {
-        });
         register(HawkConfig.LIVE_API_HISTORY, new TypeToken<ArrayList<String>>() {
         });
         register(HawkConfig.API_LINE_LIST, new TypeToken<ArrayList<String>>() {
@@ -171,6 +166,9 @@ public final class KVKeySpec implements KVDecoder.TypeRegistry {
         });
         // 嵌套泛型:HashMap<点播源地址, HashMap<sourceKey, "1">>,读侧必须显式 Type
         register(HawkConfig.SOURCES_FOR_SEARCH, new TypeToken<HashMap<String, HashMap<String, String>>>() {
+        });
+        // 源名快照:HashMap<sourceKey, 源显示名>,写入值实际类型必须与登记一致(教训 LIVE_WEB_HEADER)
+        register(HawkConfig.SOURCE_NAME_CACHE, new TypeToken<HashMap<String, String>>() {
         });
     }
 }

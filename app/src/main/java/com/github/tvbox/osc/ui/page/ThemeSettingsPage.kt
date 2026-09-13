@@ -282,7 +282,7 @@ private fun CustomThemeSwitchRow(checked: Boolean, onCheckedChange: (Boolean) ->
     ) {
         Text(
             text = "自定义主题",
-            style = MaterialTheme.typography.bodyLarge,
+            style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.weight(1f),
         )
@@ -312,7 +312,7 @@ private fun GlassSliderRow(
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(
                 text = title,
-                style = MaterialTheme.typography.bodyLarge,
+                style = MaterialTheme.typography.titleMedium,
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.weight(1f),
             )
@@ -324,7 +324,7 @@ private fun GlassSliderRow(
             ) {
                 Text(
                     text = value.roundToInt().toString(),
-                    style = MaterialTheme.typography.labelMedium,
+                    style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
                 )
             }
@@ -355,7 +355,7 @@ private fun ThemeModeRow(currentMode: Int, onModeSelected: (Int) -> Unit) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Text(
             text = "主题模式",
-            style = MaterialTheme.typography.bodyLarge,
+            style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onSurface,
         )
         Spacer(Modifier.height(8.dp))
@@ -393,7 +393,7 @@ private fun CustomSeedRow(seedArgb: Int, enabled: Boolean, onClick: () -> Unit) 
     ) {
         Text(
             text = "自定义颜色",
-            style = MaterialTheme.typography.bodyLarge,
+            style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.weight(1f),
         )
@@ -421,7 +421,7 @@ private fun VariantSelectorRow(
     Column(modifier = Modifier.fillMaxWidth()) {
         Text(
             text = "配色风格",
-            style = MaterialTheme.typography.bodyLarge,
+            style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onSurface,
         )
         Spacer(Modifier.height(8.dp))
@@ -454,7 +454,7 @@ private fun PresetSeedsRow(
     Column(modifier = Modifier.fillMaxWidth()) {
         Text(
             text = "预设色卡",
-            style = MaterialTheme.typography.bodyLarge,
+            style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onSurface,
         )
         Spacer(Modifier.height(12.dp))

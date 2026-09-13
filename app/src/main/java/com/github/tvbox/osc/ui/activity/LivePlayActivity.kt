@@ -163,6 +163,8 @@ class LivePlayActivity : BaseActivity() {
 
     companion object {
         private const val TAG = "LivePlayActivity"
+        /** 退出全屏后系统栏过渡(旋转 + 系统栏滑入)耗时,过渡结束后补一次状态栏图标外观断言(对齐详情页 §4.4 补丁⑤) */
+        private const val SYSBAR_APPEARANCE_REASSERT_DELAY_MS = 400L
         private const val EPG_LOAD_DELAY = 1200L
         private const val RESOLUTION_INFO_MAX_RETRY = 10
         private const val RESOLUTION_INFO_RETRY_DELAY = 300L
@@ -277,7 +279,7 @@ class LivePlayActivity : BaseActivity() {
     override fun init() {
         enableEdgeToEdge()
         // 播放器与状态栏均为纯黑,状态栏图标强制白色(§3/Step 4 定稿⑤)
-        WindowCompat.getInsetsController(window, window.decorView).isAppearanceLightStatusBars = false
+        applyStatusBarAppearance()
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 when {
@@ -295,7 +297,6 @@ class LivePlayActivity : BaseActivity() {
             }
         })
         epgStringAddress = getConfiguredEpgAddress()
-        KV.put(HawkConfig.NOW_DATE, FORMAT_DATE.format(Date()))
         nowday = Date()
         epgDayPresented = FORMAT_DATE1.format(nowday)
         initVideoView()
@@ -312,6 +313,8 @@ class LivePlayActivity : BaseActivity() {
 
     override fun onResume() {
         super.onResume()
+        // 系统回前台会按主题重设状态栏图标外观,在首帧前重新断言(对齐详情页 §4.4 补丁⑤)
+        applyStatusBarAppearance()
         exitingLivePlay = false
         // P4:回到前台时确保引擎仍是"直播人格"。被点播页接管过(返回 true)则内核已被释放、
         // 内容不可信 —— 重播当前频道;否则照旧恢复播放(直播退后台被 onPause 暂停的那一路)
@@ -487,14 +490,31 @@ class LivePlayActivity : BaseActivity() {
             overlayVisible = false
             val controller = WindowCompat.getInsetsController(window, window.decorView)
             controller.show(WindowInsetsCompat.Type.systemBars())
-            controller.isAppearanceLightStatusBars = false
+            // 退回竖屏后状态栏区域仍是纯黑,保持白色图标;同步断言可能被系统的过渡结束态覆盖
+            // (vivo OriginOS 实测会在横竖屏过渡时按主题重设图标外观,浅色主题 → 深色图标,
+            //  深色图标在纯黑底上"消失"),故等旋转/系统栏过渡结束后再兜底断言一次(§4.4 补丁⑤)
+            applyStatusBarAppearance()
+            window.decorView.postDelayed({
+                if (!isFinishing && !isDestroyed) applyStatusBarAppearance()
+            }, SYSBAR_APPEARANCE_REASSERT_DELAY_MS)
         }
+    }
+
+    /**
+     * 竖屏状态栏区域为纯黑,图标必须白色(对齐详情页 §4.4 补丁⑤;全屏沉浸时系统栏隐藏,此值不影响)。
+     * 系统 ROM 会在沉浸退出/横竖屏过渡与回前台时按主题重设图标外观(浅色主题 → 深色图标),
+     * 深色图标在纯黑底上等于"消失",故关键时机(init/onResume/旋转落地/退出全屏)反复断言。
+     */
+    private fun applyStatusBarAppearance() {
+        WindowCompat.getInsetsController(window, window.decorView).isAppearanceLightStatusBars = false
     }
 
     /** 旋转落地回调(2026-09-13 方案 A 的"落地"信号):清过渡态,布局形态在这一帧才真正切换 */
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
         rotating = false
+        // 旋转落地是 ROM 重设状态栏图标外观的时机之一(快速横竖切换时同步断言必被覆盖),落地即重新断言
+        applyStatusBarAppearance()
     }
 
     /**
@@ -1046,9 +1066,6 @@ class LivePlayActivity : BaseActivity() {
         clearLiveChannelList(releasePlayer)
     }
 
-    // ============================================================
-    // 设置(旧 7 组:线路/画面比例/播放解码/超时换源/偏好/多源/配置)
-    // ============================================================
 
     private fun initLiveSettingGroupList() {
         liveSettingGroupList = ApiConfig.get().liveSettingGroupList
@@ -1100,11 +1117,6 @@ class LivePlayActivity : BaseActivity() {
         }
     }
 
-    /**
-     * 配置切换历史:长按删除(2026-09-12 方案 2,用户定稿)。
-     * 删除订阅源不会联动清理直播配置历史(LIVE_API_HISTORY 独立持久化、只增不减),
-     * 由用户手动管理;当前使用中的配置(LIVE_API_URL)不可删除。
-     */
     fun removeLiveConfigHistory(itemIndex: Int) {
         val history = KV.get(HawkConfig.LIVE_API_HISTORY, ArrayList<String>())
         if (itemIndex < 0 || itemIndex >= history.size) return

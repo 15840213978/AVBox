@@ -8,11 +8,17 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -20,6 +26,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.res.painterResource
 import com.github.tvbox.osc.R
@@ -39,7 +48,22 @@ fun PlayerTopBar(state: PlayerUiState, actions: PlayerActions) {
     val anyVisible = state.topLeftVisible || state.topRightVisible
     // 左右边距按窗口宽度分档（竖屏预览 16dp / 横屏全屏与平板 24dp，见 playerEdgePadding）
     val edge = playerEdgePadding()
-    Box(Modifier.fillMaxWidth()) {
+    // 顶部安全区避让（2026-09-14 用户反馈：竖屏全屏/贴顶预览态下固定 12dp 的顶栏被摄像头挖孔遮挡）：
+    // 顶栏贴近窗口顶部时，把 safeDrawing 顶部（状态栏 + 挖孔）尚未被自身位置覆盖的差值补进 top；
+    // 不贴顶（详情页非贴顶预览态）或横屏全屏（系统栏隐藏后顶部安全区为 0、挖孔在侧边）时差值为 0，布局不变
+    val density = LocalDensity.current
+    val safeTopPx = WindowInsets.safeDrawing.getTop(density)
+    var barTopPx by remember { mutableStateOf(Float.NaN) }
+    val extraTop = if (barTopPx.isNaN()) {
+        0.dp
+    } else {
+        with(density) { (safeTopPx - barTopPx).coerceAtLeast(0f).toDp() }
+    }
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .onGloballyPositioned { barTopPx = it.positionInWindow().y }
+    ) {
         if (anyVisible) {
             // scrim 渐变（黑 55% → 透明），替代旧实现"无背景白字压画面"
             Box(
@@ -58,7 +82,7 @@ fun PlayerTopBar(state: PlayerUiState, actions: PlayerActions) {
                 .padding(
                     start = edge,
                     end = edge,
-                    top = 12.dp,
+                    top = 12.dp + extraTop,
                     bottom = playerDim(R.dimen.vs_5),
                 )
         ) {

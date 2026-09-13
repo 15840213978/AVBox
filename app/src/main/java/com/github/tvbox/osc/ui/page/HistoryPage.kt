@@ -72,6 +72,7 @@ import com.github.tvbox.osc.util.HawkConfig
 import com.github.tvbox.osc.util.HistoryHelper
 import com.github.tvbox.osc.util.KV
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import org.greenrobot.eventbus.EventBus
@@ -91,20 +92,11 @@ class HistoryViewModel : ViewModel() {
         EventBus.getDefault().unregister(this)
     }
 
-    /** 回顶信号:数据刷新后页面滚动回顶部(自增版本,页面层 collect) */
     val scrollSignal = MutableStateFlow(0)
 
-    /**
-     * 补位动画开关(2026-09-12):删除时启用 placement 位移动画(补位只差一行,短距离
-     * 不穿顶栏);观看刷新回顶场景关闭(长距离跳到顶部的滑行会穿过透明顶栏,观感怪异)。
-     */
     val placementAnim = MutableStateFlow(false)
 
-    /**
-     * [scrollToTop]=true 用于"观看行为"触发的刷新(播放器落库后发事件):刚看的影片会
-     * 插入到列表顶部(index 0),若保持旧滚动偏移,新顶部的卡片会顶进状态栏区被顶栏遮住
-     * (2026-09-12 用户截图报障);删除操作不改变排序语义,保持原位不回滚。
-     */
+
     fun refresh(scrollToTop: Boolean = false) {
         // 仅首屏(列表为空)显示全屏 loading;删除/事件刷新原位更新列表,避免整页转圈闪烁
         if (items.value.isEmpty()) loading.value = true
@@ -114,6 +106,7 @@ class HistoryViewModel : ViewModel() {
             val list = RoomDataManger.getAllVodRecord(limit)
             list.forEach { if (!it.playNote.isNullOrEmpty()) it.note = "上次看到" + it.playNote }
             items.value = list
+            resolveSourceNames()
             loading.value = false
             if (scrollToTop) scrollSignal.value++
         }
@@ -122,9 +115,55 @@ class HistoryViewModel : ViewModel() {
     @Subscribe(threadMode = ThreadMode.MAIN)
     fun onRefreshEvent(event: RefreshEvent) {
         if (event.type == RefreshEvent.TYPE_HISTORY_REFRESH) refresh(scrollToTop = true)
+        // 换点播源(onApiUrlChanged):旧源已作废 → 立即重解析一次(回退快照/key);
+        // 新配置加载完成后 Boot.Ready 会再触发一次(HistoryPage 的 LaunchedEffect)
+        else if (event.type == RefreshEvent.TYPE_API_URL_CHANGE) resolveSourceNames()
     }
 
-    /** 删除单条(长按卡片,2026-09-12 用户定稿交互):启用补位动画(短距离) */
+    private var resolveJob: Job? = null
+
+    /**
+     * 把每张卡片的源显示名解析进 [VodInfo.sourceName](内存字段,2026-09-14):
+     * 优先级 = 当前配置源名 → KV 快照(`SOURCE_NAME_CACHE`,源在配置里时自动写入)→ sourceKey 兜底。
+     * 历史记录只存 sourceKey 不存源名 —— 换源/冷启动后源不在当前配置时,靠快照仍能显示
+     * 记录时的完整源名(含 emoji);从没见过且不在配置里的源只能显示 key。
+     * 触发时机:refresh() 数据就绪后、Boot.Ready(配置就绪/换源完成)、收到 TYPE_API_URL_CHANGE。
+     */
+    fun resolveSourceNames() {
+        resolveJob?.cancel()
+        resolveJob = viewModelScope.launch(Dispatchers.IO) {
+            val list = items.value
+            if (list.isEmpty()) return@launch
+            val cache = KV.get(HawkConfig.SOURCE_NAME_CACHE, HashMap<String, String>())
+            var cacheChanged = false
+            var listChanged = false
+            list.forEach { info ->
+                val key = info.sourceKey
+                val resolved = if (key.isNullOrEmpty()) {
+                    ""
+                } else {
+                    val current = ApiConfig.get().getSource(key)?.name
+                    if (!current.isNullOrEmpty()) {
+                        if (cache[key] != current) {
+                            cache[key] = current
+                            cacheChanged = true
+                        }
+                        current
+                    } else {
+                        cache[key] ?: key
+                    }
+                }
+                if (info.sourceName != resolved) {
+                    info.sourceName = resolved
+                    listChanged = true
+                }
+            }
+            if (cacheChanged) KV.put(HawkConfig.SOURCE_NAME_CACHE, cache)
+            if (listChanged) items.value = list.toList()
+        }
+    }
+
+
     fun deleteOne(item: VodInfo) {
         placementAnim.value = true
         viewModelScope.launch(Dispatchers.IO) {
@@ -133,7 +172,6 @@ class HistoryViewModel : ViewModel() {
         }
     }
 
-    /** 清空全部(右上角删除控件,确认弹窗后执行) */
     fun deleteAll() {
         placementAnim.value = false // 全部淡出,无补位可言
         viewModelScope.launch(Dispatchers.IO) {
@@ -147,12 +185,6 @@ class HistoryViewModel : ViewModel() {
     }
 }
 
-/**
- * 历史页(2026-09-12 用户定稿交互改造):
- * - 右上角删除控件**常驻**:点击弹确认窗,确认后清空全部观看历史(全选机制删除);
- * - **长按卡片**弹确认窗,确认后删除该条记录;
- * - 卡片增删/重排带 animateItem 动画(与配置管理页一致)。
- */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun HistoryPage(vm: HistoryViewModel = viewModel(), bottomPadding: Dp = 0.dp) {
@@ -163,13 +195,19 @@ fun HistoryPage(vm: HistoryViewModel = viewModel(), bottomPadding: Dp = 0.dp) {
     var showDeleteAllDialog by remember { mutableStateOf(false) }
     var deleteTarget by remember { mutableStateOf<VodInfo?>(null) }
 
-    // 无边框顶栏(2026-09-11 晚照 `示例文件/android` 官方方案重做):Scaffold + M3 TopAppBar
     val listState = rememberLazyListState()
 
-    // 观看行为刷新后平滑滚回顶部(刚看的影片在 index 0,避免保持旧偏移时新卡顶进状态栏区)
     LaunchedEffect(vm) {
         vm.scrollSignal.collect {
             if (items.isNotEmpty()) listState.animateScrollToItem(0)
+        }
+    }
+
+    // 配置就绪(冷启动首次加载完成/换源完成):重解析源显示名一次。
+    // Loading 期 getSource 拿不到源,卡片先显示 key 或快照;就绪后补齐当前配置里的完整源名
+    LaunchedEffect(Unit) {
+        AppBootstrap.state.collect { boot ->
+            if (boot == AppBootstrap.Boot.Ready) vm.resolveSourceNames()
         }
     }
 
@@ -182,7 +220,7 @@ fun HistoryPage(vm: HistoryViewModel = viewModel(), bottomPadding: Dp = 0.dp) {
             )
         },
         actions = {
-            // 删除控件常驻(2026-09-12 用户定稿):确认弹窗后清空全部;单条走长按卡片
+            
             ManageActionIcon(
                 iconRes = R.drawable.ic_delete,
                 contentDescription = "清空历史",
@@ -277,11 +315,9 @@ private fun HistoryRow(
     onClick: () -> Unit,
     onLongClick: () -> Unit,
 ) {
-    // 影视源显示名(2026-09-09:卡片下方第三段;无名称时回退 sourceKey)
-    val sourceName = remember(item.sourceKey) {
-        val key = item.sourceKey
-        if (key.isNullOrEmpty()) "" else ApiConfig.get().getSource(key)?.name ?: key
-    }
+    // 影视源显示名(卡片下方第三段)由 HistoryViewModel.resolveSourceNames 解析进
+    // VodInfo.sourceName 内存字段(当前配置源名 → KV 快照 → sourceKey 兜底),本行不自行查询:
+    // 冷启动/换源后 getSource 拿不到源时,避免把 sourceKey 永久缓存进 remember(emoji 消失)
     // 16dp 圆角卡片容器(2026-09-11 用户定稿,与收藏页海报卡一致);Surface 提供底色,内层 clip 保证 ripple 按圆角裁剪
     Surface(
         modifier = modifier.fillMaxWidth(),
@@ -329,7 +365,7 @@ private fun HistoryRow(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    text = sourceName,
+                    text = item.sourceName ?: "",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
@@ -340,10 +376,6 @@ private fun HistoryRow(
     }
 }
 
-/**
- * 历史/收藏页圆形图标按钮(共用):40dp 圆形容器(surfaceBright 底),图标 22dp(onSurface)。
- * 2026-09-12 交互改造后常驻显示(历史/收藏页右上角 = 清空全部入口)。
- */
 @Composable
 internal fun ManageActionIcon(
     iconRes: Int,
@@ -369,10 +401,6 @@ internal fun ManageActionIcon(
     }
 }
 
-/**
- * 历史/收藏删除确认窗(共用,2026-09-12 用户定稿):
- * 清空全部与单条删除均需二次确认,防误触。
- */
 @Composable
 internal fun ConfirmDeleteDialog(
     title: String,

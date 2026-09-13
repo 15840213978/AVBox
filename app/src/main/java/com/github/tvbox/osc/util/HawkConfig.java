@@ -12,7 +12,6 @@ public class HawkConfig {
     public static final String API_LINE_LIST = "api_line_list";
     public static final String API_LINE_SOURCE = "api_line_source";
     public static final String LIVE_API_HISTORY = "live_api_history";
-    public static final String EPG_HISTORY = "epg_history";
     public static final String HOME_API = "home_api";
     public static final String DEFAULT_PARSE = "parse_default";
     public static final String IJK_CODEC = "ijk_codec";
@@ -26,7 +25,6 @@ public class HawkConfig {
     // 音轨优先 AAC(2026-09-11,独立开关):选轨偏好 AAC,提高隧道命中率/规避个别机型 offload 异常
     public static final String PLAY_PREFER_AAC = "play_prefer_aac";
     public static final String LIVE_PLAY_SCALE = "live_play_scale";
-    public static final String PLAY_TIME_STEP = "play_time_step"; //0 texture 2
     public static final String DOH_URL = "doh_url";
     public static final String HISTORY_NUM = "history_num";
     public static final String LIVE_CHANNEL = "last_live_channel_name";
@@ -34,14 +32,12 @@ public class HawkConfig {
     public static final String LIVE_CROSS_GROUP = "live_cross_group";
     public static final String LIVE_CONNECT_TIMEOUT = "live_connect_timeout";
     public static final String LIVE_SHOW_NET_SPEED = "live_show_net_speed";
-    public static final String LIVE_SHOW_RESOLUTION = "live_show_resolution";
     public static final String LIVE_SHOW_TIME = "live_show_time";
     public static final String SUBTITLE_TEXT_SIZE = "subtitle_text_size";
     public static final String SUBTITLE_TIME_DELAY = "subtitle_time_delay";
     public static final String SUBTITLE_EXO_SCALE = "subtitle_exo_scale";
     public static final String SUBTITLE_EXO_POSITION = "subtitle_exo_position";
     public static final String SOURCES_FOR_SEARCH = "checked_sources_for_search";
-    public static final String NOW_DATE = "now_date"; //当前日期
     public static final String REMOTE_TVBOX = "remote_tvbox_host";
     public static final String IJK_CACHE_PLAY = "ijk_cache_play";
     public static final String PLAYER_IS_LIVE = "player_is_live";
@@ -105,6 +101,9 @@ public class HawkConfig {
     public static final String DANMU_API_USE_DEFAULT = "danmu_api_use_default";
     // 源级卡片点击策略(2026-09-11):HashMap<sourceKey, "detail">,缺省即"搜索"
     public static final String SOURCE_CARD_POLICY = "source_card_policy";
+    // 源名快照(2026-09-14):HashMap<sourceKey, 源显示名>。历史记录只存 sourceKey 不存源名,
+    // 换源/冷启动后源不在当前配置里时,历史卡片靠这份快照兜底显示记录时的完整源名(含 emoji)
+    public static final String SOURCE_NAME_CACHE = "source_name_cache";
     // 配置管理订阅源(2026-09-11):ArrayList<String>,每项 "名字\t链接"
     public static final String SUBSCRIBE_LIST = "subscribe_list";
     // 配置管理独立直播源(2026-09-12 点播/直播拆分):格式同 SUBSCRIBE_LIST。
