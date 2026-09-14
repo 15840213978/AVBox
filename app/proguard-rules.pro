@@ -329,3 +329,34 @@
 -dontwarn com.kyant.backdrop.**
 -dontwarn com.kyant.capsule.**
 -dontwarn com.kyant.shapes.**
+
+#############################################
+# release 剥离全部日志(2026-09-14)
+# release 已 isMinifyEnabled=true(R8),这里声明日志方法无副作用:
+# R8 会把调用点整条删除(连带参数里的字符串拼接一起消失,不只是不输出),
+# 因此 release 包内不再残留任何日志字符串常量。
+# 覆盖三条通道:
+#   1) android.util.Log —— 全工程 337 处直接调用
+#   2) com.github.catvod.crawler.SpiderDebug —— 外挂 jar 的诊断通道,内部就是 Log.d
+#   3) com.github.tvbox.osc.util.LOG —— 本应用封装(含落盘 files/preload_debug.log 的排查通道)
+#############################################
+-assumenosideeffects class android.util.Log {
+    public static *** v(...);
+    public static *** d(...);
+    public static *** i(...);
+    public static *** w(...);
+    public static *** e(...);
+    public static *** wtf(...);
+    public static *** println(...);
+}
+
+-assumenosideeffects class com.github.catvod.crawler.SpiderDebug {
+    public static *** log(...);
+}
+
+-assumenosideeffects class com.github.tvbox.osc.util.LOG {
+    public static *** i(...);
+    public static *** e(...);
+    public static *** longI(...);
+    public static *** longE(...);
+}

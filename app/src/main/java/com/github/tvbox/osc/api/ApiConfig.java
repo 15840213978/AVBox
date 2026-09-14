@@ -578,7 +578,7 @@ public class ApiConfig {
                             if (success) {
                                 callback.success();
                             } else {
-                                callback.error("md5缓存失效");
+                                callback.error("JAR加载失败");
                             }
                         }
                     });
@@ -587,7 +587,7 @@ public class ApiConfig {
                 if (jarLoader.load(cache.getAbsolutePath())) {
                     callback.success();
                 } else {
-                    callback.error("md5缓存失效");
+                    callback.error("JAR加载失败");
                 }
                 return;
             }

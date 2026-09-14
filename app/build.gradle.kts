@@ -81,6 +81,8 @@ android {
 
     buildFeatures {
         compose = true
+        // 2026-09-14:LOG.FILE_LOG 用 BuildConfig.DEBUG 控制落盘排查通道(release 关闭)
+        buildConfig = true
     }
 
     lint {

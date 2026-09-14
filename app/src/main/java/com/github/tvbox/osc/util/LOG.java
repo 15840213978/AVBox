@@ -2,6 +2,7 @@ package com.github.tvbox.osc.util;
 
 import android.util.Log;
 
+import com.github.tvbox.osc.BuildConfig;
 import com.github.tvbox.osc.base.App;
 
 import java.io.File;
@@ -27,9 +28,12 @@ public class LOG {
      * 开启后把匹配前缀的日志异步追加到 files/preload_debug.log,用
      * `adb shell run-as <pkg> cat files/preload_debug.log` 取出。排查完把 FILE_LOG 置 false 即可。
      * 只落盘少数事件级前缀,不在热路径上,异步写不阻塞调用线程。
+     * 2026-09-14:改为跟随 BuildConfig.DEBUG —— release 包完全不落盘(release 另经
+     * proguard -assumenosideeffects 把 LOG/Log/SpiderDebug 调用整条剥离);
+     * debug 包保留排查通道。
      */
-    private static final boolean FILE_LOG = true;
-    private static final String[] FILE_LOG_PREFIXES = {"echo-preload", "echo-setDataSource", "echo-play-cache", "echo-kv", "echo-exo-cache", "echo-music", "clearCache"};
+    private static final boolean FILE_LOG = BuildConfig.DEBUG;
+    private static final String[] FILE_LOG_PREFIXES = {"echo-preload", "echo-setDataSource", "echo-play-cache", "echo-kv", "echo-exo-cache", "echo-music", "clearCache", "echo--jar"};
     private static final String FILE_LOG_NAME = "preload_debug.log";
     private static ExecutorService fileLogExecutor;
 
