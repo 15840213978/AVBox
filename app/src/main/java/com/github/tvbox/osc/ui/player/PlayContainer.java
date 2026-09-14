@@ -4,6 +4,8 @@ import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.Context;
 import android.content.pm.ActivityInfo;
+import android.graphics.Color;
+import android.graphics.Typeface;
 import android.view.LayoutInflater;
 import android.os.Handler;
 import android.os.Looper;
@@ -58,6 +60,7 @@ import com.github.tvbox.osc.util.PlayerHelper;
 import com.github.tvbox.osc.util.SubtitleHelper;
 import com.github.tvbox.osc.util.KV;
 import androidx.media3.common.text.Cue;
+import androidx.media3.ui.CaptionStyleCompat;
 
 import org.greenrobot.eventbus.EventBus;
 import org.greenrobot.eventbus.Subscribe;
@@ -912,6 +915,8 @@ public class PlayContainer extends FrameLayout implements CustomAdapt, PlaybackH
         } else if (style == 1) {
             mController.getSubtitleView().setTextColor(getContext().getResources().getColorStateList(R.color.color_FFB6C1));
         }
+        //内嵌字幕(Exo)同步跟随样式切换(2026-09-14)
+        applyExoSubtitleStyle();
     }
 
     private boolean isSameTrack(TrackInfoBean left, TrackInfoBean right) {
@@ -1114,6 +1119,7 @@ public class PlayContainer extends FrameLayout implements CustomAdapt, PlaybackH
 
     private void applyExoSubtitleSettings() {
         if (!exoInternalSubtitle || mController == null || mController.getExoSubtitleView() == null) return;
+        applyExoSubtitleStyle();
         float scale = SubtitleHelper.getExoSubtitleScale() / 100f;
         float position = SubtitleHelper.getExoSubtitlePosition();
         mController.getExoSubtitleView().setFractionalTextSize(0.0533f * scale);
@@ -1138,6 +1144,25 @@ public class PlayContainer extends FrameLayout implements CustomAdapt, PlaybackH
             displayCues.add(builder.build());
         }
         mController.getExoSubtitleView().setCues(displayCues);
+    }
+
+    /**
+     * 内嵌字幕(Exo)样式与外挂字幕统一(2026-09-14):
+     * Media3 SubtitleView 默认 CaptionStyleCompat.DEFAULT 是“白字+纯黑底块”，
+     * 这里改为透明背景+黑色描边，文字颜色跟随“样式一 白/样式二 粉”设置，观感与自绘外挂字幕一致。
+     */
+    private void applyExoSubtitleStyle() {
+        if (mController == null || mController.getExoSubtitleView() == null) return;
+        int style = KV.get(HawkConfig.SUBTITLE_TEXT_STYLE, 0);
+        int textColor = getContext().getResources().getColorStateList(
+                style == 1 ? R.color.color_FFB6C1 : R.color.color_FFFFFF).getDefaultColor();
+        mController.getExoSubtitleView().setStyle(new CaptionStyleCompat(
+                textColor,
+                Color.TRANSPARENT,
+                Color.TRANSPARENT,
+                CaptionStyleCompat.EDGE_TYPE_OUTLINE,
+                Color.BLACK,
+                Typeface.DEFAULT_BOLD));
     }
 
     private float limit(float value, float min, float max) {
