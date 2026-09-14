@@ -986,3 +986,50 @@ P1 最后两组。至此**调度层(会话/取流/解析/嗅探/重试/换线/�
   §4-6(实例创建日志埋点)与 §4-7(hprof 量化复测,基线 ExoPlayer×36/249 线程)**未采集数据**,如需量化归档可后补。
 - **遗留(可选)**:hprof 量化复测未做;`enterLiveState` 修复中的"重播当前频道"路径当前无真实入口(见上)。
 - 此后播放层不再安排新的静态审查轮次;后续改动按普通回归对待。
+
+## 导航栏三键区半透明 scrim 根因修复(2026-09-15,用户定位)
+
+- **症状**:vivo Android 16 三键导航,首页/设置页(两种栏模式)导航栏区域白色实心条盖住栏后内容。
+  第一轮修复(`BaseActivity.onCreate` 对 API 29+ `setNavigationBarContrastEnforced(false)`/`setStatusBarContrastEnforced(false)`)**无效**。
+- **根因链**:targetSdk 37 强制 E2E → BaseActivity 关闭 contrast enforcement(正确)→ 但 `MainActivity.init()` 的
+  `enableTransparentEdgeToEdge()`(`ui/theme/Theme.kt`)导航栏用 `SystemBarStyle.auto(TRANSPARENT,TRANSPARENT)`,
+  其 nightMode 恒为 `MODE_NIGHT_AUTO`;androidx.activity 1.13.0 `EdgeToEdgeApi29/35.setUp()` 有
+  `window.isNavigationBarContrastEnforced = (nightMode == MODE_NIGHT_AUTO)` ⇒ 被设回 true,scrim 回归。
+  旧补救(`ApplyAppThemeBars` 只断言 `navigationBarColor`)在 API 35 上已废弃无效,scrim 完全由
+  `isNavigationBarContrastEnforced` 控制。
+- **修复**(`ui/theme/Theme.kt` 两处):①导航栏样式改 `SystemBarStyle.light(TRANSPARENT,TRANSPARENT)`
+  (nightMode=MODE_NIGHT_NO ⇒ EdgeToEdge 自动设 contrastEnforced=false,根因修复;状态栏保持 auto 没问题);
+  ②`ApplyAppThemeBars` SideEffect 补 `isNavigationBarContrastEnforced=false` + `isStatusBarContrastEnforced=false`
+  (API 29+ 守卫)运行时兜底,防 config change 重开。
+- **验证**:`:app:compileDebugKotlin` exit 0;真机待验(三键导航下 scrim 应消失)。约束已固化到 spec §6.6。
+
+## 修复:详情/直播页深色主题导航键图标不可见(2026-09-15,scrim 修复的审查连带发现)
+
+- **根因**:`light()` 导航栏样式使 EdgeToEdge(Api26/28/29/35 字节码确认)把
+  `isAppearanceLightNavigationBars` 恒设 true(深图标,不再随系统);而 Detail/Live/ComposeVideoController
+  都是 `AVBoxTheme(manageStatusBarIcons = false)`(ApplyAppThemeBars 不跑),其 `applyStatusBarAppearance`
+  只断言状态栏 → 深色主题竖屏导航区深键位压深色 surfaceContainer 几乎不可见(全屏沉浸系统栏隐藏不受影响;
+  修复前 auto 跟随系统深浅,系统深色时碰巧正确 → 属 scrim 修复引入的可见性回归)。
+- **修法**:两页 `applyStatusBarAppearance` 补 `isAppearanceLightNavigationBars = !AppThemeState.isDark(系统night)`
+  (MainActivity 同式;+AppThemeState import);断言时机沿用既有 4 时机(init/onResume/旋转落地/退出全屏),状态栏恒白语义不变。
+- **审查方法留档**:androidx.activity 1.13.0 字节码核查脚本 `.codebuddy/tmp/dump_activity_edgetoedge*.ps1`
+  (gradle 缓存抽 AAR → classes.jar → javap),产物在 `activity-1130/`;关键结论:SystemBarStyle
+  nightMode 编码 auto=MODE_NIGHT_AUTO(0)/light=MODE_NIGHT_NO(1)/dark=MODE_NIGHT_YES(2),
+  Api29/35 均 `setNavigationBarContrastEnforced(nightMode == MODE_NIGHT_AUTO)`,Api35 额外用
+  ProtectionLayout 画 scrim(scrim 全 0 不挂)。
+- **验证**:`:app:compileDebugKotlin` exit 0(KSP 期 SQLiteJDBCLoader "Failed to delete old native lib"
+  为 Temp DLL 占用无害告警);lint 0。约束入 spec §6.6。
+
+## 修复:直播页深色模式台名黑字 + 频道列表底部不沉浸(2026-09-15,用户报)
+
+- **台名黑字**:`ChannelInfoSection` 的频道名 `Text`(titleLarge)未给 color —— 该处无 `Surface` 包裹,
+  落到 M3 `LocalContentColor` 默认值 `Color.Black`,深色主题下黑字压深色 surfaceContainer 几乎不可见
+  (台号徽标/Surface 内的文本有 onPrimaryContainer 兜底;列表行与 EPG 行均有显式色,唯此一处漏)。
+  修=显式 `color = MaterialTheme.colorScheme.onSurface`。
+- **底部不沉浸**:`ChannelListSection` 的 `LazyColumn` 挂 `.navigationBarsPadding()` → 列表被拦在导航栏
+  上方,底部留一条页面背景色(用户感知"有 padding 不沉浸";scrim 修复后导航栏已透明,更显得是洞)。
+  修=去掉该 modifier,导航栏 inset 移入 `contentPadding(bottom = WindowInsets.navigationBars + 24dp)`,
+  列表延伸到导航栏后且末项仍可达。
+- **排错记录**:`calculateBottomPadding()` 是 `PaddingValues` 接口的成员函数而非顶层扩展,
+  import 它会 `UNRESOLVED_IMPORT`,删 import 即可(成员直接可用)。
+- **验证**:`:app:compileDebugKotlin` exit 0。约束入 spec §4.5。

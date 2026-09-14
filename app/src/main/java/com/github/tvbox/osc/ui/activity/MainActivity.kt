@@ -2,7 +2,7 @@ package com.github.tvbox.osc.ui.activity
 
 import android.content.res.Configuration
 import android.os.Build
-import androidx.activity.enableEdgeToEdge
+import com.github.tvbox.osc.ui.theme.enableTransparentEdgeToEdge
 import androidx.compose.ui.platform.ComposeView
 import androidx.core.view.WindowCompat
 import com.github.tvbox.osc.R
@@ -49,7 +49,7 @@ class MainActivity : BaseActivity() {
     }
 
     override fun init() {
-        enableEdgeToEdge()
+        enableTransparentEdgeToEdge()
         applyStatusBarAppearance()
         // 仅 Android 10- 在启动时弹窗授权;11+ 的"所有文件访问"为懒加载
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R && !PermissionHelper.isStorageGranted(this)) {

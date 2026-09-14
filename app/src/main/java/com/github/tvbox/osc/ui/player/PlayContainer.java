@@ -648,8 +648,12 @@ public class PlayContainer extends FrameLayout implements CustomAdapt, PlaybackH
 
             @Override
             public void updatePlayerCfg() {
-                scheduler.vod().playerCfg = scheduler.playerCfg().toString();
-                EventBus.getDefault().post(new RefreshEvent(RefreshEvent.TYPE_REFRESH, scheduler.playerCfg()));
+                // 落库/EventBus 用"剔除自动容错态"的快照(2026-09-15):自动切内核(pl)/自动切软解(ijk)
+                // 只对本次会话有效,写进播放记录就会变成"按剧记忆"、把用户的设置永久顶掉
+                JSONObject persistCfg = scheduler.playerCfgForPersist();
+                if (persistCfg == null) return;
+                scheduler.vod().playerCfg = persistCfg.toString();
+                EventBus.getDefault().post(new RefreshEvent(RefreshEvent.TYPE_REFRESH, persistCfg));
             }
 
             @Override
@@ -726,6 +730,9 @@ public class PlayContainer extends FrameLayout implements CustomAdapt, PlaybackH
 
             @Override
             public void setAllowSwitchPlayer(boolean isAllow){scheduler.setAllowSwitchPlayer(isAllow);}
+
+            @Override
+            public void setAllowDecodeFallback(boolean isAllow){scheduler.setAllowDecodeFallback(isAllow);}
         });
         if (mVideoView != null) mVideoView.setVideoController((BaseVideoController) mController);
     }
@@ -1232,6 +1239,20 @@ public class PlayContainer extends FrameLayout implements CustomAdapt, PlaybackH
         if (scheduler.isPlaybackStarted()) {
             scheduler.cancelPlayTimeout();
             hideTipOnUiThread();
+            // Bug 6(2026-09-15):起播后错误此前被静默吞掉(无提示不重试,黑屏死在那)。
+            // 自动"同内核同地址"重播一次兜底;已试过/不可重试则给可见提示(与下方 autoRetry 失败分支同款)。
+            if (scheduler.retryAfterStartedError()) return;
+            scheduler.stopMusicSessionForFailedPlayback();
+            if (!isAttached()) return;
+            mActivity.runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    setTip(err, false, true);
+                    if (finish) {
+                        Toast.makeText(mContext, err, Toast.LENGTH_SHORT).show();
+                    }
+                }
+            });
             return;
         }
         if (!scheduler.autoRetry()) {

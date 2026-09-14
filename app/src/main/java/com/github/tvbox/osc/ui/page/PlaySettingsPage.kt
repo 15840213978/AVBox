@@ -81,6 +81,12 @@ fun PlaySettingsScreen(onNavigateBack: () -> Unit, vm: SettingsViewModel = viewM
                             ) { idx -> vm.put(HawkConfig.PLAY_TYPE, types[idx]) }
                         },
                     )
+                    Text(
+                        text = "部分站点使用自己声明的内核",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
+                    )
                 }
                 SettingsCard(SettingsCardPosition.MIDDLE) {
                     SettingsRow(

@@ -127,6 +127,7 @@
 - **时移条**:回看中点画面呼出(与全屏浮层共用显隐),播放/暂停 + Slider seek + 当前/总时长(**1s 轮询**,由 `mUpdateTimeshiftRun` 每秒刷新 `tsPosition`:进回看 `startTimeshiftTicker()` 先 remove 再 post、退出回看/切台/销毁 `stopTimeshiftTicker()`,Runnable 内 `if (!isSHIYI) return` 兜底),6s 自动隐藏;等价旧 backcontroller+countDownTimer3。⚠️ 2026-09-13 修复:该 Runnable 此前**从未被 post**,回看时滑块与「位置/时长」文本只有拖动才更新(与本节描述的"1s 轮询"不符)。时移秒长 shiyi_time_c、buildCatchupUrl 全套 catchup 逻辑 1:1 保留。
 - **切台快照**:换台时旧帧截图(doScreenShot)+spinner 全屏遮罩,STATE_PREPARED/BUFFERED/PLAYING/ERROR 时移除;清晰度角标:换台后 300ms 轮询 videoSize 重试 10 次,成功显示 3s 自动隐藏(旧常驻,补了隐藏)。
 - **全屏**:同详情页 applyFullscreen(SENSOR_LANDSCAPE + 基类沉浸,返回先收浮层再退竖屏),configChanges 防重建;数字选台与全部 DPAD/MENU/INFO 键逻辑随 TV 代码删除(Step 1 已拆,本次不再有承载 UI)。
+- **列表沉浸与台名颜色(2026-09-15 修)**:频道列表 `LazyColumn` **不加** `navigationBarsPadding` —— 导航栏 inset 放进 `contentPadding(bottom = WindowInsets.navigationBars + 24dp)`,列表延伸到透明导航栏后;频道信息区的台名 `Text` 必须显式 `onSurface`(裸 `Text` 在无 Surface 包裹处落 M3 `LocalContentColor` 默认黑,深色模式黑字压深底不可见)。
 
 ### 4.6 搜索页(原则已定)
 
@@ -218,6 +219,8 @@
 - 全站统一 `AppTopBarScaffold`(`ui/components/EdgeToEdgeTopBar.kt`),滚动记账**完全交给 M3 官方 `exitUntilCollapsed` behavior**(含 fling 吸附,与 `示例文件/android` 一致)。⚠️ **不要再自研"增量记账"式滚动状态** —— 2026-09-11 两轮装机 bug(标题残留状态栏区 / 列表滚走顶栏不跟随)的根因是"记账"与"列表真实位置"是两套状态,程序性列表复位必然失联。
 - 顶栏是透明覆盖层且画在内容之上:**顶部滑出的浮层(如下拉刷新指示器)必须 `offset(y = topPadding)`**,否则被左上角控件盖住。
 - 状态栏图标外观会被系统按主题重设(沉浸进出 / 横竖屏 / 回前台):相关页面需在 `init` / `onResume` / 退出全屏后**反复断言**,否则深色图标画在纯黑状态栏上等于消失。
+- **三键导航区半透明 scrim 由 `isNavigationBarContrastEnforced` 单点控制(2026-09-15 修)**:`enableEdgeToEdge` 的导航栏样式**禁止用 `SystemBarStyle.auto`** —— 其 nightMode 恒为 `MODE_NIGHT_AUTO`,androidx.activity 的 `EdgeToEdgeApi29/35.setUp()` 会据此把 `isNavigationBarContrastEnforced` 设回 true,覆盖 `BaseActivity` 的关闭调用,三键区被系统叠半透明遮罩(浅色模式 ≈ 白条)。统一用 `SystemBarStyle.light(TRANSPARENT, TRANSPARENT)`(nightMode=MODE_NIGHT_NO ⇒ EdgeToEdge 自动关掉 enforcement),`ApplyAppThemeBars` SideEffect 再兜底断言 `isNavigationBarContrastEnforced=false` + `isStatusBarContrastEnforced=false`(API 29+ 守卫)。状态栏样式不受此限 —— `isStatusBarContrastEnforced` 被 EdgeToEdge 无条件设 false。
+- **manageStatusBarIcons=false 的页面(详情/直播/播放器覆盖层)必须自行断言导航键图标(2026-09-15 修)**:对应 Activity 的 `applyStatusBarAppearance()` 除状态栏恒白外,必须补 `isAppearanceLightNavigationBars = !AppThemeState.isDark(系统night)`(与 MainActivity 同式,断言时机沿用状态栏的 4 时机)—— `light()` 导航栏样式使 EdgeToEdge 恒设深色图标(不再随系统,Api26+ 全如此),深色主题下导航键压深色内容几乎不可见;全屏沉浸系统栏隐藏不受影响。
 - 内容留白按「**顶栏内容下沿**」计算,不是整行高度(行内内容垂直居中会产生余量):各页相对差值 = 设置 `-12`、历史/收藏/配置/主题 `-8+28`、首页 `+8`、搜索/栏目 `-8`。
 
 ### 6.7 键值存储(KV = MMKV,2026-09-13 取代 Hawk)

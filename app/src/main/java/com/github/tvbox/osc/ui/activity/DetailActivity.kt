@@ -10,7 +10,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
+import com.github.tvbox.osc.ui.theme.enableTransparentEdgeToEdge
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.view.WindowCompat
@@ -100,6 +100,7 @@ import com.github.tvbox.osc.ui.page.jumpToDetail
 import com.github.tvbox.osc.ui.player.PlayContainer
 import com.github.tvbox.osc.ui.player.PlayerTipBridge
 import com.github.tvbox.osc.ui.theme.AVBoxTheme
+import com.github.tvbox.osc.ui.theme.AppThemeState
 import com.github.tvbox.osc.util.LOG
 import com.github.tvbox.osc.util.PermissionHelper
 import com.github.tvbox.osc.util.SearchHelper
@@ -177,13 +178,20 @@ class DetailActivity : BaseActivity(), PageHost {
      * 竖屏状态栏区域为纯黑,图标必须白色(§4.4 补丁⑤;进入全屏后系统栏隐藏,此值不影响)。
      * 系统 ROM(装机实测 vivo OriginOS,米系 HyperOS 同类)会在沉浸退出/横竖屏过渡与回前台时按主题重设图标外观(浅色主题 → 深色图标),
      * 深色图标在纯黑底上等于"消失"(主页同类问题见 MainActivity.onResume 的重新断言),故关键时机反复断言。
+     * 导航键图标按应用主题断言(状态栏恒白不受影响):本页 manageStatusBarIcons=false 主题不接管,
+     * 而 light() 导航栏样式使 EdgeToEdge 恒设深色图标,深色主题下压深色内容几乎不可见。
      */
     private fun applyStatusBarAppearance() {
-        WindowCompat.getInsetsController(window, window.decorView).isAppearanceLightStatusBars = false
+        val systemDark = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+            Configuration.UI_MODE_NIGHT_YES
+        WindowCompat.getInsetsController(window, window.decorView).apply {
+            isAppearanceLightStatusBars = false
+            isAppearanceLightNavigationBars = !AppThemeState.isDark(systemDark)
+        }
     }
 
     override fun init() {
-        enableEdgeToEdge()
+        enableTransparentEdgeToEdge()
         applyStatusBarAppearance()
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {

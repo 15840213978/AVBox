@@ -5,9 +5,7 @@
     <color name="color_3700B3">#3700B3</color>
     <color name="color_03DAC5">#03DAC5</color>
 
-    <!-- 播放器容器加载提示色已于 2026-09-13 删除:它服务的 play_loading / play_load_error /
-         play_load_tip 三个提示 View 在 2026-09-11 移除(提示改由 Compose 覆盖层绘制,
-         状态走 PlayerTipBridge),此后 color_CCFFFFFF 无任何引用 -->
+    <color name="window_background">#F3EDF7</color>
 
     <!-- 字幕文本色(PlayContainer) -->
     <color name="color_FFFFFF">#ffffffff</color>

@@ -4,6 +4,9 @@ import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import android.os.Build
+import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material.ripple.RippleAlpha
 import androidx.compose.material3.LocalRippleConfiguration
@@ -25,18 +28,23 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.core.view.WindowCompat
 import com.materialkolor.PaletteStyle
 
-/**
- * 应用主题(avbox-mobile-ui-spec §3,2026-09-11 接入主题设置页):
- * 取色来源三路径 —— ①自定义种子色(MaterialKolor 按风格生成整套配色);
- * ②跟随系统取色(Android 12+ Material You);③低版本品牌色板占位(§9)。
- * 深浅模式由 [ThemeConfig.mode] 决定,浅色/深色可覆盖系统。
- *
- * 配置默认取 [AppThemeState](进程级可观察状态),故主题设置页改配置后
- * 所有已组合页面同步重组;⚠️ 不能把 [AppThemeState.config] 读进 `remember` 的 key 之外。
- *
- * @param manageStatusBarIcons 纯黑状态栏页面(详情页/直播页)恒为白色图标、由各自 Activity
- *   自行断言,这些页面传 false 关闭主题对状态栏的接管(避免浅色主题下被写成深色图标)。
- */
+internal fun ComponentActivity.enableTransparentEdgeToEdge() {
+    // 注意:navigationBarStyle 不能用 SystemBarStyle.auto —— auto 的 nightMode 是
+    // MODE_NIGHT_AUTO,EdgeToEdgeApi29/35.setUp 会据此把 isNavigationBarContrastEnforced
+    // 设回 true,覆盖 BaseActivity 的关闭调用,导致三键导航区域被系统画上半透明 scrim。
+    // light() 的 nightMode=MODE_NIGHT_NO,contrastEnforced 为 false,三键区才能真透明。
+    enableEdgeToEdge(
+        statusBarStyle = SystemBarStyle.auto(
+            android.graphics.Color.TRANSPARENT,
+            android.graphics.Color.TRANSPARENT,
+        ),
+        navigationBarStyle = SystemBarStyle.light(
+            android.graphics.Color.TRANSPARENT,
+            android.graphics.Color.TRANSPARENT,
+        ),
+    )
+}
+
 @Composable
 fun AVBoxTheme(
     config: ThemeConfig = AppThemeState.config,
@@ -76,17 +84,6 @@ fun AVBoxTheme(
     }
 }
 
-/**
- * 涟漪(点击/长按的激活反馈)透明度 = M3 默认的 2 倍,全局生效(2026-09-13,照搬 `示例文件/android`
- * 的 `Theme.kt`)。M3 默认 pressed 仅 10% —— 首页海报卡上是深色图片 + 底部黑色渐变 scrim,
- * 这点透明度几乎看不出来"点到了",2 倍后才形成明确的按下反馈。
- *
- * 走 [LocalRippleConfiguration] 而不是给每张卡各传一份 `indication`:全 App 的
- * `clickable`/`combinedClickable`/`Surface(onClick)`/`ToggleButton` 一次覆盖,风格天然统一。
- *
- * ⚠️ 反直觉但必要:`RippleConfiguration` 已标注 deprecated,而官方**未提供替代入口**
- * (新的 `RippleConfiguration` 覆盖不到 rippleAlpha),所以只能 `@Suppress("DEPRECATION")`。
- */
 @Suppress("DEPRECATION")
 @Composable
 private fun rememberRippleConfiguration(): RippleConfiguration = remember {
@@ -111,6 +108,17 @@ private fun ApplyAppThemeBars(isDark: Boolean) {
     if (view.isInEditMode) return
     SideEffect {
         val activity = view.context.findActivity() ?: return@SideEffect
+        // 窗口栏颜色直接断言为透明(API 35+ 弃用但仍被部分 ROM 用于三键导航背景,照 示例文件/android Theme.kt)
+        @Suppress("DEPRECATION")
+        activity.window.statusBarColor = android.graphics.Color.TRANSPARENT
+        @Suppress("DEPRECATION")
+        activity.window.navigationBarColor = android.graphics.Color.TRANSPARENT
+        // 兜底:三键导航的系统对比度遮罩(scrim)必须关掉,否则导航键区域蒙一层半透明长方形;
+        // 在 enableEdgeToEdge 之后反复断言,防止 config change 或其他调用把它重开
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            activity.window.isNavigationBarContrastEnforced = false
+            activity.window.isStatusBarContrastEnforced = false
+        }
         WindowCompat.getInsetsController(activity.window, view).apply {
             isAppearanceLightStatusBars = !isDark
             isAppearanceLightNavigationBars = !isDark

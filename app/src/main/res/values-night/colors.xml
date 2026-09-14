@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 深色模式窗口背景(M3 surfaceContainer 基线);窗口背景必须不透明,理由见 values/colors.xml -->
+    <color name="window_background">#211F26</color>
+</resources>

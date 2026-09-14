@@ -42,6 +42,19 @@ public class IjkMediaPlayer extends IjkPlayer {
         memory = AudioTrackMemory.getInstance(context);
     }
 
+    /**
+     * 更新解码配置(2026-09-15)。
+     *
+     * <p>解码 options 只在 reset/prepare 时由 {@link #setOptions()} 应用,而 {@code codec} 是构造时固化的;
+     * 换集/换线/换源/自动换线走的是**复用内核**路径(PlayContainer.startVideoPlayback → VideoView.replay,
+     * 不重建实例),只更新工厂的话新解码方式永远不会生效 —— 用户在设置里把硬解改成软解,继续换集仍是硬解。
+     * 由 {@code PlayerHelper.updateCfg}(每次起播前的 applyPlayerConfigToView)把最新 codec 推给存活实例,
+     * 紧接着的 reset 起播即按新解码方式走。codec 名不变时推的是同一缓存对象,行为零差异。
+     */
+    public void setCodec(IJKCode codec) {
+        if (codec != null) this.codec = codec;
+    }
+
     @Override
     public void setOptions() {
         super.setOptions();
@@ -50,13 +63,23 @@ public class IjkMediaPlayer extends IjkPlayer {
         if (options != null) {
             for (String key : options.keySet()) {
                 String value = options.get(key);
-                String[] opt = key.split("\\|");
-                int category = Integer.parseInt(opt[0].trim());
-                String name = opt[1].trim();
+                // assert 在 release 里是空操作,这里用真判空(null 值会走 Long.parseLong NPE 路径)
+                if (value == null) continue;
+                int category;
+                String name;
                 try {
-                    assert value != null;
-                    long valLong = Long.parseLong(value);
-                    mMediaPlayer.setOption(category, name, valLong);
+                    // 解析必须自带兜底(2026-09-15):本方法在 VideoView.startPlay/startPrepare 链路上被调用,
+                    // 且全链路无 try/catch —— 非法配置项(缺竖线 "mediacodec" / 尾部空段 "4|")抛出的
+                    // NumberFormatException、ArrayIndexOutOfBoundsException 会在主线程直接崩掉进程
+                    String[] opt = key.split("\\|");
+                    category = Integer.parseInt(opt[0].trim());
+                    name = opt[1].trim();
+                } catch (Exception e) {
+                    LOG.i("echo-ijk-option-skip:" + key);
+                    continue;
+                }
+                try {
+                    mMediaPlayer.setOption(category, name, Long.parseLong(value));
                 } catch (Exception e) {
                     mMediaPlayer.setOption(category, name, value);
                 }

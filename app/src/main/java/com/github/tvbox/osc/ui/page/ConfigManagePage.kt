@@ -187,7 +187,9 @@ private fun applyLiveFollowVod() {
  * `.tubiao/添加订阅.svg`)→ Material3 dialog(名字 / 链接两行输入 + 标题右上角「从本地选择」+ 右下角保存);
  * 已保存订阅源以 28dp 圆角卡片展示(距屏幕边缘 16dp),卡片右侧开关 = 切换当前接口(单选);
  * **已开启的源置顶**,其余按添加顺序排列(后加的在下);长按卡片进入管理模式(卡片转勾选),
- * 右上角出现删除控件;**正在使用的源不可删除**(勾选框禁用 + 长按/点选 Toast 提示)。
+ * 右上角出现编辑/删除控件;**正在使用的源不可删除、但可编辑**(2026-09-15:早期实现用"在用"同时拦掉了
+ * 长按与勾选,导致在用源连管理模式都进不去、也就无法编辑 —— 现在长按/勾选一律放行,
+ * 只在"删除"动作上拦截:选中后点删除会 Toast 提示并跳过它)。
  *
  * 2026-09-12 起点播/直播分段:LIVE_API_URL 与 API_URL 分离,直播段首项固定为「跟随点播源」
  * (= 直播未单独配置时的默认来源,始终复用当前点播源),独立直播源优先级更高且点播不受影响。
@@ -268,8 +270,12 @@ fun ConfigManageScreen(onNavigateBack: () -> Unit) {
     }
 
     fun deleteSelected() {
-        // 正在使用的源不可删(长按/点选已拦截,这里再兜一层)
+        // 正在使用的源不可删、但可选中/可编辑(2026-09-15):勾选框对在用源已开放,
+        // 删除动作在这里拦截 —— 只删其余选中项,并对被跳过的那项给出提示,避免"点了删除却没反应"
         val target = selected.filterNot { isInUse(parseSubscribe(it).url) }
+        if (target.size != selected.size) {
+            Toast.makeText(context, "正在使用的源不能删除", Toast.LENGTH_SHORT).show()
+        }
         val remaining = currentItems.filterNot { it in target }
         KV.put(subscribeKeyOf(mode), ArrayList(remaining))
         if (isVod) {
@@ -486,17 +492,13 @@ fun ConfigManageScreen(onNavigateBack: () -> Unit) {
                                 modifier = Modifier.animateItem(),
                                 item = item,
                                 active = inUse,
-                                deletable = !inUse,
                                 manageMode = manageMode,
                                 selected = value in selected,
                                 onClick = {
                                     if (manageMode) {
-                                        // 正在使用的源不可删(勾选框禁用,点击给提示)
-                                        if (inUse) {
-                                            Toast.makeText(context, "正在使用的源不能删除", Toast.LENGTH_SHORT).show()
-                                        } else {
-                                            selected = if (value in selected) selected - value else selected + value
-                                        }
+                                        // 管理模式内一律可勾选/取消(含在用源):它虽然不能删,但要能被选中才能编辑
+                                        // —— 删除的拦截在 deleteSelected 里(2026-09-15)
+                                        selected = if (value in selected) selected - value else selected + value
                                     } else if (mIsVod) {
                                         switchToVod(item)
                                     } else {
@@ -504,13 +506,10 @@ fun ConfigManageScreen(onNavigateBack: () -> Unit) {
                                     }
                                 },
                                 onLongClick = {
-                                    // 长按进入管理模式并选中该卡(右上角出现删除控件);正在使用的源不可删
-                                    if (inUse) {
-                                        Toast.makeText(context, "正在使用的源不能删除", Toast.LENGTH_SHORT).show()
-                                    } else {
-                                        manageMode = true
-                                        selected = setOf(value)
-                                    }
+                                    // 长按进入管理模式并选中该卡(右上角出现编辑/删除控件)。
+                                    // 在用源同样放行(2026-09-15):早期在这里拦掉会让在用源无法编辑
+                                    manageMode = true
+                                    selected = setOf(value)
                                 },
                                 onCheckedChange = { checked ->
                                     // 点播:关闭不动作(必须有一个点播源);直播:关闭 = 回到「跟随点播源」
@@ -584,14 +583,15 @@ private fun FollowVodCard(
 /**
  * 订阅源卡片:28dp 圆角卡片容器(cardContainer),距屏幕边缘 16dp 由列表 contentPadding 保证;
  * 左侧 = 40dp 圆形源图标(`SettingsIconBadge` + `.tubiao/配置管理的订阅源卡片icon图标.svg`),
- * 右侧开关 = 是否当前接口(单选,开关切换);管理模式下开关转勾选框,整卡点击 = 切换选中;
- * 正在使用的源不可删除([deletable] = false 时勾选框禁用)。
+ * 右侧开关 = 是否当前接口(单选,开关切换);管理模式下开关转勾选框,整卡点击 = 切换选中。
+ *
+ * 勾选框对所有源开放(含正在使用的源,2026-09-15):"使用中的源不可删除"是**删除动作**的约束,
+ * 由调用侧在 deleteSelected 里拦截并提示,不再用禁用勾选框表达 —— 那会让在用源连编辑也做不了。
  */
 @Composable
 private fun SubscribeCard(
     item: SubscribeSource,
     active: Boolean,
-    deletable: Boolean,
     manageMode: Boolean,
     selected: Boolean,
     modifier: Modifier = Modifier,
@@ -646,8 +646,8 @@ private fun SubscribeCard(
                 label = "configRowControl",
             ) { managing ->
                 if (managing) {
-                    // 正在使用的源不可删:勾选框禁用(长按/点选也会给提示)
-                    Checkbox(checked = selected, onCheckedChange = { onClick() }, enabled = deletable)
+                    // 勾选框一律可点(含在用源):是否真能删除由 deleteSelected 判定并提示(2026-09-15)
+                    Checkbox(checked = selected, onCheckedChange = { onClick() })
                 } else {
                     Switch(checked = active, onCheckedChange = onCheckedChange)
                 }

@@ -2,7 +2,7 @@ package com.github.tvbox.osc.ui.activity
 
 import android.content.Context
 import android.content.Intent
-import androidx.activity.enableEdgeToEdge
+import com.github.tvbox.osc.ui.theme.enableTransparentEdgeToEdge
 import androidx.compose.ui.platform.ComposeView
 import com.github.tvbox.osc.R
 import com.github.tvbox.osc.base.BaseActivity
@@ -30,7 +30,7 @@ class PlaySettingsActivity : BaseActivity() {
     }
 
     override fun init() {
-        enableEdgeToEdge()
+        enableTransparentEdgeToEdge()
         findViewById<ComposeView>(R.id.compose_view).setContent {
             AVBoxTheme {
                 PlaySettingsScreen(onNavigateBack = { finish() })

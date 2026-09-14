@@ -27,6 +27,7 @@ import java.util.HashMap;
 import java.util.Iterator;
 
 import tv.danmaku.ijk.media.player.IjkLibLoader;
+import xyz.doikki.videoplayer.player.AbstractPlayer;
 import xyz.doikki.videoplayer.player.PlayerFactory;
 import xyz.doikki.videoplayer.player.VideoView;
 import xyz.doikki.videoplayer.render.RenderViewFactory;
@@ -93,8 +94,30 @@ public class PlayerHelper {
             if (videoView instanceof MyVideoView) {
                 ((MyVideoView) videoView).saveConfiguredFactory(playerFactory);
             }
+            // 复用中的 IJK 内核同步解码配置(2026-09-15):换集/换线/换源走 replay 复用同一实例,
+            // 不会按新工厂重建 —— 不推的话新解码方式要等换片/换源释放内核才生效
+            applyIjkCodecToLivePlayer(videoView, playerType, codec);
             videoView.setRenderViewFactory(renderViewFactory);
             videoView.setScreenScaleType(scale);
+        }
+    }
+
+    /**
+     * 把解码配置推给**正在复用**的 IJK 内核(2026-09-15)。
+     *
+     * <p>背景:{@code IjkMediaPlayer} 的 codec 在构造时固化,解码 options 只在 reset/prepare 时由
+     * {@code setOptions()} 应用;而换集/换线/换源/自动换线都不重建实例(复用路径见 fork `VideoView.replay`),
+     * 只更新工厂等于没生效 —— 用户在设置里把硬解改成软解,继续换集仍是硬解。
+     *
+     * <p>本方法在每次起播前被调用({@code PlaybackController.goPlayUrl → applyPlayerConfigToView}),
+     * 推送后紧接着的 reset 起播即按新解码方式走。解码方式没变时 {@code ApiConfig.getIJKCodec} 返回同一缓存
+     * 对象,推的是同一个引用 —— 与修改前行为完全一致,零开销。
+     */
+    private static void applyIjkCodecToLivePlayer(VideoView videoView, int playerType, IJKCode codec) {
+        if (playerType != 1 || codec == null || !(videoView instanceof MyVideoView)) return;
+        AbstractPlayer live = ((MyVideoView) videoView).getMediaPlayer();
+        if (live instanceof IjkMediaPlayer) {
+            ((IjkMediaPlayer) live).setCodec(codec);
         }
     }
 
@@ -184,6 +207,9 @@ public class PlayerHelper {
                 return new IjkMediaPlayer(context, codec);
             }
         });
+        // rtmp 强制 IJK 的工厂用全局解码设置(与播放侧 playerCfg.ijk 不同源):复用中的实例也要跟上,
+        // 否则 rtmp 换集同样停在旧解码(2026-09-15,与 updateCfg 同一处理)
+        applyIjkCodecToLivePlayer(view, 1, codec);
     }
 
     /**

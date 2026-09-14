@@ -16,6 +16,8 @@ import com.github.tvbox.osc.cache.CacheManager;
 import com.github.tvbox.osc.player.usecase.PlayerSwitchUseCase;
 import com.github.tvbox.osc.ui.player.PlayContainer;
 import com.github.tvbox.osc.ui.player.PreloadCoordinator;
+import com.github.tvbox.osc.util.HawkConfig;
+import com.github.tvbox.osc.util.KV;
 import com.github.tvbox.osc.util.LOG;
 import com.github.tvbox.osc.util.MD5;
 
@@ -199,6 +201,7 @@ public final class PlaybackEngine implements PlaybackHostApi {
         controller.stopMusicSessionForFailedPlayback();
         PlaybackService.forceStopSession(appContext);
         liveMode = true;
+        setLiveFlag(true);
         cancelIdleRelease();
         LOG.i(TAG + " re-enter live state (after vod takeover)");
         session = null;
@@ -227,6 +230,7 @@ public final class PlaybackEngine implements PlaybackHostApi {
         PlayContainer page = attachedPage();
         if (page != null) detach(page);
         liveMode = true;
+        setLiveFlag(true);
         // 直播接管期间播放器有人用(直播页不是 PlayContainer、不走 attach),取消空闲释放排期
         cancelIdleRelease();
         // 直播接管这一个播放器:点播一律停(含"确认纯音频"的场景,避免与直播双声)
@@ -304,10 +308,23 @@ public final class PlaybackEngine implements PlaybackHostApi {
         }
     };
 
+    /**
+     * 直播/点播标记(2026-09-15 修复):唯一写入点是**引擎的模式切换**,不再跟直播页的 onCreate/onDestroy 走。
+     *
+     * <p>{@code IjkMediaPlayer.setOptions()/setDataSource()} 与 {@code ApiConfig.proxyLocal()} 都会在
+     * prepare/取流时读它(决定缓存窗口、解码线程数、M3U8/itv 代理与爬虫路由),而 Activity 的销毁时机
+     * 与"引擎已切回点播"没有时序关系 —— 直播页还在栈里/销毁未完成时,点播起播会读到滞后的直播参数。
+     * 引擎模式切换(enterLive/enterLiveState/exitLiveState/release)严格早于对应播放的起播 ⇒ 读到的值必然正确。
+     */
+    private static void setLiveFlag(boolean live) {
+        KV.put(HawkConfig.PLAYER_IS_LIVE, live);
+    }
+
     /** 只切"人格":还回点播的进度管理器与磁盘缓存标记(不动控制器 —— 调用方自己管) */
     private void exitLiveState() {
         if (released || !liveMode) return;
         liveMode = false;
+        setLiveFlag(false);
         LOG.i(TAG + " exit live mode");
         videoView.setProgressManager(progressManager);
         videoView.setExoDiskCacheEnabled(true);
@@ -400,6 +417,8 @@ public final class PlaybackEngine implements PlaybackHostApi {
     public void release() {
         if (released) return;
         released = true;
+        // 引擎死亡必须复位直播标记(2026-09-15):否则"直播中被释放"会把 true 留给下一个引擎/后续点播
+        setLiveFlag(false);
         LOG.i(TAG + " engine release");
         PlayContainer page = attachedPage();
         pageRef = null;

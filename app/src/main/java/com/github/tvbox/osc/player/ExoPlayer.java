@@ -239,13 +239,14 @@ public class ExoPlayer extends ExoMediaPlayer {
                 .setEnableDecoderFallback(true)
                 // 音频硬解优先:MediaCodec 不支持的格式(AC3/DTS 类)才落到 ffmpeg 软解兜底
                 .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON);
-        try {
-            Method method = DefaultRenderersFactory.class.getMethod("forceDisableMediaCodecAsynchronousQueueing");
-            method.invoke(factory);
-            LOG.i("echo-exo-disable-async-codec-queue");
-        } catch (Throwable th) {
-            LOG.i("echo-exo-disable-async-codec-queue-skip:" + th.getClass().getSimpleName());
-        }
+        // 关闭 MediaCodec 异步队列(2026-09-15:由反射改为直接调用)。该方法是 media3 的**公开 API**
+        // (1.11.1 实证 public final,无 @RestrictTo/@UnstableApi/@Deprecated),内部只是
+        // DefaultMediaCodecAdapterFactory.forceDisableAsynchronous() 的实例开关,在 renderer 构建前调用即生效。
+        // 原写法用反射调一个公开方法,唯一效果是把"升级 media3 时编译期报错"降级成"运行期静默失效"
+        // (只少一行日志、异步队列被悄悄恢复)——改直接调用后,升级若该 API 有变,编译期就会暴露。
+        // 日志保留用于真机确认确实走到了;若要恢复异步队列,删掉下面这行即可。
+        factory.forceDisableMediaCodecAsynchronousQueueing();
+        LOG.i("echo-exo-disable-async-codec-queue");
         return factory;
     }
 

@@ -5,7 +5,7 @@ package com.github.tvbox.osc.ui.activity
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
+import com.github.tvbox.osc.ui.theme.enableTransparentEdgeToEdge
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -95,6 +95,7 @@ import com.github.tvbox.osc.viewmodel.SourceViewModel
 import com.github.catvod.crawler.JsLoader
 import com.github.tvbox.osc.util.KV
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -122,7 +123,7 @@ class SearchActivity : BaseActivity() {
     }
 
     override fun init() {
-        enableEdgeToEdge()
+        enableTransparentEdgeToEdge()
         findViewById<androidx.compose.ui.platform.ComposeView>(R.id.compose_view).setContent {
             AVBoxTheme {
                 SearchScreen()
@@ -146,8 +147,14 @@ class SearchViewModel : ViewModel() {
     val running = MutableStateFlow(false)
     val searchedTitle = MutableStateFlow("")
 
-    /** 热搜榜:豆瓣当日热播片名 Top10(KV 缓存 home_hot/home_hot_day,当日有效) */
+    /** 热搜榜:豆瓣当日热播片名 Top20(KV 缓存 home_hot/home_hot_day,当日有效) */
     val hotSearch = MutableStateFlow<List<String>>(emptyList())
+
+    /** 搜索建议(爱奇艺 suggest);非空时热搜卡片标题与内容切换为建议(2026-09-15) */
+    val suggest = MutableStateFlow<List<String>>(emptyList())
+
+    /** 建议请求序号:防乱序竞态(慢响应不得覆盖新输入的结果) */
+    private var suggestSeq = 0
 
     /**
      * 本轮搜索编号(仅本实例内比较;取值 = 进程级自增 [SEARCH_SEQ])。
@@ -178,19 +185,14 @@ class SearchViewModel : ViewModel() {
         private const val DOUBAN_HOT_URL =
             "https://movie.douban.com/j/new_search_subjects?sort=U&range=0,10&tags=&playable=1&start=0&year_range="
 
-        /** 热搜榜展示条数 */
-        private const val HOT_SEARCH_LIMIT = 10
+        private const val HOT_SEARCH_LIMIT = 20
 
-        /**
-         * 勾选搜索源(会话级缓存);null 或空 = 不限制,搜索当前源集合的全部可搜源。
-         *
-         * <p>⚠️ 这份缓存的 key 属于**某个具体的点播源集合**,换源后必须失效 —— 否则拿旧源的 key 去过滤
-         * 新源的源列表,会只剩两边共有的那一个源能搜到(2026-09-13 用户实测:切源后只搜得到「玩偶4k」,
-         * 重启即恢复)。失效有两条路:
-         * ① 换源收尾 `AppBootstrap.onApiUrlChanged()` 主动调用 [clearCheckedSources];
-         * ② 打开搜索页时按"是否还对得上当前源列表"校验([isCheckedSourcesStale])。
-         * 两条都留着:只靠 ① 会漏掉"源地址没变但源集合变了"的情况(如同一个订阅地址内容更新)。
-         */
+        /** 搜索建议接口(爱奇艺,FongMi 同款;无鉴权) */
+        private const val SUGGEST_URL = "https://suggest.video.iqiyi.com/?if=mobile&key="
+
+        /** 搜索建议展示上限 */
+        private const val SUGGEST_LIMIT = 20
+
         @Volatile
         var checkedSources: HashMap<String, String>? = null
             private set
@@ -234,6 +236,11 @@ class SearchViewModel : ViewModel() {
 
     override fun onCleared() {
         org.greenrobot.eventbus.EventBus.getDefault().unregister(this)
+        // 取消在途建议请求:否则回调持有已销毁页面的 VM 直到 HTTP 超时,轻微延迟回收
+        try {
+            OkGo.getInstance().cancelTag("suggest")
+        } catch (_: Throwable) {
+        }
     }
 
     /** 热搜榜:优先当日 KV 缓存(与首页共享),过期则请求豆瓣并回写缓存,失败退旧缓存 */
@@ -278,6 +285,53 @@ class SearchViewModel : ViewModel() {
         emptyList()
     }
 
+    /**
+     * 搜索建议(爱奇艺 suggest):输入防抖后由 UI 触发。
+     * 请求序号防乱序——快速输入时先发后到的旧响应直接丢弃(FongMi 缺这层,2026-09-15 补)。
+     * 失败静默:保留旧建议/热搜内容,不打断输入。
+     */
+    fun fetchSuggest(text: String) {
+        val seq = ++suggestSeq
+        OkGo.get<String>(SUGGEST_URL + java.net.URLEncoder.encode(text, "UTF-8").replace("+", "%20"))
+            .tag("suggest")
+            .execute(object : AbsCallback<String>() {
+                override fun onSuccess(response: com.lzy.okgo.model.Response<String>) {
+                    if (seq != suggestSeq) return
+                    suggest.value = parseSuggest(response.body().orEmpty())
+                }
+
+                override fun convertResponse(response: okhttp3.Response): String =
+                    response.body.string()
+
+                override fun onError(response: com.lzy.okgo.model.Response<String>) {
+                    super.onError(response)
+                }
+            })
+    }
+
+    /** 清空建议并使在途请求失效(输入框清空时恢复热搜) */
+    fun clearSuggest() {
+        suggestSeq++
+        suggest.value = emptyList()
+    }
+
+    private fun parseSuggest(json: String): List<String> = try {
+        val arr = org.json.JSONObject(json).optJSONArray("data") ?: return emptyList()
+        (0 until minOf(arr.length(), SUGGEST_LIMIT)).mapNotNull { i ->
+            val o = arr.optJSONObject(i) ?: return@mapNotNull null
+            // 爱奇艺字段为 name;title 兜底以兼容 360 排行等 name/title 双键数据源
+            val name = o.optString("name")
+            val title = o.optString("title")
+            when {
+                name.isNotEmpty() -> name
+                title.isNotEmpty() -> title
+                else -> null
+            }
+        }
+    } catch (_: Throwable) {
+        emptyList()
+    }
+
     fun search(title: String) {
         val t = title.trim()
         if (t.isEmpty()) return
@@ -293,6 +347,8 @@ class SearchViewModel : ViewModel() {
         val tokenStr = myToken.toString()
         searchedTitle.value = t
         HistoryHelper.setSearchHistory(t)
+        // 搜索发起:清建议(在途请求序号一并作废),页面随即切结果分支
+        clearSuggest()
         // 与旧引擎一致:重搜前停掉在途爬虫
         try {
             JsLoader.stopAll()
@@ -390,6 +446,7 @@ fun SearchScreen(vm: SearchViewModel = viewModel()) {
     val results by vm.results.collectAsState()
     val running by vm.running.collectAsState()
     val hotSearch by vm.hotSearch.collectAsState()
+    val suggest by vm.suggest.collectAsState()
     var query by remember { mutableStateOf("") }
     // 结果源筛选:null = 全部(下方横向 chips 单选,新搜索时重置)
     var selectedSource by remember { mutableStateOf<String?>(null) }
@@ -407,6 +464,18 @@ fun SearchScreen(vm: SearchViewModel = viewModel()) {
         if (!initTitle.isNullOrEmpty()) {
             query = initTitle
             vm.search(initTitle)
+        }
+    }
+
+    // 搜索建议(2026-09-15,FongMi 同款交互):输入防抖 300ms——LaunchedEffect 换 key 自动取消
+    // 上次协程,天然防抖;清空输入框立即恢复热搜
+    LaunchedEffect(query) {
+        val t = query.trim()
+        if (t.isEmpty()) {
+            vm.clearSuggest()
+        } else {
+            delay(300)
+            vm.fetchSuggest(t)
         }
     }
 
@@ -546,7 +615,8 @@ fun SearchScreen(vm: SearchViewModel = viewModel()) {
                         }
                     }
                 }
-                // 热搜榜卡片(28dp 圆角):双列排位,前三名高亮,点击直接搜索
+                // 热搜榜/搜索建议卡片(28dp 圆角):输入框有词时标题切为「搜索建议」并展示建议 chips
+                // (2026-09-15,FongMi 同款);无词时双列排位热搜,前三名高亮,点击直接搜索
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -555,19 +625,33 @@ fun SearchScreen(vm: SearchViewModel = viewModel()) {
                         .background(MaterialTheme.colorScheme.cardContainer)
                         .padding(horizontal = 12.dp, vertical = 8.dp),
                 ) {
+                    val suggestTitle = if (suggest.isEmpty()) "热搜榜" else "搜索建议"
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        SectionIconBadge(R.drawable.ic_hot_search, "热搜榜")
+                        SectionIconBadge(R.drawable.ic_hot_search, suggestTitle)
                         Spacer(modifier = Modifier.width(12.dp))
                         Text(
-                            text = "热搜榜",
+                            text = suggestTitle,
                             style = MaterialTheme.typography.titleMedium,
                             color = MaterialTheme.colorScheme.onSurface,
                         )
                     }
-                    if (hotSearch.isEmpty()) {
+                    if (suggest.isNotEmpty()) {
+                        // 建议词:与搜索历史同款 chips(点击直接搜索)
+                        FlowRow(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 8.dp, bottom = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            suggest.forEach { word ->
+                                HistoryChip(word = word, onClick = { submit(word) }, onLongClick = {})
+                            }
+                        }
+                    } else if (hotSearch.isEmpty()) {
                         // 空态文案居中(2026-09-11 用户要求)
                         Text(
                             text = "暂无热搜数据",
@@ -761,10 +845,6 @@ fun SearchScreen(vm: SearchViewModel = viewModel()) {
     }
 }
 
-/**
- * 搜索页卡片左上角圆形角标图标:40dp 圆形容器 primaryContainer 底(动态取色),
- * 图标 22dp onPrimaryContainer,与右侧删除控件 40dp 尺寸对齐(2026-09-11)。
- */
 @Composable
 private fun SectionIconBadge(iconRes: Int, contentDescription: String) {
     Box(
@@ -783,10 +863,6 @@ private fun SectionIconBadge(iconRes: Int, contentDescription: String) {
     }
 }
 
-/**
- * 搜索历史 chip(视觉沿用原 FilterChip 未选中样式:透明底 + outline 描边):
- * 点击发起搜索,长按删除该条记录(2026-09-11)。
- */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun HistoryChip(
@@ -812,10 +888,6 @@ private fun HistoryChip(
     }
 }
 
-/**
- * 搜索输入框(40dp 胶囊):BasicTextField 自绘替代 OutlinedTextField——
- * 固定 40dp 高度下 OutlinedTextField 默认内边距会压缩/裁切文字(2026-09-10 BugFix)
- */
 @Composable
 private fun SearchField(
     query: String,

@@ -961,10 +961,11 @@ class ComposeVideoController @JvmOverloads constructor(
             }
             playerType = existPlayerTypes[playerTypeIdx]
             cfg.put("pl", playerType)
+            // ⚠️ 必须先于 updatePlayerCfg():它会让"自动切内核"态作废,否则本次落库会被回填成自动切换前的内核
+            listener?.setAllowSwitchPlayer(false)
             updatePlayerCfgState()
             listener?.updatePlayerCfg()
             listener?.replay(false)
-            listener?.setAllowSwitchPlayer(false)
             hideBottom()
         } catch (e: JSONException) {
             e.printStackTrace()
@@ -995,10 +996,11 @@ class ComposeVideoController @JvmOverloads constructor(
                         val thisPlayType = players[pos]
                         if (thisPlayType != playerType) {
                             cfg.put("pl", thisPlayType)
+                            // ⚠️ 必须先于 updatePlayerCfg()(同上:让自动切内核态作废,用户选择才能落库)
+                            listener?.setAllowSwitchPlayer(false)
                             updatePlayerCfgState()
                             listener?.updatePlayerCfg()
                             listener?.replay(false)
-                            listener?.setAllowSwitchPlayer(false)
                             hideBottom()
                         }
                     } catch (e: Exception) {
@@ -1023,6 +1025,11 @@ class ComposeVideoController @JvmOverloads constructor(
                 }
             }
             cfg.put("ijk", ijk)
+            // 按剧记忆标记(2026-09-15):只有用户**在本剧显式选过**解码方式,记录里的 ijk 才优先;
+            // 否则设置页的新值会一直被播放记录里的旧 ijk 压住(见 PlaybackController.initPlayerCfg)
+            cfg.put("ijkSet", 1)
+            // 用户显式选了解码:本次播放不再自动回退软解,自动软解态作废(用户的值要能落库;见 setAllowDecodeFallback)
+            listener?.setAllowDecodeFallback(false)
             updatePlayerCfgState()
             listener?.updatePlayerCfg()
             listener?.replay(false)

@@ -156,6 +156,9 @@ public class PlaybackController {
         //  · m3u8 代理地址残留 ⇒ 投屏地址可能拿到上一部的源地址。
         playbackStarted = false;
         switchStopPending = false;
+        // 自动软解态属于**上一个会话**:新会话的 cfg 会在 initPlayerCfg 里按记录/全局设置重新取值,
+        // 这里清掉旧的"原值"即可(否则跨会话落库会回填上一轮的解码方式)
+        autoSwitchedDecodeOld = null;
         clearM3u8ProxyUrl();
         this.vod = session.vod();
         this.sourceKey = session.sourceKey();
@@ -186,7 +189,10 @@ public class PlaybackController {
                 playerCfg.put("pl", 2);
             }
             playerCfg.put("pr", KV.get(HawkConfig.PLAY_RENDER, 1));
-            if (!playerCfg.has("ijk")) {
+            // 解码方式(2026-09-15):以**全局设置**为准,只有用户在本剧播放器里显式选过解码
+            // (ijkSet=1,见 ComposeVideoController.onIjkClicked)才按剧记忆 —— 否则播放记录里持久化的
+            // 旧 "ijk" 会一直压过设置页的新值,"设置里改成软解、这部剧却永远硬解"。
+            if (playerCfg.optInt("ijkSet", 0) == 0) {
                 playerCfg.put("ijk", KV.get(HawkConfig.IJK_CODEC, "硬解码"));
             }
             if (!playerCfg.has("sc")) {
@@ -578,6 +584,16 @@ public class PlaybackController {
     private boolean allowSwitchPlayer = true;
     private boolean hasAutoSwitchedPlayer = false;
     private int autoSwitchedPlayerType = -1;
+    /**
+     * 自动"硬解→软解"回退是否已用过(每次播放一次;见 trySoftDecodeFallback)。
+     * 兼任"用户显式选过解码 ⇒ 本次播放不再自动回退"的阻断标记(见 setAllowDecodeFallback)——
+     * 故只有"确有自动态可回滚"时才能清除它(见 restoreAutoSwitchedDecode 的判定)。
+     */
+    private boolean hasAutoSwitchedDecode = false;
+    /** 自动切软解前的 cfg.ijk(仅回滚/落库剔除用;null = 当前不处于"自动软解"态) */
+    private String autoSwitchedDecodeOld = null;
+    /** "起播后错误"自动重播是否已用过(每次播放/用户主动自救动作后各一次;见 retryAfterStartedError,2026-09-15) */
+    private boolean hasRetriedAfterStart = false;
     private boolean allowAutoSwitchLine = true;
     private boolean playbackStarted = false;
     private long playTimeoutBasePosition = 0;
@@ -589,12 +605,17 @@ public class PlaybackController {
 
     // -------------------- 状态开关(供页面在既有流程点调用) --------------------
 
-    /** 新一次播放的清场(等价于改造前 play() 里的 playbackStarted/playTimeoutBasePosition/allowSwitchPlayer/hasAutoSwitchedPlayer 四处赋值) */
+    /**
+     * 新一次播放的清场(等价于改造前 play() 里的 playbackStarted/playTimeoutBasePosition/allowSwitchPlayer/
+     * hasAutoSwitchedPlayer 四处赋值;2026-09-15 追加 hasAutoSwitchedDecode —— 新一次播放允许再回退一次软解)。
+     */
     public void beginNewPlay() {
         playbackStarted = false;
         playTimeoutBasePosition = 0;
         allowSwitchPlayer = true;
         hasAutoSwitchedPlayer = false;
+        hasAutoSwitchedDecode = false;
+        hasRetriedAfterStart = false;
     }
 
     /** 换源点击即停:清"播放中"标记与复用开关,并置"在途结果作废"标记(下一次 play 清除) */
@@ -633,12 +654,56 @@ public class PlaybackController {
 
     public void setAllowSwitchPlayer(boolean allow) {
         this.allowSwitchPlayer = allow;
+        if (!allow) {
+            // 用户手动切内核(2026-09-15):自动切内核态作废 —— ①用户的选择要能落库(playerCfgForPersist 不再回填原值)
+            // ②后续换线也不再自动回滚成"自动切换前的内核"(用户的选择优先)。
+            // ⚠️ 调用方必须在 updatePlayerCfg()(落库)**之前**调用本方法,否则本次落库仍会带回填值。
+            autoSwitchedPlayerType = -1;
+        }
+    }
+
+    /**
+     * 用户手动选过解码方式(播放器解码按钮):本次播放不再自动回退软解,且"自动软解"态作废 ——
+     * 后者是为了让用户显式选的值能正常落进播放记录(见 {@link #playerCfgForPersist()})。
+     */
+    public void setAllowDecodeFallback(boolean allow) {
+        if (allow) return;
+        hasAutoSwitchedDecode = true;
+        autoSwitchedDecodeOld = null;
+    }
+
+    /**
+     * 落库用的播放器配置快照(2026-09-15):**自动容错态不得进入播放记录**。
+     *
+     * <p>自动切内核(pl)与自动切软解(ijk)都只是本次会话的临时回退,但覆盖层任一设置改动都会经
+     * {@code PlayContainer.updatePlayerCfg()} 把当时的 playerCfg 整体写进记录/发 EventBus ——
+     * 于是临时回退变成"按剧记忆",把用户的设置永久顶掉。这里返回剔除自动态后的**副本**,
+     * 内存中的 {@link #playerCfg()} 不受影响(播放仍按自动态跑)。
+     */
+    @Nullable
+    public JSONObject playerCfgForPersist() {
+        if (playerCfg == null) return null;
+        try {
+            JSONObject copy = new JSONObject(playerCfg.toString());
+            if (autoSwitchedPlayerType >= 0) {
+                copy.put("pl", autoSwitchedPlayerType);
+            }
+            // 只看"自动态是否仍在生效"(autoSwitchedDecodeOld),不看每次播放的阻断标记 hasAutoSwitchedDecode ——
+            // 后者会被 beginNewPlay(换集)复位,若一并作为条件,换集后下一次落库就会把自动软解写进记录
+            if (autoSwitchedDecodeOld != null) {
+                copy.put("ijk", autoSwitchedDecodeOld);
+            }
+            return copy;
+        } catch (Throwable th) {
+            return playerCfg;
+        }
     }
 
     /** 切内核/换解析前的重试计数复位(改造前 changeParse/replay 回调里的两行) */
     public void resetAutoRetryState() {
         autoRetryCount = 0;
         hasAutoSwitchedPlayer = false;
+        hasRetriedAfterStart = false;
     }
 
     public void setPlaybackStarted(boolean started) {
@@ -741,7 +806,100 @@ public class PlaybackController {
     }
 
     /**
-     * 自动重试(播放出错/超时后):依次尝试 ①嗅探到的新地址 ②切换播放内核重播当前地址 ③下一条线路。
+     * 自动切"硬解→软解"的回滚(与 restoreAutoSwitchedPlayer 同语义):把 cfg.ijk 还原成用户设置的值(只改内存)。
+     *
+     * <p>⚠️ 判定只看 {@code autoSwitchedDecodeOld}(确有"自动软解"可回滚),**不能**看
+     * {@code hasAutoSwitchedDecode} —— 后者同时兼任"用户显式选过解码 ⇒ 本次播放不再自动回退"的**阻断标记**
+     * (见 {@link #setAllowDecodeFallback(boolean)},此时 autoSwitchedDecodeOld 为 null);按它判定会在
+     * 换线/超时等失败路径上把用户的阻断一并清掉,此后自动软解又会把用户显式选的硬解顶掉。
+     */
+    private void restoreAutoSwitchedDecode() {
+        if (autoSwitchedDecodeOld == null) return;
+        hasAutoSwitchedDecode = false;
+        try {
+            if (playerCfg != null) {
+                LOG.i("echo-autoRetry restore decode: " + playerCfg.optString("ijk", "") + " -> " + autoSwitchedDecodeOld);
+                playerCfg.put("ijk", autoSwitchedDecodeOld);
+                // 与 restoreAutoSwitchedPlayer 同款:同步覆盖层 UI(解码按钮文案/状态读的是 cfg)
+                if (view != null) view.applyPlayerConfig(playerCfg);
+            }
+        } catch (Throwable th) {
+            th.printStackTrace();
+        } finally {
+            autoSwitchedDecodeOld = null;
+        }
+    }
+
+    /**
+     * 起播失败的"硬解→软解"回退(2026-09-15;每次播放最多触发一次,软解态在本次会话内持续)。
+     *
+     * <p>为什么必须做在 IJK 内部:设备硬解不了的格式(HEVC 10bit/高 profile、老设备 AV1 等)最有效的兜底
+     * 是 IJK 自带的 ffmpeg 软解;而阶梯里现有的"切内核到 EXO"在视频侧仍只能落到 MediaCodec
+     * (EXO 的 ffmpeg 视频渲染器排在 MediaCodec 之后,设备声明支持该编码时轮不到它),命中率低。
+     *
+     * <p>与"自动切内核"同语义:只改本次会话的内存配置({@code playerCfg}),**不落播放记录**
+     * (落库侧由 {@link #playerCfgForPersist()} 兜底剔除),换线时由 {@link #restoreAutoSwitchedDecode()} 回滚,
+     * 用户显式点解码按钮时由 {@link #setAllowDecodeFallback(boolean)} 作废。换集不还原(会话内持续用软解,
+     * 与自动切内核一致),但阻断标记会随 {@link #beginNewPlay()} 复位,即新一集仍可获得一次回退机会。
+     */
+    private boolean trySoftDecodeFallback() {
+        if (hasAutoSwitchedDecode || playerCfg == null) return false;
+        if (playerCfg.optInt("pl", 2) != 1) return false;                    // 仅 IJK 内核才有软解路径
+        if (!"硬解码".equals(playerCfg.optString("ijk", ""))) return false;   // 已经是软解,不再回退
+        if (TextUtils.isEmpty(webPlayUrl)) return false;                      // 没拿到可播地址(解析/嗅探失败)不适用
+        String oldDecode = playerCfg.optString("ijk", "");
+        try {
+            playerCfg.put("ijk", "软解码");
+        } catch (Throwable th) {
+            return false;
+        }
+        LOG.i("echo-autoRetry hard->soft decode: " + webPlayUrl);
+        autoSwitchedDecodeOld = oldDecode;
+        hasAutoSwitchedDecode = true;
+        // 覆盖层"解码"按钮的文案读的是 cfg,这里同步一次(与自动切内核一致,见 restoreAutoSwitchedPlayer)
+        if (view != null) view.applyPlayerConfig(playerCfg);
+        stopParse();
+        initParseLoadFound();
+        if (view != null && view.isPageAlive()) {
+            final PlaybackViewBridge aliveView = view;
+            view.runOnUi(() -> aliveView.toast("硬解失败，已切换软解重试"));
+        }
+        if (view != null) view.releasePlayer();
+        if (view != null) playUrl(webPlayUrl, webHeaderMap);
+        return true;
+    }
+
+    /**
+     * 起播后(已 PREPARED/PLAYING 过)报错的兜底:此前 errorWithRetry 对这类错误静默吞掉 ——
+     * 无提示、不重试,表现为"黑屏死在那"(2026-09-15 Bug 6 实锤:源上游不稳,播放中重拉 m3u8
+     * 播放列表拿到网关 HTML 错误页)。这里自动"同内核同地址重播"一次;已试过或无可播地址时
+     * 返回 false,由页面给可见提示。
+     *
+     * <p>复位点:{@link #beginNewPlay()}(换集/换线/换源)与 {@link #resetAutoRetryState()}
+     * (手动重播/切内核/切解码/换解析)—— 用户的主动自救动作之后允许再兜一次底。
+     */
+    public boolean retryAfterStartedError() {
+        if (hasRetriedAfterStart) return false;
+        if (TextUtils.isEmpty(webPlayUrl)) return false;
+        hasRetriedAfterStart = true;
+        LOG.i("echo-autoRetry retry after started error: " + webPlayUrl);
+        if (view != null && view.isPageAlive()) {
+            final PlaybackViewBridge aliveView = view;
+            view.runOnUi(() -> aliveView.toast("播放出错，自动重试"));
+        }
+        stopParse();
+        initParseLoadFound();
+        // 复位"已起播"标记:重播若在起播前就再次失败,后续 errorWithRetry 应走 autoRetry 阶梯
+        // (切内核/换线)而不是再次落入 started=true 的兜底分支(与 PlayContainer.replay 的复位一致)
+        playbackStarted = false;
+        if (view != null) view.releasePlayer();
+        if (view != null) playUrl(webPlayUrl, webHeaderMap);
+        return true;
+    }
+
+    /**
+     * 自动重试(播放出错/超时后):依次尝试 ①嗅探到的新地址 ②硬解→软解重播当前地址(仅 IJK 硬解,每次播放一次)
+     * ③切换播放内核重播当前地址 ④下一条线路。
      *
      * @return true = 已发起重试;false = 无路可走(调用方负责提示与收尾)
      */
@@ -760,6 +918,8 @@ public class PlaybackController {
             autoRetryFromLoadFoundVideoUrls();
             return true;
         }
+        // ② 硬解→软解(2026-09-15):解码类起播失败覆盖面最广的兜底,排在换内核之前(先保住用户选的内核)
+        if (trySoftDecodeFallback()) return true;
         if (webPlayUrl != null) {
             if (allowSwitchPlayer && !hasAutoSwitchedPlayer) {
                 LOG.i("echo-autoRetry switch player and replay current url");
@@ -782,9 +942,10 @@ public class PlaybackController {
         return tryNextLineIfEnabled();
     }
 
-    /** 自动换线开关判断(已在尝试换线时先回滚内核) */
+    /** 自动换线开关判断(已在尝试换线时先回滚内核与解码方式) */
     public boolean tryNextLineIfEnabled() {
         restoreAutoSwitchedPlayer();
+        restoreAutoSwitchedDecode();
         if (allowAutoSwitchLine && KV.get(HawkConfig.AUTO_SWITCH_LINE, false)) return tryNextLine();
         LOG.i("echo-autoRetry line switching disabled");
         autoRetryCount = 0;

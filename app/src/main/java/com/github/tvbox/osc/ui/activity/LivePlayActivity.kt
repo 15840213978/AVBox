@@ -13,7 +13,7 @@ import android.text.TextUtils
 import android.util.Base64
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
-import androidx.activity.enableEdgeToEdge
+import com.github.tvbox.osc.ui.theme.enableTransparentEdgeToEdge
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -25,11 +25,13 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -106,6 +108,7 @@ import com.github.tvbox.osc.ui.components.SettingsGroup
 import com.github.tvbox.osc.ui.components.SettingsOptionRow
 import com.github.tvbox.osc.ui.components.SettingsSwitchRow
 import com.github.tvbox.osc.ui.theme.AVBoxTheme
+import com.github.tvbox.osc.ui.theme.AppThemeState
 import com.github.tvbox.osc.ui.theme.cardContainer
 import com.github.tvbox.osc.util.DefaultConfig
 import com.github.tvbox.osc.util.EpgUtil
@@ -277,7 +280,7 @@ class LivePlayActivity : BaseActivity() {
     }
 
     override fun init() {
-        enableEdgeToEdge()
+        enableTransparentEdgeToEdge()
         // 播放器与状态栏均为纯黑,状态栏图标强制白色(§3/Step 4 定稿⑤)
         applyStatusBarAppearance()
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
@@ -300,7 +303,8 @@ class LivePlayActivity : BaseActivity() {
         nowday = Date()
         epgDayPresented = FORMAT_DATE1.format(nowday)
         initVideoView()
-        KV.put(HawkConfig.PLAYER_IS_LIVE, true)
+        // 直播/点播标记不在这里写(2026-09-15):改由引擎的模式切换写(见 PlaybackEngine.setLiveFlag)——
+        // Activity 生命周期与"引擎已切回点播"没有时序关系,IjkMediaPlayer 在 prepare 时会读到滞后的直播参数
         findViewById<ComposeView>(R.id.compose_view).setContent {
             // 纯黑状态栏页面:图标恒白由本页 init/沉浸退出逻辑断言,主题不接管
             AVBoxTheme(manageStatusBarIcons = false) {
@@ -334,7 +338,7 @@ class LivePlayActivity : BaseActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        KV.put(HawkConfig.PLAYER_IS_LIVE, false)
+        // 同上:标记改由引擎(exitLive → exitLiveState / 引擎释放)复位,页面不再直接写
         hideSwitchChannelSnapshot()
         // P4:播放器归引擎 —— 只退出直播模式(还回点播进度管理器、清直播控制器),实例留给点播复用
         PlaybackService.peek()?.exitLive()
@@ -504,9 +508,16 @@ class LivePlayActivity : BaseActivity() {
      * 竖屏状态栏区域为纯黑,图标必须白色(对齐详情页 §4.4 补丁⑤;全屏沉浸时系统栏隐藏,此值不影响)。
      * 系统 ROM 会在沉浸退出/横竖屏过渡与回前台时按主题重设图标外观(浅色主题 → 深色图标),
      * 深色图标在纯黑底上等于"消失",故关键时机(init/onResume/旋转落地/退出全屏)反复断言。
+     * 导航键图标按应用主题断言(状态栏恒白不受影响):本页 manageStatusBarIcons=false 主题不接管,
+     * 而 light() 导航栏样式使 EdgeToEdge 恒设深色图标,深色主题下压深色内容几乎不可见。
      */
     private fun applyStatusBarAppearance() {
-        WindowCompat.getInsetsController(window, window.decorView).isAppearanceLightStatusBars = false
+        val systemDark = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+            Configuration.UI_MODE_NIGHT_YES
+        WindowCompat.getInsetsController(window, window.decorView).apply {
+            isAppearanceLightStatusBars = false
+            isAppearanceLightNavigationBars = !AppThemeState.isDark(systemDark)
+        }
     }
 
     /** 旋转落地回调(2026-09-13 方案 A 的"落地"信号):清过渡态,布局形态在这一帧才真正切换 */
@@ -2451,6 +2462,7 @@ class LivePlayActivity : BaseActivity() {
                     text = info.name,
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
@@ -2526,14 +2538,13 @@ class LivePlayActivity : BaseActivity() {
             if (target > 0) listState.animateScrollToItem(max(0, target - 2))
         }
         val rows = activity.buildChannelRows()
+        val navBarInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
         LazyColumn(
             state = listState,
-            modifier = modifier.fillMaxWidth().navigationBarsPadding(),
-            contentPadding = PaddingValues(bottom = 24.dp),
+            modifier = modifier.fillMaxWidth(),
+            contentPadding = PaddingValues(bottom = navBarInset + 24.dp),
         ) {
             itemsIndexed(rows, key = { _, row -> row.key }) { _, row ->
-                // 频道行同样持有所属 group 引用,必须以 channel 为准区分行类型,
-                // 否则展开分组后频道行会全部被渲染成组头(表现为一排重复的分组名)
                 val channel = row.channel
                 if (channel == null) {
                     val group = row.group ?: return@itemsIndexed
@@ -2633,10 +2644,6 @@ class LivePlayActivity : BaseActivity() {
             )
         }
     }
-
-    // ============================================================
-    // EPG 节目单 bottom sheet
-    // ============================================================
 
     @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
     @Composable

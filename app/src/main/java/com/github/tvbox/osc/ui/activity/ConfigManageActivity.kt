@@ -2,7 +2,7 @@ package com.github.tvbox.osc.ui.activity
 
 import android.content.Context
 import android.content.Intent
-import androidx.activity.enableEdgeToEdge
+import com.github.tvbox.osc.ui.theme.enableTransparentEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.platform.ComposeView
 import com.github.tvbox.osc.R
@@ -44,7 +44,7 @@ class ConfigManageActivity : BaseActivity() {
     }
 
     override fun init() {
-        enableEdgeToEdge()
+        enableTransparentEdgeToEdge()
         findViewById<ComposeView>(R.id.compose_view).setContent {
             AVBoxTheme {
                 ConfigManageScreen(onNavigateBack = { finish() })

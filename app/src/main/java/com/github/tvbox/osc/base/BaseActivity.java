@@ -65,6 +65,10 @@ public abstract class BaseActivity extends AppCompatActivity implements CustomAd
             th.printStackTrace();
         }
         super.onCreate(savedInstanceState);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            getWindow().setNavigationBarContrastEnforced(false);
+            getWindow().setStatusBarContrastEnforced(false);
+        }
         setContentView(getLayoutResID());
         mContext = this;
         initSystemUiListener();
