@@ -103,6 +103,11 @@ fun VodCard(
     }
 }
 
+/** 评分提取正则(顶层常量):ratingBadgeText 在首页横排/相关推荐/HeroCarousel 每卡组合时调用,
+ * 提出函数体避免每次调用重新编译(2026-09-14 性能优化) */
+private val RATING_SCORE_REGEX = Regex("评分[:：]?\\s*(\\d+(?:\\.\\d+)?)")
+private val RATING_SCORE_SUFFIX_REGEX = Regex("^(\\d+(?:\\.\\d+)?)\\s*分$")
+
 /**
  * note → 角标文本:「评分： 8.7」/「评分:8.7」/「8.2 分」→ 纯数字;
  * 评分为 0 或 note 为空返回 null(隐藏角标);其余备注(共40集/HD)原样返回。
@@ -110,8 +115,8 @@ fun VodCard(
 internal fun ratingBadgeText(note: String?): String? {
     val n = note?.trim().orEmpty()
     if (n.isEmpty()) return null
-    val m = Regex("评分[:：]?\\s*(\\d+(?:\\.\\d+)?)").find(n)
-        ?: Regex("^(\\d+(?:\\.\\d+)?)\\s*分$").find(n)
+    val m = RATING_SCORE_REGEX.find(n)
+        ?: RATING_SCORE_SUFFIX_REGEX.find(n)
     if (m != null) {
         val num = m.groupValues[1]
         return if (num.toFloatOrNull() == 0f) null else num

@@ -1341,8 +1341,11 @@ private fun DetailContent(activity: DetailActivity, vm: DetailViewModel, revisio
         contentPadding = PaddingValues(bottom = 32.dp),
     ) {
         // ---- 标题 / 来源 / 简介：surfaceBright 圆角卡片(距屏 16dp) ----
-        val desc = removeHtmlTag(info.des)
         item(key = "header") {
+            // (2026-09-14 性能优化)remember(info.des):removeHtmlTag 含 2 个正则编译 +
+            // Html.fromHtml,revision 随切集/换源/播放器配置等离散动作 bump,不缓存会
+            // 每次重算;des 不变时直接复用。须在 item 内(LazyListScope 非 Composable 上下文)
+            val desc = remember(info.des) { removeHtmlTag(info.des) }
             Column(
                 modifier = Modifier
                     .padding(start = 6.dp, end = 6.dp, top = 12.dp)
@@ -1761,11 +1764,14 @@ private fun ChipRow(title: String, content: LazyListScope.() -> Unit) {
     }
 }
 
+private val CR_LINK_REGEX = Regex("\\[a=cr:(?:\\{.*?\\}|\\[.*?\\])/](.*?)\\[/a]")
+private val WHITESPACE_REGEX = Regex("\\s")
+
 private fun removeHtmlTag(info: String?): String {
     if (info.isNullOrEmpty()) return ""
-    var text = info.replace(Regex("\\[a=cr:(?:\\{.*?\\}|\\[.*?\\])/](.*?)\\[/a]"), "$1")
+    var text = info.replace(CR_LINK_REGEX, "$1")
     text = android.text.Html.fromHtml(text, android.text.Html.FROM_HTML_MODE_LEGACY).toString()
-    return text.replace(Regex("\\s"), "")
+    return text.replace(WHITESPACE_REGEX, "")
 }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)

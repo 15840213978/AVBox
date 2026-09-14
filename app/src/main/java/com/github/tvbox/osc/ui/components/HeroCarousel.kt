@@ -41,7 +41,8 @@ private const val HERO_PAGES_PER_SET = 100_000
  *     = 64% 屏宽,2026-09-12 用户定稿缩小,两侧露出更多相邻卡),页对齐 padding start
  *     吸附 → 落定当前卡必居中、左右等距 peek 相邻卡;
  * - 海报全彩铺底 + 底部黑色渐变承托白字,中央胶囊标签;
- *   滑动时按页偏移缩放/淡出(graphicsLayer 绘制期读 state,逐帧更新不触发重组)。
+ *   滑动时按页偏移缩放/淡出:偏移在 graphicsLayer 块内绘制期读 state,
+ *   逐帧更新只触发重绘,不重组可见页(2026-09-14 BugFix,原实现误在组合期求值)。
  */
 @Composable
 fun HeroCarousel(
@@ -64,13 +65,16 @@ fun HeroCarousel(
         pageSpacing = 12.dp,
     ) { page ->
         val video = videos[page % n]
-        // 页偏移:当前页 0,相邻页 ±1;绘制期读 state 逐帧更新
-        val pageOffset = (pagerState.currentPage - page) + pagerState.currentPageOffsetFraction
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(1.5f)
                 .graphicsLayer {
+                    // 页偏移:当前页 0,相邻页 ±1(2026-09-14 BugFix:计算移入块内,
+                    // 绘制期读 state,滚动时只触发重绘;若在组合期求值,滑动期间
+                    // 2~3 个可见页会每帧重组)
+                    val pageOffset =
+                        (pagerState.currentPage - page) + pagerState.currentPageOffsetFraction
                     val d = abs(pageOffset).coerceIn(0f, 1f)
                     scaleX = 1f - 0.18f * d
                     scaleY = 1f - 0.18f * d

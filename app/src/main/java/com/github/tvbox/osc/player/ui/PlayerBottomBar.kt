@@ -111,15 +111,10 @@ fun PlayerBottomBar(
                 PreviewPlayPauseButton(state, actions)
             }
             // 时间按内容自适应完整显示（照搬哔哩哔哩），进度条 weight 占据剩余宽度
-            Text(
-                text = stringForTime(state.seekPreviewOrPosition),
-                color = Color.White,
-                fontSize = playerTextSize(R.dimen.ts_20),
-                fontWeight = FontWeight.Medium,
-                maxLines = 1,
-                textAlign = TextAlign.End,
-                modifier = Modifier.widthIn(min = 48.dp),
-            )
+            // (2026-09-14 BugFix) 拆出只读 seekPreviewOrPosition 的 CurrentTimeText：
+            // 拖拽/步进期间 onSeekPreview 每帧写 seekPreviewPositionMs，若在本体组合期
+            // 读取，整条底栏（含 FlowRow 菜单行）会每帧重组
+            CurrentTimeText(state)
             PlayerSeekRow(
                 state = state,
                 actions = actions,
@@ -255,6 +250,27 @@ fun PlayerBottomBar(
     }
 }
 
+
+/**
+ * 进度行左侧当前时间（2026-09-14 BugFix 自 PlayerBottomBar 拆出）：
+ * 拖拽/按键步进中显示预览位置，否则显示真实播放位置。
+ * seekPreviewPositionMs 为帧级写入（拖拽每帧）、position 为 1Hz 写入（mShowProgress），
+ * 单独成 scope 后二者只重组本 Text，不再令整条 PlayerBottomBar 失效。
+ */
+@Composable
+private fun CurrentTimeText(state: PlayerUiState, modifier: Modifier = Modifier) {
+    Text(
+        text = stringForTime(state.seekPreviewOrPosition),
+        color = Color.White,
+        fontSize = playerTextSize(R.dimen.ts_20),
+        fontWeight = FontWeight.Medium,
+        maxLines = 1,
+        textAlign = TextAlign.End,
+        modifier = modifier.widthIn(min = 48.dp),
+    )
+}
+
+
 /**
  * 预览态（竖屏详情页）进度行左侧的播放/暂停钮（2026-09-13 用户要求）：
  * - 触摸盒 40dp、图形 22dp、白色 90% —— 与详情页右下角全屏入口完全同款（该入口 = 40dp 盒 + 9dp padding + 90% 白 tint），
@@ -290,6 +306,8 @@ private fun PreviewPlayPauseButton(state: PlayerUiState, actions: PlayerActions)
  * 自绘进度条：视觉照搬 shape_player_control_vod_seek（轨道 #4DFFFFFF / 缓冲 #66FFFFFF /
  * 进度 #FF4081，圆角 2dp）与 CircleThumbDrawable（12dp 白圆 + #FF4081 2dp 描边，激活 16dp）。
  * 交互：触摸拖拽/点按、TV 方向键步进、鼠标滚轮步进（旧 SeekBar 三种方式等价）。
+ * 性能（2026-09-14 BugFix）：progress/buffered 在 Canvas 绘制块内读取 state，
+ * 拖拽每帧/播放每秒只重绘本进度条，不触发 PlayerSeekRow 重组。
  */
 @Composable
 private fun PlayerSeekRow(
@@ -303,15 +321,7 @@ private fun PlayerSeekRow(
     var draggingLocal by remember { mutableStateOf(false) }
     var dragProgress by remember { mutableStateOf(0f) }
 
-    // 拖拽/按键步进中显示预览位置（两条路径都写入 seekPreviewPositionMs）
-    val progress: Float = when {
-        state.dragging && state.duration > 0 ->
-            state.seekPreviewPositionMs.toFloat() / state.duration * SEEK_MAX
-        state.duration > 0 -> state.position.toFloat() / state.duration * SEEK_MAX
-        else -> 0f
-    }
-    val buffered: Float =
-        if (state.duration > 0) state.bufferedPercent / 100f * SEEK_MAX else 0f
+    // thumbActive 随焦点/拖拽起止翻转，低频，组合期读取无妨
     val thumbActive = focused || draggingLocal || state.dragging
 
     var seekModifier = modifier
@@ -402,6 +412,17 @@ private fun PlayerSeekRow(
         }
 
     Canvas(seekModifier) {
+        // (2026-09-14 BugFix) progress/buffered 计算移入绘制块：拖拽期间
+        // seekPreviewPositionMs 每帧写入、播放期间 position 每秒写入，绘制期读取
+        // 只触发本 Canvas 重绘；组合期求值会令 PlayerSeekRow 每帧/每秒重组
+        val progress: Float = when {
+            state.dragging && state.duration > 0 ->
+                state.seekPreviewPositionMs.toFloat() / state.duration * SEEK_MAX
+            state.duration > 0 -> state.position.toFloat() / state.duration * SEEK_MAX
+            else -> 0f
+        }
+        val buffered: Float =
+            if (state.duration > 0) state.bufferedPercent / 100f * SEEK_MAX else 0f
         val trackHeight = 3.dp.toPx()
         val centerY = size.height / 2
         val corner = CornerRadius(2.dp.toPx())
