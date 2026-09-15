@@ -228,10 +228,9 @@ public class FileUtils {
     }
 
     /**
-     * 外置缓存中属于**用户数据**、清理时必须保留的一级目录:config/ =
-     * 配置管理页「从本地选择」经 SAF 导入的接口配置(clan:// 地址直接指向该文件),
-     * 删掉等于把用户的订阅源弄丢。⚠️ 系统设置里的「清除缓存」会连同它一起删,属既有设计隐患
-     * (用户数据本不该放在 cacheDir),此处只保证应用内入口不误删。
+     * 外置缓存里属于**用户数据**、清理时必须保留的一级目录:config/ = 老的本地源配置副本
+     * (2026-09-16 起新副本改放外置 files,见 {@link #getExternalFilesPath()};clan:// 地址直接指向该文件,
+     * 删掉等于把订阅源弄丢)。⚠️ 系统「清除缓存」仍会删它(历史遗留:用户数据本不该放在 cacheDir)。
      */
     private static final String EXTERNAL_CACHE_KEEP_DIR = "config";
 
@@ -588,5 +587,17 @@ public class FileUtils {
             return getCachePath();
         }
         return externalCacheDir.getAbsolutePath();
+    }
+
+    /**
+     * 外置私有 files 目录:本地源配置副本等用户数据的落点(2026-09-16 起由外置 cache 迁来,避免被
+     * 系统「清除缓存」删掉后只能静默回落到 filesDir 旧快照);外置不可用时回落内部 files 目录。
+     */
+    public static String getExternalFilesPath() {
+        File externalFilesDir = App.getInstance().getExternalFilesDir(null);
+        if (externalFilesDir == null) {
+            return getFilePath();
+        }
+        return externalFilesDir.getAbsolutePath();
     }
 }

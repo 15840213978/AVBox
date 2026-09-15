@@ -35,6 +35,7 @@ import com.github.tvbox.osc.util.LOG;
 import com.github.tvbox.osc.util.M3u8;
 import com.github.tvbox.osc.util.MD5;
 import com.github.tvbox.osc.util.OkGoHelper;
+import com.github.tvbox.osc.util.PermissionHelper;
 import com.github.tvbox.osc.util.Proxy;
 import com.github.tvbox.osc.util.VideoParseRuler;
 import com.github.tvbox.osc.util.live.TxtSubscribe;
@@ -247,6 +248,11 @@ public class ApiConfig {
 
             @Override
             public void error(String error) {
+                // 本地源无权限读不到文件时**不回落旧快照**:回落会让用户以为源正常、实则内容永不更新
+                if (isLocalSourceUnreadable(apiUrl)) {
+                    callback.error(LOCAL_SOURCE_UNREADABLE_MSG);
+                    return;
+                }
                 if (cache.exists()) {
                     try {
                         String json = readConfigFile(cache);
@@ -334,6 +340,10 @@ public class ApiConfig {
 
             @Override
             public void error(String error) {
+                if (isLocalSourceUnreadable(liveApiUrl)) {
+                    callback.error(LOCAL_SOURCE_UNREADABLE_MSG);
+                    return;
+                }
                 if (live_cache.exists()) {
                     try {
                         parseLiveConfigContent(liveApiUrl, live_cache);
@@ -349,6 +359,20 @@ public class ApiConfig {
                 callback.error("直播配置拉取失败");
             }
         });
+    }
+
+    /** 本地源文件不可读的提示(UI 直接展示) */
+    private static final String LOCAL_SOURCE_UNREADABLE_MSG = "本地源文件读不到\n请开启「所有文件访问」后重试(或重新导入本地源)";
+
+    /**
+     * 本机文件源(`clan://localhost/` / `file://`)且当前无存储权限 ⇒ 本地服务按原始路径读必然 EACCES。
+     * 把"静默回落 filesDir 旧快照"改成明确报错,否则用户改了本地 json 不生效且毫无提示(2026-09-16)。
+     * ⚠️ 只判这两种"本机文件"形态:`clan://<ip>/…` 是局域网 TVBox 服务地址,与本地存储权限无关。
+     */
+    private static boolean isLocalSourceUnreadable(String apiUrl) {
+        if (apiUrl == null) return false;
+        if (!apiUrl.startsWith("clan://localhost/") && !apiUrl.startsWith("file://")) return false;
+        return !PermissionHelper.isStorageGranted(App.getInstance());
     }
 
     private boolean hasLiveConfigResult() {

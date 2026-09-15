@@ -248,6 +248,14 @@ fun HomePage(vm: HomeViewModel, bottomPadding: Dp = 0.dp) {
                     contentAlignment = Alignment.Center,
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        // 空态图标与历史/收藏页一致:ic_empty_record,64dp,onSurfaceVariant
+                        Icon(
+                            painter = painterResource(R.drawable.ic_empty_record),
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(64.dp),
+                        )
+                        Spacer(Modifier.size(12.dp))
                         Text(
                             text = "尚未配置订阅接口",
                             style = MaterialTheme.typography.bodyMedium,
