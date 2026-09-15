@@ -362,7 +362,7 @@ private fun ThemeModeRow(currentMode: Int, onModeSelected: (Int) -> Unit) {
         CapsuleSegmentedButton(
             options = listOf(
                 SegmentOption(
-                    label = "跟随系统",
+                    label = "自动",
                     value = ThemeMode.FOLLOW_SYSTEM,
                     iconPainter = painterResource(R.drawable.ic_brightness_auto),
                 ),
