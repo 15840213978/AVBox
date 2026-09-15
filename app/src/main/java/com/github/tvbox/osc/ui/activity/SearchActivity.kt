@@ -80,6 +80,8 @@ import com.github.tvbox.osc.ui.components.AppTopBarScaffold
 import com.github.tvbox.osc.ui.components.LoadStateBox
 import com.github.tvbox.osc.ui.components.LoadState
 import com.github.tvbox.osc.ui.components.VodCard
+import com.github.tvbox.osc.ui.components.VodCardMenu
+import com.github.tvbox.osc.ui.components.rememberVodCardMenuState
 import com.github.tvbox.osc.ui.theme.AVBoxTheme
 import com.github.tvbox.osc.ui.theme.cardContainer
 import com.github.tvbox.osc.ui.activity.PartitionListActivity
@@ -452,6 +454,8 @@ fun SearchScreen(vm: SearchViewModel = viewModel()) {
     var selectedSource by remember { mutableStateOf<String?>(null) }
     var history by remember { mutableStateOf(KV.get(HawkConfig.SEARCH_HISTORY, ArrayList<String>())) }
     val searchedTitle by vm.searchedTitle.collectAsState()
+    // 长按卡片菜单(收藏/搜索相似内容):与首页共用同一组件(2026-09-16)
+    val vodMenu = rememberVodCardMenuState()
 
     // 外部带标题进入(历史/兜底跳转)自动搜索;勾选源从持久化恢复(与旧行为一致)
     LaunchedEffect(Unit) {
@@ -829,7 +833,7 @@ fun SearchScreen(vm: SearchViewModel = viewModel()) {
                                     VodCard(
                                         video = video,
                                         onClick = { context.openVodCardOrDetail(video) },
-                                        onLongClick = {},
+                                        onLongClick = { vodMenu.show(video) },
                                         modifier = Modifier.width(110.dp),
                                     )
                                 }
@@ -839,8 +843,10 @@ fun SearchScreen(vm: SearchViewModel = viewModel()) {
                 }
             }
         }
-
     }
+
+    // 长按卡片:收藏/操作菜单(页面根部渲染,覆盖全屏)
+    VodCardMenu(vodMenu)
 }
 
 @Composable

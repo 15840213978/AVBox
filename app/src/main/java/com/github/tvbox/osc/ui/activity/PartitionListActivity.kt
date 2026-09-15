@@ -55,6 +55,8 @@ import com.github.tvbox.osc.ui.components.LoadState
 import com.github.tvbox.osc.ui.components.LoadStateBox
 import com.github.tvbox.osc.ui.components.AppTopBarScaffold
 import com.github.tvbox.osc.ui.components.VodCard
+import com.github.tvbox.osc.ui.components.VodCardMenu
+import com.github.tvbox.osc.ui.components.rememberVodCardMenuState
 import com.github.tvbox.osc.ui.page.PartitionListVM
 import com.github.tvbox.osc.ui.page.dispatchVodCardClick
 import com.github.tvbox.osc.ui.page.openVodCardOrDetail
@@ -137,6 +139,8 @@ private fun PartitionListScreen(mode: String, title: String, sortJson: String?, 
     val vm: PartitionListVM = viewModel()
     var filterOpen by remember { mutableStateOf(false) }
     val ui by vm.ui.collectAsState()
+    // 长按卡片菜单(收藏/搜索相似内容):与首页共用同一组件(2026-09-16)
+    val vodMenu = rememberVodCardMenuState()
 
     // partition / folder 模式:反序列化分类并首次加载(幂等,重建后 VM 存活则跳过)
     LaunchedEffect(sortJson) {
@@ -201,7 +205,7 @@ private fun PartitionListScreen(mode: String, title: String, sortJson: String?, 
                 videos = searchVideos,
                 // search 模式:走搜索链路入口(只特判目录卡,其余进详情)
                 onCardClick = { video -> context.openVodCardOrDetail(video) },
-                onCardLongClick = {},
+                onCardLongClick = { video -> vodMenu.show(video) },
                 onLoadMore = {},
                 // 顶栏高度 - 20dp(+网格内部 28dp = 首卡距顶栏 8dp,与设置页一致;2026-09-12 用户定稿)
                 topPadding = topPad - 20.dp,
@@ -231,7 +235,7 @@ private fun PartitionListScreen(mode: String, title: String, sortJson: String?, 
                 videos = ui.videos,
                 // 2026-09-11:与首页共用统一分发(action > 网盘目录下钻 > 源级策略 搜索/详情)
                 onCardClick = { video -> context.dispatchVodCardClick(video, onAction = { vm.runAction(it) }) },
-                onCardLongClick = {},
+                onCardLongClick = { video -> vodMenu.show(video) },
                 onLoadMore = { vm.loadMore() },
                 enableLoadMore = true,
                 // 顶栏高度 - 20dp(+网格内部 28dp = 首卡距顶栏 8dp,与设置页一致;2026-09-12 用户定稿)
@@ -239,6 +243,9 @@ private fun PartitionListScreen(mode: String, title: String, sortJson: String?, 
             )
         }
     }
+
+    // 长按卡片:收藏/操作菜单(页面根部渲染,覆盖全屏)
+    VodCardMenu(vodMenu)
 
     if (filterOpen) {
         vm.sort?.let { sort ->

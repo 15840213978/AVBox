@@ -54,7 +54,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -76,8 +75,6 @@ import com.github.tvbox.osc.R
 import com.github.tvbox.osc.api.ApiConfig
 import com.github.tvbox.osc.bean.Movie
 import com.github.tvbox.osc.bean.MovieSort
-import com.github.tvbox.osc.cache.RoomDataManger
-import com.github.tvbox.osc.event.RefreshEvent
 import com.github.tvbox.osc.ui.activity.ConfigManageActivity
 import com.github.tvbox.osc.ui.activity.PartitionListActivity
 import com.github.tvbox.osc.ui.activity.SearchActivity
@@ -95,11 +92,9 @@ import com.github.tvbox.osc.ui.components.SettingsGroup
 import com.github.tvbox.osc.ui.components.SettingsOptionRow
 import com.github.tvbox.osc.ui.components.SettingsRow
 import com.github.tvbox.osc.ui.components.SkeletonBox
+import com.github.tvbox.osc.ui.components.VodCardMenu
+import com.github.tvbox.osc.ui.components.rememberVodCardMenuState
 import com.github.tvbox.osc.ui.theme.cardContainer
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import org.greenrobot.eventbus.EventBus
 
 /**
  * [bottomPadding]:液态玻璃模式下悬浮导航栏的遮挡高度(MainScreen 统一下发,M3 栏模式传 0 走布局避让),
@@ -112,7 +107,8 @@ fun HomePage(vm: HomeViewModel, bottomPadding: Dp = 0.dp) {
     val sources by vm.sources.collectAsState()
     val rec by vm.rec.collectAsState()
     val partitions by vm.partitions.collectAsState()
-    val scope = rememberCoroutineScope()
+    // 长按卡片菜单(收藏/搜索相似内容):与搜索页、栏目二级页共用同一组件
+    val vodMenu = rememberVodCardMenuState()
 
     // 无边框顶栏(2026-09-11 晚照 `示例文件/android` 官方方案重做):Scaffold + M3 TopAppBar
     val listState = rememberLazyListState()
@@ -138,8 +134,6 @@ fun HomePage(vm: HomeViewModel, bottomPadding: Dp = 0.dp) {
             vm.refreshPartitions()
         }
     }
-
-    var collectMenu by remember { mutableStateOf<Pair<Movie.Video, Boolean>?>(null) }
 
     // 订阅源切换 sheet 开关(2026-09-10:源 chips 行收敛为左上角胶囊入口)
     var showSourceSheet by remember { mutableStateOf(false) }
@@ -333,14 +327,7 @@ fun HomePage(vm: HomeViewModel, bottomPadding: Dp = 0.dp) {
                             videos = rec.videos.drop(5),
                             onLoadMore = {},
                             onCardClick = { video -> handleCardClick(vm, video, context) },
-                            onCardLongClick = { video ->
-                                scope.launch {
-                                    val collected = withContext(Dispatchers.IO) {
-                                        RoomDataManger.isVodCollect(video.sourceKey, video.id)
-                                    }
-                                    collectMenu = video to collected
-                                }
-                            },
+                            onCardLongClick = { video -> vodMenu.show(video) },
                             cardWidth = 140.dp,
                         )
                     }
@@ -352,14 +339,7 @@ fun HomePage(vm: HomeViewModel, bottomPadding: Dp = 0.dp) {
                         videos = p.videos,
                         onLoadMore = { vm.loadMorePartition(p) },
                         onCardClick = { video -> handleCardClick(vm, video, context) },
-                        onCardLongClick = { video ->
-                            scope.launch {
-                                val collected = withContext(Dispatchers.IO) {
-                                    RoomDataManger.isVodCollect(video.sourceKey, video.id)
-                                }
-                                collectMenu = video to collected
-                            }
-                        },
+                        onCardLongClick = { video -> vodMenu.show(video) },
                         onOpenAll = {
                             // 2026-09-09:筛选控件删除,改「全部 >」进栏目二级页(全量分页+筛选)
                             PartitionListActivity.startForPartition(context, p.sort)
@@ -475,41 +455,7 @@ fun HomePage(vm: HomeViewModel, bottomPadding: Dp = 0.dp) {
     }
 
     // 长按卡片:收藏/操作菜单(§4.1)
-    collectMenu?.let { (video, collected) ->
-        val options = if (collected) listOf("取消收藏", "搜索相似内容") else listOf("加入收藏", "搜索相似内容")
-        com.github.tvbox.osc.ui.components.AVBoxOptionSheet(
-            onDismissRequest = { collectMenu = null },
-            title = video.name,
-            options = options,
-            selected = null,
-            onSelect = { option ->
-                if (option == "加入收藏") {
-                    scope.launch(Dispatchers.IO) {
-                        RoomDataManger.insertVodCollect(video.sourceKey, toVodInfo(video))
-                        EventBus.getDefault().post(RefreshEvent(RefreshEvent.TYPE_COLLECT_REFRESH))
-                    }
-                } else if (option == "取消收藏") {
-                    scope.launch(Dispatchers.IO) {
-                        RoomDataManger.deleteVodCollect(video.sourceKey, toVodInfo(video))
-                        EventBus.getDefault().post(RefreshEvent(RefreshEvent.TYPE_COLLECT_REFRESH))
-                    }
-                } else if (option == "搜索相似内容") {
-                    context.jumpToSearch(video.name ?: "")
-                }
-                // 不在此处置空 collectMenu:AVBoxOptionSheet 选中后会先播放滑出动画,
-                // 动画结束才回调 onDismissRequest 清理;此处若直接置 null 会跳过动画
-            },
-        )
-    }
-}
-
-private fun toVodInfo(video: Movie.Video): com.github.tvbox.osc.bean.VodInfo {
-    val info = com.github.tvbox.osc.bean.VodInfo()
-    info.id = video.id
-    info.name = video.name
-    info.pic = video.pic
-    info.sourceKey = video.sourceKey
-    return info
+    VodCardMenu(vodMenu)
 }
 
 /**

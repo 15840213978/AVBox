@@ -65,6 +65,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.github.tvbox.osc.R
 import com.github.tvbox.osc.api.ApiConfig
+import com.github.tvbox.osc.bean.Movie
 import com.github.tvbox.osc.bean.VodInfo
 import com.github.tvbox.osc.player.ui.playerDim
 import com.github.tvbox.osc.ui.components.AVBoxBottomSheet
@@ -72,6 +73,8 @@ import com.github.tvbox.osc.ui.components.LoadState
 import com.github.tvbox.osc.ui.components.LoadStateBox
 import com.github.tvbox.osc.ui.components.LocalSheetDismiss
 import com.github.tvbox.osc.ui.components.VodCard
+import com.github.tvbox.osc.ui.components.VodCardMenu
+import com.github.tvbox.osc.ui.components.rememberVodCardMenuState
 import com.github.tvbox.osc.ui.page.openVodCardOrDetail
 import com.github.tvbox.osc.ui.player.PlayerTipBridge
 
@@ -87,6 +90,10 @@ fun DetailScreen(activity: DetailActivity, vm: DetailViewModel) {
     val playSignal by vm.playSignal.collectAsState()
     val toast by vm.toastEvent.collectAsState()
     val finish by vm.finishEvent.collectAsState()
+    // 相关推荐长按菜单(收藏/搜索相似内容):与首页等页面共用同一组件(2026-09-16)。
+    // 状态须在页面根部持有:相关推荐行位于 LazyColumn item 内,面板若在 item 内渲染
+    // 只会占一个列表项的空间,无法全屏覆盖
+    val vodMenu = rememberVodCardMenuState()
 
     // 播放器区形态(必须与 DetailActivity.isFullBox() 同一判定):过渡期跟随实际方向,
     // 落地后才切目标态 —— 否则会在横屏窗口里算出竖屏的 16:9 盒(高度超屏 → 视频缩放跳动)
@@ -202,17 +209,23 @@ fun DetailScreen(activity: DetailActivity, vm: DetailViewModel) {
                 }
 
                 is DetailViewModel.PageState.Ready -> {
-                    DetailContent(activity, vm, revision)
+                    DetailContent(activity, vm, revision, onCardLongClick = { vodMenu.show(it) })
                 }
             }
         }
     }
 
     EpisodeSheet(vm, revision)
+    VodCardMenu(vodMenu)
 }
 
 @Composable
-private fun DetailContent(activity: DetailActivity, vm: DetailViewModel, revision: Int) {
+private fun DetailContent(
+    activity: DetailActivity,
+    vm: DetailViewModel,
+    revision: Int,
+    onCardLongClick: (Movie.Video) -> Unit,
+) {
     val info = vm.vodInfo ?: return
     // revision 仅用于触发重组(vodInfo 为可变 bean)
     @Suppress("UNUSED_EXPRESSION") revision
@@ -414,7 +427,7 @@ private fun DetailContent(activity: DetailActivity, vm: DetailViewModel, revisio
 
         // ---- 相关推荐 ----
         item(key = "related") {
-            RelatedSection(activity, vm)
+            RelatedSection(activity, vm, onCardLongClick)
         }
     }
 }
@@ -594,7 +607,11 @@ private fun SourceSection(vm: DetailViewModel, currentSourceName: String?, revis
 }
 
 @Composable
-private fun RelatedSection(activity: DetailActivity, vm: DetailViewModel) {
+private fun RelatedSection(
+    activity: DetailActivity,
+    vm: DetailViewModel,
+    onCardLongClick: (Movie.Video) -> Unit = {},
+) {
     val relatedVideos by vm.relatedVideos.collectAsState()
     if (relatedVideos.isEmpty()) return
     Column(modifier = Modifier.padding(top = 20.dp)) {
@@ -615,7 +632,7 @@ private fun RelatedSection(activity: DetailActivity, vm: DetailViewModel) {
                 VodCard(
                     video = video,
                     onClick = { activity.openVodCardOrDetail(video) },
-                    onLongClick = {},
+                    onLongClick = { onCardLongClick(video) },
                     modifier = Modifier.width(110.dp),
                 )
             }
