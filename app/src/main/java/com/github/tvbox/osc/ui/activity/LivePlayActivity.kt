@@ -2,7 +2,6 @@
 
 package com.github.tvbox.osc.ui.activity
 
-import android.annotation.SuppressLint
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.graphics.Bitmap
@@ -14,74 +13,13 @@ import android.util.Base64
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import com.github.tvbox.osc.ui.theme.enableTransparentEdgeToEdge
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.asPaddingValues
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.navigationBars
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.Event
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ContainedLoadingIndicator
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Slider
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.ComposeView
-import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
@@ -98,18 +36,9 @@ import com.github.tvbox.osc.bean.LiveSettingGroup
 import com.github.tvbox.osc.player.MyVideoView
 import com.github.tvbox.osc.player.PlaybackService
 import com.github.tvbox.osc.player.controller.ComposeLiveController
-import com.github.tvbox.osc.ui.components.AVBoxBottomSheet
-import com.github.tvbox.osc.ui.components.LoadStateBox
-import com.github.tvbox.osc.ui.components.LoadState
 import com.github.tvbox.osc.ui.components.LocalSheetDismiss
-import com.github.tvbox.osc.ui.components.SettingsCard
-import com.github.tvbox.osc.ui.components.SettingsCardPosition
-import com.github.tvbox.osc.ui.components.SettingsGroup
-import com.github.tvbox.osc.ui.components.SettingsOptionRow
-import com.github.tvbox.osc.ui.components.SettingsSwitchRow
 import com.github.tvbox.osc.ui.theme.AVBoxTheme
 import com.github.tvbox.osc.ui.theme.AppThemeState
-import com.github.tvbox.osc.ui.theme.cardContainer
 import com.github.tvbox.osc.util.DefaultConfig
 import com.github.tvbox.osc.util.EpgUtil
 import com.github.tvbox.osc.util.HawkConfig
@@ -124,19 +53,10 @@ import com.lzy.okgo.OkGo
 import com.lzy.okgo.callback.AbsCallback
 import com.lzy.okgo.model.Response
 import com.github.tvbox.osc.util.KV
-import org.json.JSONArray
 import org.json.JSONException
-import org.json.JSONObject
-import org.w3c.dom.Document
-import org.w3c.dom.Element
-import org.w3c.dom.Node
-import org.xml.sax.InputSource
 import xyz.doikki.videoplayer.exo.ExoMediaSourceHelper
 import xyz.doikki.videoplayer.player.VideoView
 import xyz.doikki.videoplayer.util.PlayerUtils
-import java.io.StringReader
-import java.net.URLEncoder
-import java.text.ParseException
 import java.text.SimpleDateFormat
 import java.util.ArrayList
 import java.util.Calendar
@@ -147,11 +67,7 @@ import java.util.TimeZone
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
-import java.util.regex.Matcher
 import java.util.regex.Pattern
-import javax.xml.parsers.DocumentBuilder
-import javax.xml.parsers.DocumentBuilderFactory
-import kotlin.math.max
 
 /**
  * 直播页(avbox-mobile-ui-spec §4.5,Step 5 Compose 重写):
@@ -162,6 +78,13 @@ import kotlin.math.max
  * 全屏 = 点播放器进横屏沉浸(同详情页);左右快滑切上一/下一频道(§4.5)。
  * EPG 加载/解析(JSON+XML)、时移回看 URL 构建、自动换源状态机等业务逻辑自旧 Java 版 1:1 移植。
  */
+internal class LiveListRow(
+    val group: LiveChannelGroup?,
+    val channel: LiveChannelItem?,
+    val channelPos: Int,
+    val key: String,
+)
+
 class LivePlayActivity : BaseActivity() {
 
     companion object {
@@ -175,48 +98,46 @@ class LivePlayActivity : BaseActivity() {
         private const val OVERLAY_HIDE_DELAY = 6000L // 旧 postTimeout
         private const val CONNECT_TIMEOUT_SWITCH_DELAY = 3500L
         private const val DEFAULT_EPG_ADDRESS = "http://epg.51zmt.top:8000/api/diyp/?ch={name}&date={date}"
-        private val CATCHUP_TOKEN_PATTERN = Pattern.compile("(\\$?\\{[^}]*\\})")
-        private val CATCHUP_TAG_PATTERN = Pattern.compile("\\{([^}]*)\\}")
         private val FORMAT_DATE = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
         private val FORMAT_DATE1 = SimpleDateFormat("MM-dd", Locale.getDefault())
     }
 
-    private enum class PageState { LOADING, EMPTY, READY }
+    internal enum class PageState { LOADING, EMPTY, READY }
 
     // ============================================================
     // Compose 状态
     // ============================================================
 
-    private var pageState by mutableStateOf(PageState.LOADING)
-    private var playState by mutableStateOf(VideoView.STATE_IDLE)
-    private var snapshotVisible by mutableStateOf(false)
-    private var snapshotBitmap by mutableStateOf<Bitmap?>(null)
+    internal var pageState by mutableStateOf(PageState.LOADING)
+    internal var playState by mutableStateOf(VideoView.STATE_IDLE)
+    internal var snapshotVisible by mutableStateOf(false)
+    internal var snapshotBitmap by mutableStateOf<Bitmap?>(null)
     private var fullScreen by mutableStateOf(false)
-    /** 旋转过渡态(2026-09-13 方案 A):已下发方向切换、等系统旋转落地,布局形态延后切换(见 isFullBox) */
+    /** 旋转过渡态:已下发方向切换、等系统旋转落地,布局形态延后切换(见 isFullBox) */
     private var rotating by mutableStateOf(false)
-    private var overlayVisible by mutableStateOf(false)
-    private var isBackState by mutableStateOf(false) // 旧 isBack(回看中)
-    private var epgSheetVisible by mutableStateOf(false)
-    private var settingsSheetVisible by mutableStateOf(false)
-    // 频道分组密码弹窗目标:(groupIndex, liveChannelIndex),null=隐藏(Compose 版,替代旧 LivePasswordDialog)
-    private var passwordDialogTarget by mutableStateOf<Pair<Int, Int>?>(null)
-    private var settingsVersion by mutableIntStateOf(0)
-    private var channelVersion by mutableIntStateOf(0)
-    private var epgVersion by mutableIntStateOf(0)
-    private var scrollTick by mutableIntStateOf(0)
-    private var resolutionText by mutableStateOf("")
-    private var resolutionVisible by mutableStateOf(false)
-    private var showTimeOn by mutableStateOf(false)
-    private var showNetSpeedOn by mutableStateOf(false)
-    private var timeText by mutableStateOf("")
-    private var netSpeedText by mutableStateOf("")
-    private var gestureHintText by mutableStateOf<String?>(null)
-    private var tsPosition by mutableIntStateOf(0)
-    private var tsDuration by mutableIntStateOf(0)
-    private var channelInfoUi by mutableStateOf(ChannelInfoUi())
-    private val expandedGroups = mutableStateListOf<Int>()
+    internal var overlayVisible by mutableStateOf(false)
+    internal var isBackState by mutableStateOf(false) // 旧 isBack(回看中)
+    internal var epgSheetVisible by mutableStateOf(false)
+    internal var settingsSheetVisible by mutableStateOf(false)
+    // 频道分组密码弹窗目标:(groupIndex, liveChannelIndex),null=隐藏
+    internal var passwordDialogTarget by mutableStateOf<Pair<Int, Int>?>(null)
+    internal var settingsVersion by mutableIntStateOf(0)
+    internal var channelVersion by mutableIntStateOf(0)
+    internal var epgVersion by mutableIntStateOf(0)
+    internal var scrollTick by mutableIntStateOf(0)
+    internal var resolutionText by mutableStateOf("")
+    internal var resolutionVisible by mutableStateOf(false)
+    internal var showTimeOn by mutableStateOf(false)
+    internal var showNetSpeedOn by mutableStateOf(false)
+    internal var timeText by mutableStateOf("")
+    internal var netSpeedText by mutableStateOf("")
+    internal var gestureHintText by mutableStateOf<String?>(null)
+    internal var tsPosition by mutableIntStateOf(0)
+    internal var tsDuration by mutableIntStateOf(0)
+    internal var channelInfoUi by mutableStateOf(ChannelInfoUi())
+    internal val expandedGroups = mutableStateListOf<Int>()
 
-    private data class ChannelInfoUi(
+    internal data class ChannelInfoUi(
         val name: String = "",
         val num: Int = 0,
         val sourceText: String = "",
@@ -230,14 +151,14 @@ class LivePlayActivity : BaseActivity() {
     // 业务状态(自旧 Java 版移植)
     // ============================================================
 
-    private var mVideoView: MyVideoView? = null
+    internal var mVideoView: MyVideoView? = null
     /** 直播自己的控制层:点播页接管播放器后会被顶掉,回前台要重新挂上(见 rebindLiveControllerIfNeeded) */
     private var liveController: ComposeLiveController? = null
     private val mHandler = Handler(Looper.getMainLooper())
     private val liveChannelGroupList = ArrayList<LiveChannelGroup>()
-    private var currentChannelGroupIndex = 0
-    private var currentLiveChannelIndex = -1
-    private var currentLiveLookBackIndex = -1
+    internal var currentChannelGroupIndex = 0
+    internal var currentLiveChannelIndex = -1
+    internal var currentLiveLookBackIndex = -1
     private var currentLiveChangeSourceTimes = 0
     private var allowLiveSwitchPlayer = true
     private var currentLiveChannelItem: LiveChannelItem? = null
@@ -247,9 +168,9 @@ class LivePlayActivity : BaseActivity() {
     private var liveConfigRequestId = 0
     private val livePlayerManager = LivePlayerManager()
     private val channelGroupPasswordConfirmed = ArrayList<Int>()
-    private var channelName: LiveChannelItem? = null // 旧 channel_Name
+    internal var channelName: LiveChannelItem? = null // 旧 channel_Name
     private val hsEpg = Hashtable<String, ArrayList<Epginfo>>()
-    private var epgdata = ArrayList<Epginfo>()
+    internal var epgdata = ArrayList<Epginfo>()
     private var epgStringAddress = ""
     private var catchup: JsonObject? = null
     private var logoUrl: String? = null
@@ -303,7 +224,7 @@ class LivePlayActivity : BaseActivity() {
         nowday = Date()
         epgDayPresented = FORMAT_DATE1.format(nowday)
         initVideoView()
-        // 直播/点播标记不在这里写(2026-09-15):改由引擎的模式切换写(见 PlaybackEngine.setLiveFlag)——
+        // 直播/点播标记不在这里写:改由引擎的模式切换写(见 PlaybackEngine.setLiveFlag)——
         // Activity 生命周期与"引擎已切回点播"没有时序关系,IjkMediaPlayer 在 prepare 时会读到滞后的直播参数
         findViewById<ComposeView>(R.id.compose_view).setContent {
             // 纯黑状态栏页面:图标恒白由本页 init/沉浸退出逻辑断言,主题不接管
@@ -363,7 +284,7 @@ class LivePlayActivity : BaseActivity() {
     }
 
     /**
-     * 直播自己的控制层(2026-09-14 审查修复):点播页 attach 时会 `setVideoController(点播控制器)`,
+     * 直播自己的控制层:点播页 attach 时会 `setVideoController(点播控制器)`,
      * 把直播控制器从播放器上顶掉;此前直播页没有任何恢复点,从点播页返回后手势/菜单/时移/清晰度
      * 全部失效。这里在回前台时按"当前挂的是不是直播控制器"补挂一次。
      */
@@ -400,7 +321,7 @@ class LivePlayActivity : BaseActivity() {
     /**
      * 释放播放内核(切台 / 换解码器 / 换源 / 时移进出)。
      *
-     * <p>所有权收口(2026-09-14 架构评审第 2 项):播放器归引擎,页面只表达"我要换内核"的意图。
+     * <p>所有权收口:播放器归引擎,页面只表达"我要换内核"的意图。
      * 行为与改造前 `videoView.release()` 完全一致(释放内核 + 渲染视图,下次 start 新建),
      * 但走引擎后引擎自己知道内核没了,不会把预载/会话/接管标记留在"还在播"的假象上。
      */
@@ -478,7 +399,7 @@ class LivePlayActivity : BaseActivity() {
 
     fun applyFullscreen(full: Boolean) {
         if (fullScreen == full) return
-        // 目标方向与实际方向不一致 → 进旋转过渡态:布局形态等落地再切(方案 A)
+        // 目标方向与实际方向不一致 → 进旋转过渡态:布局形态等落地再切
         rotating = (full != (resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE))
         fullScreen = full
         requestedOrientation = if (full) {
@@ -520,7 +441,7 @@ class LivePlayActivity : BaseActivity() {
         }
     }
 
-    /** 旋转落地回调(2026-09-13 方案 A 的"落地"信号):清过渡态,布局形态在这一帧才真正切换 */
+    /** 旋转落地回调:清过渡态,布局形态在这一帧才真正切换 */
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
         rotating = false
@@ -659,7 +580,7 @@ class LivePlayActivity : BaseActivity() {
 
     private fun switchLivePlayerAndReplay(): Boolean {
         val videoView = mVideoView
-        // 取局部变量(2026-09-12 加固):currentLiveChannelItem 是 var,判空后无法 smart-cast,
+        // 取局部变量:currentLiveChannelItem 是 var,判空后无法 smart-cast,
         // 原写法在下面用 !! 取值;改为一次取值,后续不再依赖字段中途不变
         val item = currentLiveChannelItem ?: return false
         if (!allowLiveSwitchPlayer || videoView == null) {
@@ -796,7 +717,7 @@ class LivePlayActivity : BaseActivity() {
         passwordDialogTarget = groupIndex to liveChannelIndex
     }
 
-    private fun onPasswordConfirmed(password: String) {
+    internal fun onPasswordConfirmed(password: String) {
         val target = passwordDialogTarget ?: return
         passwordDialogTarget = null
         val groupIndex = target.first
@@ -848,7 +769,7 @@ class LivePlayActivity : BaseActivity() {
         }
     }
 
-    private fun loadLiveConfigOnEnter() {
+    internal fun loadLiveConfigOnEnter() {
         if (loadingLiveConfigOnEnter) return
         loadingLiveConfigOnEnter = true
         pageState = PageState.LOADING
@@ -920,7 +841,7 @@ class LivePlayActivity : BaseActivity() {
                         return@Runnable
                     }
                     // 解析(纯函数)留在后台线程;写共享的 liveChannelGroupList 与刷新 UI 一律回主线程
-                    // (2026-09-12 修复竞态:loadLives 会对 ApiConfig.liveChannelGroupList 做 clear/add,
+                    // (修复竞态:loadLives 会对 ApiConfig.liveChannelGroupList 做 clear/add,
                     //  原先在后台线程执行,与主线程读同一 list 并发;纯 URL 分支本就在主线程做,这里对齐)
                     val livesArray = TxtSubscribe.parseToJsonArray(sortJson)
                     mHandler.post {
@@ -1109,7 +1030,7 @@ class LivePlayActivity : BaseActivity() {
                 item.sourceIndex >= 0 && item.sourceIndex < item.channelUrls.size
     }
 
-    private fun openSettingsSheet() {
+    internal fun openSettingsSheet() {
         ApiConfig.get().refreshLiveApiHistoryItems()
         loadCurrentSourceList()
         settingsVersion++
@@ -1153,7 +1074,7 @@ class LivePlayActivity : BaseActivity() {
     }
 
     /**
-     * 直播设置「配置切换」组的选中项(2026-09-12 点播/直播拆分):
+     * 直播设置「配置切换」组的选中项:
      * 第 0 项 = 合成的「跟随点播源」;其后为直播配置历史,历史第 i 项在该组里的 itemIndex = i + 1。
      */
     private fun getCurrentLiveConfigIndex(): Int {
@@ -1163,7 +1084,7 @@ class LivePlayActivity : BaseActivity() {
         return if (index < 0) -1 else index + 1
     }
 
-    private fun clickSettingItem(groupIndex: Int, position: Int) {
+    internal fun clickSettingItem(groupIndex: Int, position: Int) {
         if (groupIndex in 0..2 && !isCurrentLiveChannelValid()) return
         when (groupIndex) {
             0 -> { // 线路切换
@@ -1328,10 +1249,10 @@ class LivePlayActivity : BaseActivity() {
     // 时移回看(EPG 点击 → catchup URL 播放)
     // ============================================================
 
-    /** EPG 行点击(2026-09-13 重构):不再在内部关闭节目单(sheet 置 false 会跳过滑出动画),
+    /** EPG 行点击:不再在内部关闭节目单(sheet 置 false 会跳过滑出动画),
      * 改由组合层在返回 true 时走 LocalSheetDismiss 带动画关闭。
      * @return true = 已切换播放(回直播或开始回看);false = 无变化(重复点击/条件不满足) */
-    private fun onEpgRowClicked(position: Int): Boolean {
+    internal fun onEpgRowClicked(position: Int): Boolean {
         if (position == currentLiveLookBackIndex) return false
         val selectedData = epgdata.getOrNull(position) ?: return false
         if (selectedData.startdateTime == null || selectedData.enddateTime == null) return false
@@ -1363,10 +1284,10 @@ class LivePlayActivity : BaseActivity() {
         playUrl = shiyiUrl
         videoView.setUrl(playUrl, liveChannelHeader())
         videoView.start()
-        shiyiTimeC = getCatchupDurationSeconds(epg)
+        shiyiTimeC = LiveEpgParser.getCatchupDurationSeconds(epg)
         tsDuration = PlayerUtils.safeTimeMs(shiyiTimeC.toLong() * 1000)
         tsPosition = PlayerUtils.safeTimeMs(videoView.currentPosition)
-        // 时移条每秒跟随播放前进(2026-09-13 修复:此前该 Runnable 从未被 post,
+        // 时移条每秒跟随播放前进(此前该 Runnable 从未被 post,
         // 回看时滑块与「位置/时长」文本只有拖动才更新)
         startTimeshiftTicker()
         isBackState = true
@@ -1610,16 +1531,10 @@ class LivePlayActivity : BaseActivity() {
         if (channelName != null) getEpg(Date())
     }
 
-    private fun getFirstPartBeforeSpace(str: String?): String? {
-        if (str.isNullOrEmpty()) return str
-        val spaceIndex = str.indexOf(' ')
-        return if (spaceIndex == -1) str else str.substring(0, spaceIndex)
-    }
-
     fun getEpg(date: Date) {
         val channel = channelName ?: return
         val channelNameStr = channel.channelName ?: return
-        val channelNameReal = normalizeEpgChannelName(getFirstPartBeforeSpace(channelNameStr) ?: "")
+        val channelNameReal = LiveEpgParser.normalizeEpgChannelName(LiveEpgParser.getFirstPartBeforeSpace(channelNameStr) ?: "")
         val timeFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).apply {
             timeZone = TimeZone.getTimeZone("GMT+8:00")
         }
@@ -1635,8 +1550,8 @@ class LivePlayActivity : BaseActivity() {
             epgVersion++
             return
         }
-        val epgQueryNames = buildEpgQueryNames(channelNameStr, channelNameReal, epgTagName)
-        val url = buildEpgUrl(epgStringAddress, epgQueryNames[0], date, timeFormat)
+        val epgQueryNames = LiveEpgParser.buildEpgQueryNames(channelNameStr, channelNameReal, epgTagName)
+        val url = LiveEpgParser.buildEpgUrl(epgStringAddress, epgQueryNames[0], date, timeFormat)
         val savedEpgKey = channelNameStr + "_" + epgDayPresented
         if (hsEpg.containsKey(savedEpgKey)) {
             showEpg(date, hsEpg[savedEpgKey])
@@ -1651,43 +1566,6 @@ class LivePlayActivity : BaseActivity() {
     private fun showEpg(@Suppress("UNUSED_PARAMETER") date: Date, arrayList: ArrayList<Epginfo>?) {
         epgdata = if (arrayList != null && arrayList.isNotEmpty()) arrayList else ArrayList()
         epgVersion++
-    }
-
-    private fun buildEpgUrl(address: String, epgTagName: String, date: Date, timeFormat: SimpleDateFormat): String {
-        return when {
-            address.contains("{name}") || address.contains("{date}") ->
-                address.replace("{name}", encodeEpgParam(epgTagName)).replace("{date}", timeFormat.format(date))
-            isXmlEpgAddress(address) -> address
-            else ->
-                address + (if (address.contains("?")) "&" else "?") +
-                        "ch=" + encodeEpgParam(epgTagName) + "&date=" + timeFormat.format(date)
-        }
-    }
-
-    private fun encodeEpgParam(value: String?): String {
-        return try {
-            URLEncoder.encode(value ?: "", "UTF-8").replace("+", "%20")
-        } catch (e: Exception) {
-            value ?: ""
-        }
-    }
-
-    private fun buildEpgQueryNames(channelName: String, channelNameReal: String, epgTagName: String): ArrayList<String> {
-        val queryNames = ArrayList<String>()
-        addEpgQueryName(queryNames, epgTagName)
-        addEpgQueryName(queryNames, channelNameReal)
-        addEpgQueryName(queryNames, normalizeEpgChannelName(getFirstPartBeforeSpace(channelName) ?: ""))
-        addEpgQueryName(queryNames, getFirstPartBeforeSpace(channelName))
-        addEpgQueryName(queryNames, channelName)
-        if (queryNames.isEmpty()) queryNames.add("")
-        return queryNames
-    }
-
-    private fun addEpgQueryName(queryNames: ArrayList<String>, name: String?) {
-        if (name == null) return
-        val trimName = name.trim { it <= ' ' }
-        if (trimName.isEmpty() || queryNames.contains(trimName)) return
-        queryNames.add(trimName)
     }
 
     private fun getConfiguredEpgAddress(): String {
@@ -1780,10 +1658,10 @@ class LivePlayActivity : BaseActivity() {
         LOG.i("echo-epgTagName:$channelNameReal")
         var arrayList = ArrayList<Epginfo>()
         try {
-            if (isXmlEpgResponse(paramString)) {
-                arrayList = parseXmlEpg(paramString, finalEpgTagName, date)
+            if (LiveEpgParser.isXmlEpgResponse(paramString)) {
+                arrayList = LiveEpgParser.parseXmlEpg(paramString, finalEpgTagName, date)
             } else if (paramString.contains("epg_data") || paramString.trim { it <= ' ' }.startsWith("{")) {
-                arrayList = parseJsonEpg(paramString, date)
+                arrayList = LiveEpgParser.parseJsonEpg(paramString, date)
             }
         } catch (jsonException: JSONException) {
             jsonException.printStackTrace()
@@ -1809,7 +1687,7 @@ class LivePlayActivity : BaseActivity() {
         if (DEFAULT_EPG_ADDRESS == epgStringAddress || queryIndex >= epgQueryNames.size) {
             return false
         }
-        val fallbackUrl = buildEpgUrl(DEFAULT_EPG_ADDRESS, epgQueryNames[0], date, timeFormat)
+        val fallbackUrl = LiveEpgParser.buildEpgUrl(DEFAULT_EPG_ADDRESS, epgQueryNames[0], date, timeFormat)
         LOG.i("echo-epg fallback default address")
         requestEpg(fallbackUrl, date, channelNameReal, finalEpgTagName, savedEpgKey, epgQueryNames, timeFormat, epgQueryNames.size)
         return true
@@ -1824,18 +1702,14 @@ class LivePlayActivity : BaseActivity() {
         timeFormat: SimpleDateFormat,
         queryIndex: Int,
     ): Boolean {
-        if (!isTemplateEpgAddress(epgStringAddress) || queryIndex + 1 >= epgQueryNames.size) {
+        if (!LiveEpgParser.isTemplateEpgAddress(epgStringAddress) || queryIndex + 1 >= epgQueryNames.size) {
             return false
         }
         val nextIndex = queryIndex + 1
-        val nextUrl = buildEpgUrl(epgStringAddress, epgQueryNames[nextIndex], date, timeFormat)
+        val nextUrl = LiveEpgParser.buildEpgUrl(epgStringAddress, epgQueryNames[nextIndex], date, timeFormat)
         LOG.i("echo-epg retry query name:" + epgQueryNames[nextIndex])
         requestEpg(nextUrl, date, channelNameReal, finalEpgTagName, savedEpgKey, epgQueryNames, timeFormat, nextIndex)
         return true
-    }
-
-    private fun isTemplateEpgAddress(address: String?): Boolean {
-        return address != null && (address.contains("{name}") || address.contains("{date}"))
     }
 
     private fun isCurrentEpgRequest(savedEpgKey: String): Boolean {
@@ -1843,222 +1717,12 @@ class LivePlayActivity : BaseActivity() {
         return savedEpgKey == channel.channelName + "_" + epgDayPresented
     }
 
-    private fun isXmlEpgAddress(address: String?): Boolean {
-        if (address == null) return false
-        var lowerAddress = address.lowercase(Locale.ROOT)
-        val queryIndex = lowerAddress.indexOf("?")
-        if (queryIndex >= 0) {
-            lowerAddress = lowerAddress.substring(0, queryIndex)
-        }
-        return lowerAddress.endsWith(".xml")
-    }
-
-    private fun isXmlEpgResponse(response: String?): Boolean {
-        if (response == null) return false
-        val trimResponse = response.trim { it <= ' ' }
-        return trimResponse.startsWith("<?xml") || trimResponse.startsWith("<tv") || trimResponse.contains("<programme")
-    }
-
-    private fun parseJsonEpg(response: String, date: Date): ArrayList<Epginfo> {
-        val epgList = ArrayList<Epginfo>()
-        val jsonObject = JSONObject(response)
-        val channelNameStr = jsonObject.optString("channel_name", jsonObject.optString("channel", ""))
-        if (isUnavailableEpgText(channelNameStr)) {
-            return epgList
-        }
-        val epgArray = findJsonEpgArray(jsonObject) ?: return epgList
-        for (i in 0 until epgArray.length()) {
-            val item = epgArray.optJSONObject(i) ?: continue
-            val title = cleanEpgTitle(item.optString("title", item.optString("name", "")))
-            if (TextUtils.isEmpty(title) || isUnavailableEpgText(title)) continue
-            val startText = item.optString("start", item.optString("start_time", item.optString("starttime", "")))
-            val endText = item.optString("end", item.optString("end_time", item.optString("endtime", "")))
-            val startDate = parseJsonEpgDate(date, startText)
-            val endDate = parseJsonEpgDate(date, endText)
-            if (startDate == null || endDate == null) continue
-            var fixedEnd = endDate
-            if (!fixedEnd.after(startDate)) {
-                fixedEnd = Date(fixedEnd.time + TimeUnit.DAYS.toMillis(1))
-            }
-            epgList.add(createXmlEpgInfo(date, title, startDate, fixedEnd, epgList.size))
-        }
-        return epgList
-    }
-
-    private fun findJsonEpgArray(jsonObject: JSONObject): JSONArray? {
-        var epgArray = jsonObject.optJSONArray("epg_data")
-        if (epgArray != null) return epgArray
-        epgArray = jsonObject.optJSONArray("data")
-        if (epgArray != null) return epgArray
-        epgArray = jsonObject.optJSONArray("list")
-        if (epgArray != null) return epgArray
-        val dataObject = jsonObject.optJSONObject("data")
-        if (dataObject != null) {
-            epgArray = dataObject.optJSONArray("epg_data")
-            if (epgArray != null) return epgArray
-            epgArray = dataObject.optJSONArray("list")
-        }
-        return epgArray
-    }
-
-    private fun parseJsonEpgDate(date: Date, timeText: String?): Date? {
-        if (timeText.isNullOrEmpty() || timeText.trim { it <= ' ' }.isEmpty()) return null
-        val trimText = timeText.trim { it <= ' ' }
-        for (pattern in arrayOf("yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd HH:mm")) {
-            try {
-                val dateFormat = SimpleDateFormat(pattern, Locale.getDefault())
-                dateFormat.timeZone = TimeZone.getTimeZone("GMT+8:00")
-                return dateFormat.parse(trimText)
-            } catch (ignored: ParseException) {
-            }
-        }
-        val dayFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-        dayFormat.timeZone = TimeZone.getTimeZone("GMT+8:00")
-        val dayText = dayFormat.format(date)
-        for (pattern in arrayOf("HH:mm:ss", "HH:mm")) {
-            try {
-                val dateFormat = SimpleDateFormat("yyyy-MM-dd $pattern", Locale.getDefault())
-                dateFormat.timeZone = TimeZone.getTimeZone("GMT+8:00")
-                return dateFormat.parse("$dayText $trimText")
-            } catch (ignored: ParseException) {
-            }
-        }
-        return null
-    }
-
-    private fun cleanEpgTitle(title: String?): String {
-        if (title == null) return ""
-        return title.replace(" --免费使用", "").replace("--免费使用", "").trim { it <= ' ' }
-    }
-
-    private fun isUnavailableEpgText(text: String?): Boolean {
-        return text != null && (text.contains("未提供") || text.contains("暂无"))
-    }
-
-    private fun normalizeEpgChannelName(channelName: String?): String {
-        if (channelName == null) return ""
-        val trimName = channelName.trim { it <= ' ' }
-        val compactName = trimName.replace("-", "").replace(" ", "")
-        val cctvMatcher = Pattern.compile("(?i)^(CCTV\\d+(?:\\+|K)?)(?:[\\u4e00-\\u9fa5].*|$)").matcher(compactName)
-        if (cctvMatcher.matches()) {
-            // group(1) 是 Java 平台类型(String!),matches() 成立时它必然存在;显式非空断言等价于原语义
-            return cctvMatcher.group(1)!!.uppercase(Locale.ROOT)
-        }
-        if (compactName.uppercase(Locale.ROOT).startsWith("CCTV")) {
-            return compactName.uppercase(Locale.ROOT)
-        }
-        return trimName
-    }
-
-    private fun parseXmlEpg(xml: String, channelName: String, date: Date): ArrayList<Epginfo> {
-        val epgList = ArrayList<Epginfo>()
-        try {
-            val factory = DocumentBuilderFactory.newInstance()
-            factory.isIgnoringComments = true
-            factory.isCoalescing = true
-            try {
-                factory.setFeature("http://xml.org/sax/features/external-general-entities", false)
-                factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false)
-                factory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false)
-            } catch (ignored: Exception) {
-            }
-            val builder = factory.newDocumentBuilder()
-            builder.setEntityResolver { _, _ -> InputSource(StringReader("")) }
-            val document: Document = builder.parse(InputSource(StringReader(xml)))
-            document.documentElement.normalize()
-
-            val targetName = normalizeEpgChannelName(channelName)
-            val channelIds = ArrayList<String>()
-            val channelNodes = document.getElementsByTagName("channel")
-            for (i in 0 until channelNodes.length) {
-                val channelNode = channelNodes.item(i)
-                if (channelNode.nodeType != Node.ELEMENT_NODE) continue
-                val channelElement = channelNode as Element
-                val channelId = channelElement.getAttribute("id")
-                if (targetName == normalizeEpgChannelName(channelId)) {
-                    channelIds.add(channelId)
-                    continue
-                }
-                val displayNameNodes = channelElement.getElementsByTagName("display-name")
-                for (j in 0 until displayNameNodes.length) {
-                    val displayName = displayNameNodes.item(j).textContent
-                    if (targetName == normalizeEpgChannelName(displayName)) {
-                        channelIds.add(channelId)
-                        break
-                    }
-                }
-            }
-
-            val dayStart = getDayStart(date)
-            val dayEnd = Date(dayStart.time + TimeUnit.DAYS.toMillis(1))
-            val programmeNodes = document.getElementsByTagName("programme")
-            for (i in 0 until programmeNodes.length) {
-                val programmeNode = programmeNodes.item(i)
-                if (programmeNode.nodeType != Node.ELEMENT_NODE) continue
-                val programmeElement = programmeNode as Element
-                val programmeChannel = programmeElement.getAttribute("channel")
-                if (!channelIds.contains(programmeChannel) && targetName != normalizeEpgChannelName(programmeChannel)) {
-                    continue
-                }
-                val startDate = parseXmlTvDate(programmeElement.getAttribute("start"))
-                val endDate = parseXmlTvDate(programmeElement.getAttribute("stop"))
-                if (startDate == null || endDate == null || !endDate.after(startDate)) continue
-                if (!startDate.before(dayEnd) || !endDate.after(dayStart)) continue
-                var title = ""
-                val titleNodes = programmeElement.getElementsByTagName("title")
-                if (titleNodes.length > 0) {
-                    title = titleNodes.item(0).textContent
-                }
-                epgList.add(createXmlEpgInfo(date, title, startDate, endDate, epgList.size))
-            }
-        } catch (exception: Exception) {
-            exception.printStackTrace()
-        }
-        return epgList
-    }
-
-    private fun getDayStart(date: Date): Date {
-        val dayFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-        dayFormat.timeZone = TimeZone.getTimeZone("GMT+8:00")
-        return dayFormat.parse(dayFormat.format(date)) ?: date
-    }
-
-    private fun parseXmlTvDate(dateText: String?): Date? {
-        if (dateText.isNullOrEmpty() || dateText.trim { it <= ' ' }.isEmpty()) return null
-        val trimDate = dateText.trim { it <= ' ' }
-        try {
-            return SimpleDateFormat("yyyyMMddHHmmss Z", Locale.getDefault()).parse(trimDate)
-        } catch (ignored: ParseException) {
-        }
-        try {
-            val dateFormat = SimpleDateFormat("yyyyMMddHHmmss", Locale.getDefault())
-            dateFormat.timeZone = TimeZone.getTimeZone("GMT+8:00")
-            return dateFormat.parse(trimDate)
-        } catch (ignored: ParseException) {
-        }
-        return null
-    }
-
-    private fun createXmlEpgInfo(epgDate: Date, title: String, startDate: Date, endDate: Date, index: Int): Epginfo {
-        val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
-        val epgInfo = Epginfo(epgDate, title, epgDate, timeFormat.format(startDate), timeFormat.format(endDate), index)
-        epgInfo.startdateTime = startDate
-        epgInfo.enddateTime = endDate
-        epgInfo.start = timeFormat.format(startDate)
-        epgInfo.end = timeFormat.format(endDate)
-        epgInfo.originStart = epgInfo.start
-        epgInfo.originEnd = epgInfo.end
-        epgInfo.datestart = epgInfo.start.replace(":", "").toInt()
-        epgInfo.dateend = epgInfo.end.replace(":", "").toInt()
-        return epgInfo
-    }
-
     // ============================================================
     // 时移回看 URL 构建(1:1 移植)
     // ============================================================
 
     private fun currentChannelHasCatchup(): Boolean {
-        return currentLiveChannelItem != null && hasCatchupSource(currentLiveChannelItem?.channelCatchup)
+        return currentLiveChannelItem != null && LiveEpgParser.hasCatchupSource(currentLiveChannelItem?.channelCatchup)
     }
 
     private fun currentCatchup(): JsonObject? {
@@ -2066,25 +1730,12 @@ class LivePlayActivity : BaseActivity() {
         return catchup
     }
 
-    private fun getCatchupValue(catchupObj: JsonObject?, key: String): String {
-        if (catchupObj == null || !catchupObj.has(key) || catchupObj.get(key).isJsonNull) return ""
-        return try {
-            catchupObj.get(key).asString
-        } catch (ignored: Throwable) {
-            ""
-        }
-    }
-
-    private fun hasCatchupSource(catchupObj: JsonObject?): Boolean {
-        return getCatchupValue(catchupObj, "source").isNotEmpty()
-    }
-
-    private fun canCurrentChannelCatchup(): Boolean {
+    internal fun canCurrentChannelCatchup(): Boolean {
         val item = currentLiveChannelItem ?: return false
         val url = item.url
         val catchupObj = currentCatchup()
-        if (hasCatchupSource(catchupObj)) {
-            val regex = getCatchupValue(catchupObj, "regex")
+        if (LiveEpgParser.hasCatchupSource(catchupObj)) {
+            val regex = LiveEpgParser.getCatchupValue(catchupObj, "regex")
             if (TextUtils.isEmpty(regex)) return true
             return try {
                 url.contains(regex) || Pattern.compile(regex).matcher(url).find()
@@ -2098,465 +1749,25 @@ class LivePlayActivity : BaseActivity() {
     private fun buildCatchupUrl(url: String, epg: Epginfo?): String {
         if (TextUtils.isEmpty(url) || epg == null || epg.startdateTime == null || epg.enddateTime == null) return ""
         val catchupObj = currentCatchup()
-        if (hasCatchupSource(catchupObj)) {
-            return formatCatchupUrl(url, catchupObj!!, epg)
+        if (LiveEpgParser.hasCatchupSource(catchupObj)) {
+            return LiveEpgParser.formatCatchupUrl(url, catchupObj!!, epg)
         }
         if (!url.contains("/PLTV/")) return ""
-        val source = "?playseek=" + formatCatchupTime(epg.startdateTime!!, "yyyyMMddHHmmss") +
-                "-" + formatCatchupTime(epg.enddateTime!!, "yyyyMMddHHmmss")
-        return appendCatchupUrl(url, "/PLTV/,/TVOD/", source)
-    }
-
-    private fun formatCatchupUrl(url: String, catchupObj: JsonObject, epg: Epginfo): String {
-        val source = formatCatchupSource(getCatchupValue(catchupObj, "source"), epg)
-        if ("default".equals(getCatchupValue(catchupObj, "type"), ignoreCase = true)) return source
-        return appendCatchupUrl(url, getCatchupValue(catchupObj, "replace"), source)
-    }
-
-    private fun appendCatchupUrl(url: String, replace: String, source: String): String {
-        var replayUrl = url
-        var finalSource = source
-        val parts = replace.split(",".toRegex(), 2).toTypedArray()
-        if (parts.size == 2 && parts[0].isNotEmpty()) {
-            try {
-                replayUrl = replayUrl.replace(parts[0].toRegex(), parts[1])
-            } catch (ignored: Throwable) {
-            }
-        }
-        val queryIndex = replayUrl.indexOf('?')
-        if (queryIndex >= 0 && queryIndex < replayUrl.length - 1) finalSource = finalSource.replace("?", "&")
-        return replayUrl + finalSource
-    }
-
-    private fun formatCatchupSource(source: String, epg: Epginfo): String {
-        val matcher = CATCHUP_TOKEN_PATTERN.matcher(source)
-        val result = StringBuffer()
-        while (matcher.find()) {
-            // 同上:捕获组必然存在,显式非空断言把平台类型 String! 收紧为 String
-            val token = matcher.group(1)!!
-            matcher.appendReplacement(result, Matcher.quoteReplacement(formatCatchupToken(token, epg)))
-        }
-        matcher.appendTail(result)
-        return result.toString()
-    }
-
-    private fun formatCatchupToken(token: String, epg: Epginfo): String {
-        val matcher = CATCHUP_TAG_PATTERN.matcher(token)
-        if (!matcher.find()) return ""
-        // 与上面同理:find() 成立时捕获组存在,显式非空断言收紧平台类型
-        val tag = matcher.group(1)!!
-        if (tag.startsWith("utcend:")) return (epg.enddateTime!!.time / 1000).toString()
-        if (tag.startsWith("utc:")) return (epg.startdateTime!!.time / 1000).toString()
-        val bracketIndex = tag.indexOf(')')
-        if (tag.startsWith("(b") && bracketIndex >= 0) return formatCatchupTime(epg.startdateTime!!, tag.substring(bracketIndex + 1))
-        if (tag.startsWith("(e") && bracketIndex >= 0) return formatCatchupTime(epg.enddateTime!!, tag.substring(bracketIndex + 1))
-        return ""
-    }
-
-    private fun formatCatchupTime(time: Date, pattern: String): String {
-        if ("timestamp" == pattern) return (time.time / 1000).toString()
-        return try {
-            SimpleDateFormat(pattern, Locale.getDefault()).format(time)
-        } catch (ignored: IllegalArgumentException) {
-            ""
-        }
-    }
-
-    private fun getCatchupDurationSeconds(epg: Epginfo?): Int {
-        if (epg == null || epg.startdateTime == null || epg.enddateTime == null) return 0
-        val duration = max(0L, epg.enddateTime!!.time - epg.startdateTime!!.time) / 1000
-        return if (duration > Int.MAX_VALUE) Int.MAX_VALUE else duration.toInt()
+        val source = "?playseek=" + LiveEpgParser.formatCatchupTime(epg.startdateTime!!, "yyyyMMddHHmmss") +
+                "-" + LiveEpgParser.formatCatchupTime(epg.enddateTime!!, "yyyyMMddHHmmss")
+        return LiveEpgParser.appendCatchupUrl(url, "/PLTV/,/TVOD/", source)
     }
 
     // ============================================================
-    // 工具
+    // EPG/回看:纯解析已抽到同包 LiveEpgParser(可在纯 JVM 单测里直接调用)
+    // 本文件保留页面态、网络编排与代际校验
     // ============================================================
 
-    private fun durationToString(duration: Int): String {
-        val dur = max(duration, 0) / 1000
-        val hour = dur / 3600
-        val min = dur / 60 % 60
-        val sec = dur % 60
-        return if (hour > 0) {
-            String.format(Locale.getDefault(), "%d:%02d:%02d", hour, min, sec)
-        } else {
-            String.format(Locale.getDefault(), "%02d:%02d", min, sec)
-        }
-    }
-
     // ============================================================
-    // Compose UI
+    // 频道列表行数据与密码态查询(供 Compose 侧消费)
     // ============================================================
 
-    @Composable
-    private fun LiveScreen(activity: LivePlayActivity) {
-        // 背景色跟随实际形态(方案 A):过渡期不再当帧变黑/变浅,避免半新半旧
-        val background = if (activity.isFullBox()) Color.Black else MaterialTheme.colorScheme.surfaceContainer
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(background),
-        ) {
-            when (activity.pageState) {
-                PageState.LOADING -> LoadStateBox(
-                    state = LoadState.Loading,
-                    emptyText = "",
-                    errorText = "",
-                    retryText = "",
-                    modifier = Modifier.fillMaxSize(),
-                    // 播放器页:加载指示保持 48dp(页面级 64dp 定稿的例外,spec §6)
-                    loadingContent = { ContainedLoadingIndicator(Modifier.size(48.dp)) },
-                )
-
-                PageState.EMPTY -> LoadStateBox(
-                    state = LoadState.Error("暂无直播频道,请检查直播配置"),
-                    emptyText = "",
-                    errorText = "暂无直播频道,请检查直播配置",
-                    retryText = "重试",
-                    modifier = Modifier.fillMaxSize(),
-                    onRetry = { activity.loadLiveConfigOnEnter() },
-                )
-
-                PageState.READY -> LiveReadyContent(activity)
-            }
-            if (activity.epgSheetVisible) EpgSheet(activity)
-            if (activity.settingsSheetVisible) SettingsSheet(activity)
-            activity.passwordDialogTarget?.let {
-                LivePasswordDialog(
-                    onConfirm = { activity.onPasswordConfirmed(it) },
-                    onDismiss = { activity.passwordDialogTarget = null },
-                )
-            }
-        }
-    }
-
-    /**
-     * 频道分组密码弹窗(替代旧 View 版 LivePasswordDialog + dialog_live_password.xml):
-     * 密码为空时确定按钮禁用,逻辑与旧版一致。
-     */
-    @Composable
-    private fun LivePasswordDialog(
-        onConfirm: (String) -> Unit,
-        onDismiss: () -> Unit,
-    ) {
-        var password by remember { mutableStateOf("") }
-        AlertDialog(
-            onDismissRequest = onDismiss,
-            title = { Text("请输入密码") },
-            text = {
-                OutlinedTextField(
-                    value = password,
-                    onValueChange = { password = it },
-                    placeholder = { Text("频道分组密码") },
-                    singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
-                    keyboardOptions = KeyboardOptions(
-                        keyboardType = KeyboardType.Password,
-                        imeAction = ImeAction.Done,
-                    ),
-                    keyboardActions = KeyboardActions(
-                        onDone = { if (password.isNotBlank()) onConfirm(password.trim()) },
-                    ),
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    enabled = password.isNotBlank(),
-                    onClick = { onConfirm(password.trim()) },
-                ) { Text("确定") }
-            },
-            dismissButton = {
-                TextButton(onClick = onDismiss) { Text("取消") }
-            },
-        )
-    }
-
-    @Composable
-    private fun LiveReadyContent(activity: LivePlayActivity) {
-        // 播放区形态 = activity.isFullBox()(方案 A:过渡期跟随实际方向);
-        // 竖屏高度 = 短边 × 16:9 并钳制在 [150dp, 长边/2](方案 B,与详情页同一套算法)
-        val configuration = LocalConfiguration.current
-        val shortEdge = minOf(configuration.screenWidthDp, configuration.screenHeightDp).dp
-        val longEdge = maxOf(configuration.screenWidthDp, configuration.screenHeightDp).dp
-        val previewHeight = (shortEdge * 9f / 16f)
-            .coerceAtLeast(150.dp)
-            .coerceAtMost(maxOf(150.dp, longEdge / 2))
-        Column(modifier = Modifier.fillMaxSize()) {
-            PlayerArea(
-                activity = activity,
-                modifier = if (activity.isFullBox()) {
-                    Modifier.fillMaxSize()
-                } else {
-                    // 状态栏区域纯黑（背景画在 statusBarsPadding 外圈），播放器紧贴其下（对齐详情页补丁⑤）
-                    Modifier
-                        .fillMaxWidth()
-                        .background(Color.Black)
-                        .statusBarsPadding()
-                        .height(previewHeight)
-                },
-            )
-            if (!activity.isFullBox()) {
-                ChannelInfoSection(activity)
-                ChannelListSection(activity, Modifier.weight(1f))
-            }
-        }
-    }
-
-    @Composable
-    private fun PlayerArea(activity: LivePlayActivity, modifier: Modifier) {
-        val videoView = activity.mVideoView
-        Box(modifier = modifier.background(Color.Black)) {
-            if (videoView != null) {
-                AndroidView(
-                    factory = { videoView },
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
-            // 切台快照(旧 switchChannelSnapshotOverlay)
-            if (activity.snapshotVisible) {
-                Box(modifier = Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
-                    activity.snapshotBitmap?.let { bitmap ->
-                        Image(
-                            bitmap = bitmap.asImageBitmap(),
-                            contentDescription = null,
-                            contentScale = ContentScale.Fit,
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                    }
-                    CircularProgressIndicator(modifier = Modifier.size(36.dp), strokeWidth = 3.dp)
-                }
-            }
-            // 加载态
-            if (!activity.snapshotVisible &&
-                (activity.playState == VideoView.STATE_PREPARING || activity.playState == VideoView.STATE_BUFFERING)
-            ) {
-                CircularProgressIndicator(modifier = Modifier.align(Alignment.Center).size(40.dp), color = Color.White)
-            }
-            // 清晰度角标
-            if (activity.resolutionVisible && activity.resolutionText.isNotEmpty()) {
-                Surface(
-                    modifier = Modifier.align(Alignment.TopStart).padding(12.dp),
-                    shape = RoundedCornerShape(6.dp),
-                    color = Color.Black.copy(alpha = 0.55f),
-                ) {
-                    Text(
-                        text = activity.resolutionText,
-                        color = Color.White,
-                        fontSize = 12.sp,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                    )
-                }
-            }
-            // 亮度/音量指示
-            activity.gestureHintText?.let { hint ->
-                Surface(
-                    modifier = Modifier.align(Alignment.Center),
-                    shape = RoundedCornerShape(10.dp),
-                    color = Color.Black.copy(alpha = 0.6f),
-                ) {
-                    Text(
-                        text = hint,
-                        color = Color.White,
-                        fontSize = 14.sp,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                    )
-                }
-            }
-            // 时移条(回看中)
-            if (activity.isBackState && activity.overlayVisible) {
-                TimeshiftBar(activity, Modifier.align(Alignment.BottomCenter))
-            }
-            // 竖屏:常驻角标入口(节目单/设置);形态判定走 isFullBox(过渡期跟随实际方向)
-            if (!activity.isFullBox()) {
-                PlayerCornerButtons(activity, Modifier.align(Alignment.TopEnd))
-            } else if (activity.overlayVisible) {
-                // 全屏:返回按钮(浮层随交互显隐)
-                IconButton(
-                    onClick = { activity.applyFullscreen(false) },
-                    modifier = Modifier.align(Alignment.TopStart),
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "退出全屏",
-                        tint = Color.White,
-                    )
-                }
-                PlayerCornerButtons(activity, Modifier.align(Alignment.TopEnd))
-            }
-        }
-    }
-
-    @Composable
-    private fun PlayerCornerButtons(activity: LivePlayActivity, modifier: Modifier) {
-        Row(modifier = modifier.padding(8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            PlayerCornerButton(
-                icon = { Icon(Icons.Filled.Event, contentDescription = "节目单", tint = Color.White, modifier = Modifier.size(20.dp)) },
-                onClick = { activity.epgSheetVisible = true },
-            )
-            PlayerCornerButton(
-                icon = { Icon(Icons.Filled.Settings, contentDescription = "直播设置", tint = Color.White, modifier = Modifier.size(20.dp)) },
-                onClick = { activity.openSettingsSheet() },
-            )
-        }
-    }
-
-    @Composable
-    private fun PlayerCornerButton(icon: @Composable () -> Unit, onClick: () -> Unit) {
-        Surface(
-            shape = RoundedCornerShape(50),
-            color = Color.Black.copy(alpha = 0.4f),
-            modifier = Modifier.clip(RoundedCornerShape(50)).clickable(onClick = onClick),
-        ) {
-            Box(modifier = Modifier.size(34.dp), contentAlignment = Alignment.Center) { icon() }
-        }
-    }
-
-    @Composable
-    private fun TimeshiftBar(activity: LivePlayActivity, modifier: Modifier) {
-        Row(
-            modifier = modifier
-                .fillMaxWidth()
-                // 2026-09-10 用户定稿:回看时移条去除半透明黑底,直接叠在画面上
-                .padding(horizontal = 12.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            IconButton(onClick = { activity.onTimeshiftTogglePlay() }) {
-                Icon(
-                    imageVector = if (activity.playState == VideoView.STATE_PAUSED) Icons.Filled.PlayArrow else Icons.Filled.Pause,
-                    contentDescription = "播放/暂停",
-                    tint = Color.White,
-                )
-            }
-            Slider(
-                value = activity.tsPosition.toFloat().coerceIn(0f, max(activity.tsDuration, 1).toFloat()),
-                onValueChange = { activity.onTimeshiftSeek(it) },
-                valueRange = 0f..max(activity.tsDuration, 1).toFloat(),
-                modifier = Modifier.weight(1f),
-            )
-            Text(
-                text = activity.durationToString(activity.tsPosition) + " / " + activity.durationToString(activity.tsDuration),
-                color = Color.White,
-                fontSize = 12.sp,
-                modifier = Modifier.padding(start = 8.dp),
-            )
-        }
-    }
-
-    @Composable
-    private fun ChannelInfoSection(activity: LivePlayActivity) {
-        val info = activity.channelInfoUi
-        if (info.name.isEmpty()) return
-        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Surface(shape = RoundedCornerShape(6.dp), color = MaterialTheme.colorScheme.primaryContainer) {
-                    Text(
-                        text = info.num.toString(),
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                    )
-                }
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = info.name,
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
-                if (activity.isBackState) {
-                    Text(text = "回看中", fontSize = 12.sp, color = MaterialTheme.colorScheme.tertiary)
-                } else {
-                    Text(text = "直播中", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
-                }
-                if (info.sourceText.isNotEmpty()) {
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(text = info.sourceText, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-            Spacer(modifier = Modifier.height(6.dp))
-            Text(
-                text = info.currentEpgTime + "  " + info.currentEpgTitle,
-                fontSize = 13.sp,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Spacer(modifier = Modifier.height(2.dp))
-            Text(
-                text = info.nextEpgTime + "  " + info.nextEpgTitle,
-                fontSize = 13.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            if (activity.showTimeOn || activity.showNetSpeedOn) {
-                Spacer(modifier = Modifier.height(2.dp))
-                val parts = ArrayList<String>()
-                if (activity.showTimeOn && activity.timeText.isNotEmpty()) parts.add(activity.timeText)
-                if (activity.showNetSpeedOn && activity.netSpeedText.isNotEmpty()) parts.add(activity.netSpeedText)
-                Text(
-                    text = parts.joinToString("  "),
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-    }
-
-    // ============================================================
-    // 频道分组折叠列表
-    // ============================================================
-
-    private class LiveListRow(
-        val group: LiveChannelGroup?,
-        val channel: LiveChannelItem?,
-        val channelPos: Int,
-        val key: String,
-    )
-
-    @Composable
-    private fun ChannelListSection(activity: LivePlayActivity, modifier: Modifier) {
-        val listState = rememberLazyListState()
-        // 频道数据/展开变化时定位到当前频道
-        LaunchedEffect(activity.scrollTick, activity.channelVersion) {
-            val rows = activity.buildChannelRows()
-            var target = -1
-            for (i in rows.indices) {
-                val row = rows[i]
-                if (row.channel != null &&
-                    row.group?.groupIndex == activity.currentChannelGroupIndex &&
-                    row.channel.channelIndex == activity.currentLiveChannelIndex
-                ) {
-                    target = i
-                    break
-                }
-            }
-            if (target > 0) listState.animateScrollToItem(max(0, target - 2))
-        }
-        val rows = activity.buildChannelRows()
-        val navBarInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-        LazyColumn(
-            state = listState,
-            modifier = modifier.fillMaxWidth(),
-            contentPadding = PaddingValues(bottom = navBarInset + 24.dp),
-        ) {
-            itemsIndexed(rows, key = { _, row -> row.key }) { _, row ->
-                val channel = row.channel
-                if (channel == null) {
-                    val group = row.group ?: return@itemsIndexed
-                    GroupHeaderRow(activity, group)
-                } else {
-                    ChannelRow(activity, row, channel)
-                }
-            }
-        }
-    }
-
-    private fun buildChannelRows(): List<LiveListRow> {
+    internal fun buildChannelRows(): List<LiveListRow> {
         val rows = ArrayList<LiveListRow>()
         for (group in liveChannelGroupList) {
             rows.add(LiveListRow(group, null, -1, "g" + group.groupIndex))
@@ -2572,219 +1783,7 @@ class LivePlayActivity : BaseActivity() {
         return rows
     }
 
-    @Composable
-    private fun GroupHeaderRow(activity: LivePlayActivity, group: LiveChannelGroup) {
-        val expanded = activity.expandedGroups.contains(group.groupIndex)
-        val locked = group.groupPassword.isNotEmpty() && !activity.isPasswordConfirmedForUi(group.groupIndex)
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable { activity.toggleChannelGroup(group.groupIndex) }
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = group.groupName ?: "",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.weight(1f),
-            )
-            if (locked) {
-                Icon(
-                    imageVector = Icons.Filled.Lock,
-                    contentDescription = "需密码",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(16.dp),
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-            }
-            Icon(
-                imageVector = Icons.Filled.ChevronRight,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier
-                    .size(20.dp)
-                    .rotate(if (expanded) 90f else 0f),
-            )
-        }
-    }
-
     fun isPasswordConfirmedForUi(groupIndex: Int): Boolean = isPasswordConfirmed(groupIndex)
 
-    @Composable
-    private fun ChannelRow(
-        activity: LivePlayActivity,
-        row: LiveListRow,
-        channel: LiveChannelItem,
-    ) {
-        val group = row.group ?: return
-        val selected = group.groupIndex == activity.currentChannelGroupIndex &&
-                channel.channelIndex == activity.currentLiveChannelIndex
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(if (selected) MaterialTheme.colorScheme.cardContainer else Color.Transparent)
-                .clickable { activity.selectChannel(group.groupIndex, row.channelPos) }
-                .padding(horizontal = 20.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = channel.channelNum.toString(),
-                fontSize = 12.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.width(36.dp),
-            )
-            Text(
-                text = channel.channelName ?: "",
-                fontSize = 15.sp,
-                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-    }
-
-    @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
-    @Composable
-    private fun EpgSheet(activity: LivePlayActivity) {
-        activity.epgVersion // 读取以保证数据变化时刷新
-        val channelNameStr = activity.channelName?.channelName ?: ""
-        AVBoxBottomSheet(
-            onDismissRequest = { activity.epgSheetVisible = false },
-            title = if (channelNameStr.isEmpty()) "节目单" else "节目单 · $channelNameStr",
-            containerColor = MaterialTheme.colorScheme.surfaceContainer,
-            // 内容自带 LazyColumn(heightIn 520dp),滚动交给它,避免与封装的内容区抢手势
-            isScrollable = false,
-        ) {
-            // 切换成功才关闭节目单(2026-09-13):走 LocalSheetDismiss 滑出动画;
-            // 此处读取发生在 SheetOverlay 的 provider 作用域内
-            val dismissAnimated = LocalSheetDismiss.current
-            val epgList = activity.epgdata
-            if (epgList.isEmpty()) {
-                Text(
-                    text = "暂无节目单",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 32.dp),
-                )
-                return@AVBoxBottomSheet
-            }
-            val canCatchup = activity.canCurrentChannelCatchup()
-            val now = Date()
-            LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 520.dp).padding(bottom = 16.dp)) {
-                itemsIndexed(epgList) { index, epg ->
-                    val isNow = epg.startdateTime != null && epg.enddateTime != null &&
-                            !now.before(epg.startdateTime) && !now.after(epg.enddateTime)
-                    val clickable = epg.startdateTime != null && !now.before(epg.startdateTime) &&
-                            (canCatchup || (epg.enddateTime != null && !now.after(epg.enddateTime)))
-                    val selected = index == activity.currentLiveLookBackIndex
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable(enabled = clickable) {
-                                // 仅在真正切换播放(回直播/开始回看)时关闭节目单,与原行为一致
-                                if (activity.onEpgRowClicked(index)) dismissAnimated()
-                            }
-                            .padding(horizontal = 16.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            text = epg.start + "-" + epg.end,
-                            fontSize = 13.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text(
-                            text = epg.title,
-                            fontSize = 14.sp,
-                            fontWeight = if (selected || isNow) FontWeight.Bold else FontWeight.Normal,
-                            color = when {
-                                selected -> MaterialTheme.colorScheme.primary
-                                isNow -> MaterialTheme.colorScheme.onSurface
-                                clickable -> MaterialTheme.colorScheme.onSurface
-                                else -> MaterialTheme.colorScheme.onSurfaceVariant
-                            },
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f),
-                        )
-                        when {
-                            selected -> Text(text = "回看中", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
-                            isNow -> Text(text = "正在播出", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // ============================================================
-    // 直播设置 bottom sheet
-    // ============================================================
-
-    @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
-    @Composable
-    private fun SettingsSheet(activity: LivePlayActivity) {
-        activity.settingsVersion // 读取以保证数据变化时刷新
-        val groups = activity.visibleSettingGroups()
-        AVBoxBottomSheet(
-            onDismissRequest = { activity.settingsSheetVisible = false },
-            title = "直播设置",
-            containerColor = MaterialTheme.colorScheme.surfaceContainer,
-            // 内容自带 LazyColumn(heightIn 560dp),滚动交给它
-            isScrollable = false,
-        ) {
-            LazyColumn(
-                modifier = Modifier.fillMaxWidth().heightIn(max = 560.dp),
-                verticalArrangement = Arrangement.spacedBy(20.dp),
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
-            ) {
-                groups.forEach { group ->
-                    val items = group.liveSettingItems ?: return@forEach
-                    item(key = "sg" + group.groupIndex) {
-                        // 配置切换(组6)标注长按删除入口(2026-09-12 方案 2)
-                        SettingsGroup(
-                            title = if (group.groupIndex == 6) group.groupName + "（长按可删除）" else group.groupName,
-                        ) {
-                            // 与设置页一致:每项一张小卡,按卡位拼圆角(FIRST/MIDDLE/LAST)
-                            items.forEachIndexed { index, item ->
-                                val position = when {
-                                    items.size == 1 -> SettingsCardPosition.SINGLE
-                                    index == 0 -> SettingsCardPosition.FIRST
-                                    index == items.size - 1 -> SettingsCardPosition.LAST
-                                    else -> SettingsCardPosition.MIDDLE
-                                }
-                                SettingsCard(
-                                    position = position,
-                                    color = MaterialTheme.colorScheme.surfaceBright,
-                                ) {
-                                    if (group.groupIndex == 4) {
-                                        SettingsSwitchRow(
-                                            title = item.itemName,
-                                            checked = activity.settingChecked(item.itemIndex),
-                                            onCheckedChange = { activity.clickSettingItem(group.groupIndex, item.itemIndex) },
-                                        )
-                                    } else {
-                                        SettingsOptionRow(
-                                            title = item.itemName,
-                                            selected = activity.settingSelectedIndex(group.groupIndex) == item.itemIndex,
-                                            onClick = { activity.clickSettingItem(group.groupIndex, item.itemIndex) },
-                                            // 配置切换历史:长按删除(当前使用中的配置拒绝删除);
-                                            // 第 0 项是合成的「跟随点播源」,不参与删除,历史下标需 -1
-                                            onLongClick = if (group.groupIndex == 6 && item.itemIndex > 0) {
-                                                { activity.removeLiveConfigHistory(item.itemIndex - 1) }
-                                            } else {
-                                                null
-                                            },
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
+    // Compose UI 已拆到同包 LiveScreens.kt:setContent 里调用 LiveScreen(this)
 }
