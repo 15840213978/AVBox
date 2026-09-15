@@ -73,7 +73,7 @@ fun PlaySettingsScreen(onNavigateBack: () -> Unit, vm: SettingsViewModel = viewM
                         title = "播放内核",
                         valueText = PlayerHelper.getPlayerName(state.playType),
                         onClick = {
-                            val types = PlayerHelper.getExistPlayerTypes()
+                            val types = PlayerHelper.getExistPlayerTypes().sortedDescending()
                             openOptions(
                                 "播放内核",
                                 types.map { PlayerHelper.getPlayerName(it) },
@@ -93,10 +93,11 @@ fun PlaySettingsScreen(onNavigateBack: () -> Unit, vm: SettingsViewModel = viewM
                         title = "画面渲染",
                         valueText = PlayerHelper.getRenderName(state.playRender),
                         onClick = {
-                            openOptions("画面渲染", listOf("TextureView", "SurfaceView"), state.playRender) { idx ->
+                            openOptions("画面渲染", listOf("SurfaceView", "TextureView"), 1 - state.playRender) { idx ->
+                                val render = 1 - idx
                                 // 隧道模式要求视频直出 Surface(fongmi 同款):切到 TextureView 时自动关闭隧道
-                                if (idx == 0 && state.playTunnel) vm.put(HawkConfig.PLAY_TUNNEL, false)
-                                vm.put(HawkConfig.PLAY_RENDER, idx)
+                                if (render == 0 && state.playTunnel) vm.put(HawkConfig.PLAY_TUNNEL, false)
+                                vm.put(HawkConfig.PLAY_RENDER, render)
                             }
                         },
                     )

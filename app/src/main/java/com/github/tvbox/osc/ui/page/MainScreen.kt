@@ -66,7 +66,6 @@ import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.github.tvbox.osc.util.KV
 import kotlinx.coroutines.launch
 
-// 图标来自 .tubiao/*.svg 转换的 VectorDrawable(2026-09-09);选中/未选中态由 NavigationBarItem 自动着色
 private enum class AppTab(val label: String, @DrawableRes val icon: Int) {
     HOME("首页", R.drawable.ic_tab_home),
     HISTORY("历史", R.drawable.ic_tab_history),
@@ -74,19 +73,13 @@ private enum class AppTab(val label: String, @DrawableRes val icon: Int) {
     SETTINGS("设置", R.drawable.ic_tab_settings),
 }
 
-// 悬浮玻璃导航栏尺寸(照抄示例 Screen.kt:FLOATING_NAV_HEIGHT=64 / FLOATING_NAV_BOTTOM_MARGIN=12)
 private const val FLOATING_NAV_BOTTOM_MARGIN_DP = 12
 private const val FLOATING_NAV_OVERLAY_DP = 64 + FLOATING_NAV_BOTTOM_MARGIN_DP
 
 @Composable
 fun MainScreen() {
-    // 启动引导(幂等,进程内仅执行一次)
     LaunchedEffect(Unit) { AppBootstrap.start() }
     val boot by AppBootstrap.state.collectAsState()
-    // 2026-09-12 用户定稿:不再渲染全屏 BootLoading,直接进主界面(首页)——配置/jar 在
-    // 后台继续加载,由首页页心圆形指示器统一表达"配置+数据"两段加载
-    // (HomeViewModel.pageLoading 初始 true,Boot.Ready 后才 loadHome);
-    // 配置加载失败时在主界面上叠错误对话框(重试/离线继续)
     Box(modifier = Modifier.fillMaxSize()) {
         MainContent()
         if (boot is AppBootstrap.Boot.Error) {
@@ -117,9 +110,6 @@ private fun MainContent() {
     val pagerState = rememberPagerState(pageCount = { AppTab.entries.size })
     val homeViewModel: HomeViewModel = viewModel()
 
-    // 默认启动页=直播(§4.3 首页与搜索组设置)。
-    // 2026-09-12:MainContent 提前到 Boot.Loading 就进入组合(用户定稿删全屏 BootLoading),
-    // 跳直播必须仍等 Boot.Ready(直播页数据依赖已加载的配置);一次性标记防重放
     LaunchedEffect(Unit) {
         if (homeViewModel.defaultLiveLaunched) return@LaunchedEffect
         AppBootstrap.state.collect { boot ->
@@ -132,7 +122,6 @@ private fun MainContent() {
         }
     }
 
-    // 双击返回退出(§3 返回行为);计时存 ViewModel 防组合重建重置
     BackHandler {
         val now = System.currentTimeMillis()
         if (now - homeViewModel.lastBackTime < 2000) {
@@ -145,34 +134,26 @@ private fun MainContent() {
         }
     }
 
-    // 页面内 sheet(首页/设置)提交到窗口根部槽位渲染:不被 pager 裁剪、可覆盖底栏(§2 决策 2026-09-11)
     val sheetHost = remember { SheetHostState() }
-    // 液态玻璃导航栏(2026-09-13,照搬示例项目):开关 + API 31+ 门控(blur 依赖 RenderEffect,
-    // 低版本库内静默 no-op,只剩半透明色块,故整体回退现状 M3 栏)
     val liquidGlassConfig = LiquidGlassState.config
     val liquidGlassEnabled = liquidGlassConfig.enabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
-    // 采样层背景色先画再画内容,避免玻璃外区域透明;onDraw 用 remember 稳定化,防宿主重组重建 LayerBackdrop
     val liquidBackdropBgColor = MaterialTheme.colorScheme.surfaceContainer
     val liquidBackdropOnDraw: ContentDrawScope.() -> Unit =
         remember(liquidBackdropBgColor) {
             { drawRect(liquidBackdropBgColor); drawContent() }
         }
     val liquidBackdrop = rememberLayerBackdrop(onDraw = liquidBackdropOnDraw)
-    // 图标沿用现有 AppTab 资源(用户定稿:不抄示例 tab 图标)
     val glassTabs = remember { AppTab.entries.map { GlassTabItem(it.icon, it.label) } }
     CompositionLocalProvider(LocalSheetHost provides sheetHost) {
         Box(modifier = Modifier.fillMaxSize()) {
             Scaffold(
                 containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                // 内容延伸到状态栏:各 tab 页顶栏改无边框并自行处理 statusBars inset
-                // + 顶部渐变遮罩(2026-09-11 用户定稿,照搬示例项目)
                 contentWindowInsets = WindowInsets(0, 0, 0, 0),
                 bottomBar = {
-                    // 液态玻璃开 → 悬浮栏(此处留空,内容延伸到栏后供采样);关 → 现状 M3 栏原样保留
                     if (!liquidGlassEnabled) {
+                        // M3 内部已含 windowInsetsPadding+height(80dp),勿在此定高(三键导航图标会被裁)
                         NavigationBar(
                             containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                            modifier = Modifier.height(80.dp), // 2026-09-10:72→80dp(用户定稿,M3 默认)
                         ) {
                             AppTab.entries.forEachIndexed { index, tab ->
                                 val selected = pagerState.currentPage == index
@@ -187,7 +168,6 @@ private fun MainContent() {
                     }
                 },
             ) { innerPadding ->
-                // 采样层只包 pager 内容:悬浮栏在层外,玻璃不会采到自身(示例 AppTabPager 同构)
                 Box(
                     modifier = Modifier
                         .fillMaxSize()

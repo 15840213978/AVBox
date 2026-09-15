@@ -192,7 +192,7 @@ fun PlayerNetSpeedCenter(state: PlayerUiState) {
     }
 }
 
-/** 锁屏按钮（右中；三态照搬 showLockView：横屏非 TV 才出现，锁定 3s 后隐藏）。UI v3：尺寸缩至 24dp */
+/** 锁屏按钮（右中；三态照搬 showLockView：非预览态非 TV 才出现，锁定 3s 后隐藏）。UI v3：尺寸缩至 24dp */
 @Composable
 fun PlayerLockButton(state: PlayerUiState, actions: PlayerActions) {
     when (state.lockState) {
@@ -201,6 +201,8 @@ fun PlayerLockButton(state: PlayerUiState, actions: PlayerActions) {
             val shown = state.lockState == LockVisibility.SHOWN
             // 右边距跟随 window 分档（竖屏预览 16dp / 横屏全屏与平板 24dp，见 playerEdgePadding）
             val edge = playerEdgePadding()
+            // 间隙中点对齐屏中；必须用 offset——align 后的 padding 会被对齐外框居中吞一半
+            val halfGap = playerDim(R.dimen.vs_40) / 2 + 12.dp
             Box(Modifier.fillMaxSize()) {
                 Image(
                     painter = painterResource(
@@ -210,12 +212,34 @@ fun PlayerLockButton(state: PlayerUiState, actions: PlayerActions) {
                     alpha = if (shown) 1f else 0f,
                     modifier = Modifier
                         .align(Alignment.CenterEnd)
-                        .padding(end = edge, bottom = playerDim(R.dimen.vs_30))
+                        .padding(end = edge)
+                        .offset(y = halfGap)
                         .size(24.dp)
                         .then(
                             if (shown) {
                                 Modifier.pointerInput(Unit) {
                                     detectTapGestures(onTap = { actions.onLockClicked() })
+                                }
+                            } else {
+                                Modifier
+                            }
+                        )
+                )
+                // 旋转到竖屏/横屏：锁上方隔 vs_40；锁定态隐藏（绕锁旋转无意义）
+                val rotateShown = shown && !state.locked
+                Image(
+                    painter = painterResource(R.drawable.ic_player_rotate),
+                    contentDescription = if (state.isPortrait) "旋转到横屏" else "旋转到竖屏",
+                    alpha = if (rotateShown) 1f else 0f,
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .padding(end = edge)
+                        .offset(y = -halfGap)
+                        .size(24.dp)
+                        .then(
+                            if (rotateShown) {
+                                Modifier.pointerInput(Unit) {
+                                    detectTapGestures(onTap = { actions.onRotateClicked() })
                                 }
                             } else {
                                 Modifier

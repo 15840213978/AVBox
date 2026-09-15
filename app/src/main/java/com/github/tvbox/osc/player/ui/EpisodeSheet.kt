@@ -20,6 +20,8 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -31,8 +33,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.colorResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.github.tvbox.osc.R
@@ -60,13 +63,18 @@ fun EpisodeSheet(sheet: EpisodeSheetState, onDismiss: () -> Unit) {
                 Modifier
                     .weight(1f)
                     .fillMaxHeight()
-                    .background(colorResource(R.color.dialog_panel_bg))
+                    // 侧边面板形态:面板贴屏幕上下边,只圆起始侧;圆角档与对话框一致
+                    .background(
+                        MaterialTheme.colorScheme.surfaceContainer,
+                        RoundedCornerShape(topStart = 28.dp, bottomStart = 28.dp),
+                    )
                     .padding(start = playerDim(R.dimen.vs_30), top = playerDim(R.dimen.vs_24),
                         end = playerDim(R.dimen.vs_30), bottom = playerDim(R.dimen.vs_24)),
             ) {
                 Text(
                     text = sheet.title,
-                    color = colorResource(R.color.dialog_text_primary),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontWeight = FontWeight.Medium,
                     fontSize = playerTextSize(R.dimen.ts_26),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,

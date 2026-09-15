@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -32,7 +33,6 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -115,7 +115,7 @@ fun SubtitleSheet(sheet: SubtitleSheetState, onDismiss: () -> Unit) {
                         }, modifier = Modifier.width(playerDim(R.dimen.vs_140)))
                         Text(
                             text = sizeText,
-                            color = colorResource(R.color.dialog_text_primary),
+                            color = MaterialTheme.colorScheme.onSurface,
                             fontSize = playerTextSize(R.dimen.ts_26),
                             textAlign = TextAlign.Center,
                             modifier = Modifier
@@ -161,7 +161,7 @@ fun SubtitleSheet(sheet: SubtitleSheetState, onDismiss: () -> Unit) {
                         )
                         Text(
                             text = posText,
-                            color = colorResource(R.color.dialog_text_primary),
+                            color = MaterialTheme.colorScheme.onSurface,
                             fontSize = playerTextSize(R.dimen.ts_26),
                             textAlign = TextAlign.Center,
                             modifier = Modifier
@@ -188,7 +188,7 @@ fun SubtitleSheet(sheet: SubtitleSheetState, onDismiss: () -> Unit) {
                     Spacer(Modifier.height(playerDim(R.dimen.vs_10)))
                     Text(
                         text = if (exo) "字幕延时对内置字幕有效" else "字幕延时仅对外挂字幕有效",
-                        color = colorResource(R.color.dialog_text_hint),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontSize = playerTextSize(R.dimen.ts_20),
                         textAlign = TextAlign.Center,
                         modifier = Modifier.fillMaxWidth(),
@@ -208,7 +208,7 @@ fun SubtitleSheet(sheet: SubtitleSheetState, onDismiss: () -> Unit) {
                         }, modifier = Modifier.width(playerDim(R.dimen.vs_140)))
                         Text(
                             text = delayText,
-                            color = colorResource(R.color.dialog_text_primary),
+                            color = MaterialTheme.colorScheme.onSurface,
                             fontSize = playerTextSize(R.dimen.ts_26),
                             textAlign = TextAlign.Center,
                             modifier = Modifier

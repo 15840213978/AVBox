@@ -146,17 +146,13 @@ fun PlayerBottomBar(
                 // 播放按钮已移除，showBottom 默认焦点改落在首个底栏按钮（替代 mNextBtn.requestFocus()）
                 focusRequester = focus.nextBtn,
             )
-            if (state.landscape) {
-                PlayerMenuButton("刷新", onClick = actions::onRefreshClicked)
-            }
-            if (state.landscape) {
-                PlayerMenuButton(
-                    state.scaleBtnText,
-                    onClick = actions::onScaleClicked,
-                    onLongClick = actions::onScaleLongClicked,
-                )
-            }
-            if (state.landscape && state.liveButtonsVisible) {
+            PlayerMenuButton("刷新", onClick = actions::onRefreshClicked)
+            PlayerMenuButton(
+                state.scaleBtnText,
+                onClick = actions::onScaleClicked,
+                onLongClick = actions::onScaleLongClicked,
+            )
+            if (state.liveButtonsVisible) {
                 PlayerMenuButton(
                     state.speedBtnText,
                     onClick = actions::onSpeedClicked,
@@ -171,7 +167,7 @@ fun PlayerBottomBar(
             if (state.ijkBtnVisible) {
                 PlayerMenuButton(state.ijkBtnText, onClick = actions::onIjkClicked)
             }
-            if (state.landscape && state.liveButtonsVisible) {
+            if (state.liveButtonsVisible) {
                 PlayerMenuButton(
                     state.timeStartText,
                     onClick = actions::onTimeStartClicked,
@@ -186,13 +182,11 @@ fun PlayerBottomBar(
             if (state.castBtnVisible) {
                 PlayerMenuButton("投屏", onClick = actions::onCastClicked)
             }
-            if (state.landscape) {
-                PlayerMenuButton(
-                    "字幕",
-                    onClick = actions::onSubtitleClicked,
-                    onLongClick = actions::onSubtitleLongClicked,
-                )
-            }
+            PlayerMenuButton(
+                "字幕",
+                onClick = actions::onSubtitleClicked,
+                onLongClick = actions::onSubtitleLongClicked,
+            )
             if (state.trackBtnVisible) {
                 PlayerMenuButton("音轨", onClick = actions::onAudioTrackClicked)
             }
@@ -213,14 +207,11 @@ fun PlayerBottomBar(
                     onLongClick = actions::onDanmuSearchLongClicked,
                 )
             }
-            if (state.landscapePortraitVisible) {
-                PlayerMenuButton(state.landscapePortraitText, onClick = actions::onLandscapePortraitClicked)
-            }
         }
         }
 
-        // —— 解析行（旧 parse_root + mGridParseView） ——
-        if (state.showParseRow && state.landscape) {
+        // —— 解析行（旧 parse_root + mGridParseView）；预览态不显示，与菜单行同规则 ——
+        if (state.showParseRow && !state.previewMode) {
             val parseList = remember(state.parseListVersion) { ApiConfig.get().parseBeanList }
             Row(
                 Modifier.padding(top = 6.dp),
@@ -331,7 +322,7 @@ private fun PlayerSeekRow(
             if (it.isFocused) actions.keepControlsAlive()
         }
         .focusProperties {
-            up = if (state.showParseRow && state.landscape) focus.parseFirst else focus.nextBtn
+            up = if (state.showParseRow && !state.previewMode) focus.parseFirst else focus.nextBtn
         }
         .focusable(enabled = enabled)
         .onKeyEvent { event ->

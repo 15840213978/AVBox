@@ -56,6 +56,10 @@ class PlayerUiState {
     var pauseTitle: String by mutableStateOf("")
     var videoSize: String by mutableStateOf("")
     var sysTime: String by mutableStateOf("")
+    /** 电量百分比（0~100；读不到为 -1 不显示），随 1s 轮询刷新 */
+    var batteryPercent: Int by mutableStateOf(-1)
+    /** 充电中/已充满：电池图标用闪电帧 */
+    var batteryCharging: Boolean by mutableStateOf(false)
     var netSpeedTopRight: String by mutableStateOf("")
     var netSpeedCenter: String by mutableStateOf("")
 
@@ -90,8 +94,6 @@ class PlayerUiState {
     var liveButtonsVisible: Boolean by mutableStateOf(true)
     var danmuOpen: Boolean by mutableStateOf(false)
     var danmuSearchAvailable: Boolean by mutableStateOf(false)
-    var landscapePortraitVisible: Boolean by mutableStateOf(false)
-    var landscapePortraitText: String by mutableStateOf("横竖屏")
     /** 详情页竖屏预览态（setPreviewMode 写入）：呼出控件栏时只显示进度行，不显示菜单行 */
     var previewMode: Boolean by mutableStateOf(false)
     var playerBtnText: String by mutableStateOf("")
@@ -122,14 +124,13 @@ class PlayerUiState {
     /** 选集面板 */
     var episodeSheet: EpisodeSheetState? by mutableStateOf(null)
 
-    // —— 衍生可见性（照搬 updatePortraitMenu 的逐按钮规则） ——
+    // —— 衍生可见性（照搬 updatePortraitMenu 的逐按钮规则；与方向无关，预览态由菜单行/解析行的 previewMode 守卫） ——
 
-    val landscape: Boolean get() = !isPortrait
-    val ijkBtnVisible: Boolean get() = landscape && playerType == 1
-    val trackBtnVisible: Boolean get() = landscape && (playerType == 1 || playerType == 2)
-    val danmuBtnVisible: Boolean get() = landscape && danmuOpen
-    val danmuSearchBtnVisible: Boolean get() = landscape && danmuSearchAvailable
-    val castBtnVisible: Boolean get() = landscape && android.os.Build.VERSION.SDK_INT >= 30
+    val ijkBtnVisible: Boolean get() = playerType == 1
+    val trackBtnVisible: Boolean get() = playerType == 1 || playerType == 2
+    val danmuBtnVisible: Boolean get() = danmuOpen
+    val danmuSearchBtnVisible: Boolean get() = danmuSearchAvailable
+    val castBtnVisible: Boolean get() = android.os.Build.VERSION.SDK_INT >= 30
 
     /** 退后台暂停标记(2026-09-13,见 PlayerControlApi.setLifecyclePaused):此暂停不画暂停浮层 */
     var lifecyclePaused: Boolean by mutableStateOf(false)
@@ -247,7 +248,7 @@ interface PlayerActions {
     fun onDanmuSettingLongClicked()
     fun onDanmuSearchClicked()
     fun onDanmuSearchLongClicked()
-    fun onLandscapePortraitClicked()
+    fun onRotateClicked()
     fun onScreenDisplayClicked()
     fun onBackClicked()
     fun onLockClicked()

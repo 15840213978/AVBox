@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -27,7 +28,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -165,7 +165,7 @@ fun CastSheet(sheet: CastSheetState, onDismiss: () -> Unit) {
                 Spacer(Modifier.height(playerDim(R.dimen.vs_15)))
                 Text(
                     text = "确认电视/盒子已安装AVBox或已打开DLNA投屏\n电视/盒子与手机连接在同一Wi-Fi下",
-                    color = colorResource(R.color.dialog_text_hint),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = playerTextSize(R.dimen.ts_18),
                     textAlign = TextAlign.Center,
                     modifier = Modifier
@@ -192,7 +192,7 @@ fun CastSheet(sheet: CastSheetState, onDismiss: () -> Unit) {
                         SheetLoading(size = playerDim(R.dimen.vs_40))
                         Text(
                             text = "正在搜索设备...",
-                            color = colorResource(R.color.dialog_text_hint),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = playerTextSize(R.dimen.ts_20),
                             modifier = Modifier
                                 .align(Alignment.Center)
@@ -202,7 +202,7 @@ fun CastSheet(sheet: CastSheetState, onDismiss: () -> Unit) {
                     if (deviceList.isEmpty() && searchFinished) {
                         Text(
                             text = "未找到可用设备",
-                            color = colorResource(R.color.dialog_text_hint),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = playerTextSize(R.dimen.ts_20),
                             modifier = Modifier.align(Alignment.Center),
                         )

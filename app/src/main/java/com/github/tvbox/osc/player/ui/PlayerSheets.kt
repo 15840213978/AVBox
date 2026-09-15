@@ -24,6 +24,8 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -36,58 +38,64 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import com.github.tvbox.osc.R
 
 /**
  * 播放器面板公共骨架:面板容器/标题/按钮/标签行/chips/步进/输入框/加载指示。
  * 具体面板见 DanmuSheets / SubtitleSheets / CastSheet / EpisodeSheet,同为播放器 Dialog 形态。
- * 视觉规格:vs_50 高圆角描边按钮、选中色 #02F8E1、TV 确认键经 tvConfirmKey 兼容。
+ *
+ * 视觉走 M3 语义色与形状:面板 `surfaceContainer` + 28dp 圆角(extraLarge)+ 轻投影;
+ * 选项 `surfaceBright`,选中 `primaryContainer`、聚焦 primary 描边;提示文字 `onSurfaceVariant`。
+ * 字号/尺寸仍用 AutoSize(mm) 档(playerDim/playerTextSize):覆盖层按屏宽等比缩放,
+ * 换成 M3 固定 sp 会在电视上明显偏小。
+ * 交互不变:TV 确认键经 tvConfirmKey(部分盒子不派发确认键,普通 clickable 收不到)、触摸点按、初始聚焦默认项。
  */
+
+/** M3 形状档:对话框面板 28dp(extraLarge)、内部选项/输入框 12dp(medium) */
+private val PanelShape = RoundedCornerShape(28.dp)
+private val ItemShape = RoundedCornerShape(12.dp)
+
+/** 聚焦描边宽度(M3 焦点提示:primary 描边 + 底色调档) */
+private val FocusStroke = 2.dp
 
 // ---------------------------------------------------------------------------
 // 公共骨架组件
 // ---------------------------------------------------------------------------
 
-/** 对话框面板:vs_10 圆角,dialog_panel_bg 底 + dialog_panel_stroke 描边 */
+/** 对话框面板:M3 dialog 形态 —— 28dp 圆角、`surfaceContainer` 底、无描边 + 6dp 阴影 */
 @Composable
 internal fun SheetPanel(
-    width: androidx.compose.ui.unit.Dp,
+    width: Dp,
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    Column(
-        modifier = modifier
-            .width(width)
-            .background(
-                colorResource(R.color.dialog_panel_bg),
-                RoundedCornerShape(playerDim(R.dimen.vs_10)),
-            )
-            .border(
-                playerDim(R.dimen.vs_1),
-                colorResource(R.color.dialog_panel_stroke),
-                RoundedCornerShape(playerDim(R.dimen.vs_10)),
-            ),
-    ) { content() }
+    Surface(
+        modifier = modifier.width(width),
+        shape = PanelShape,
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        shadowElevation = 6.dp,
+    ) {
+        Column(content = content)
+    }
 }
 
-/** 对话框标题(弹幕设置/投屏居中,选集左对齐) */
+/** 对话框标题(弹幕设置/投屏居中,选集左对齐):`onSurface` + M3 Medium 字重 */
 @Composable
 internal fun SheetTitle(text: String, alignStart: Boolean = false) {
     Text(
         text = text,
-        color = colorResource(R.color.dialog_text_primary),
+        color = MaterialTheme.colorScheme.onSurface,
         fontSize = playerTextSize(R.dimen.ts_26),
-        fontWeight = FontWeight.Bold,
+        fontWeight = FontWeight.Medium,
         maxLines = 1,
         overflow = TextOverflow.Ellipsis,
         textAlign = if (alignStart) TextAlign.Start else TextAlign.Center,
@@ -97,7 +105,7 @@ internal fun SheetTitle(text: String, alignStart: Boolean = false) {
     )
 }
 
-/** 面板按钮:vs_50 高、圆角描边,选中项 #02F8E1 加粗;TV 确认键 + 触摸点按双通道。*/
+/** 面板按钮:M3 选项样式 —— `surfaceBright` 底、选中 `primaryContainer`、聚焦 primary 描边;TV 确认键 + 触摸点按双通道。*/
 @Composable
 internal fun SheetButton(
     text: String,
@@ -108,20 +116,19 @@ internal fun SheetButton(
     autoFocus: Boolean = false,
 ) {
     var focused by remember { mutableStateOf(false) }
+    val container = when {
+        selected -> MaterialTheme.colorScheme.primaryContainer
+        focused -> MaterialTheme.colorScheme.surfaceContainerHighest
+        else -> MaterialTheme.colorScheme.surfaceBright
+    }
     val m = modifier
         .onFocusChanged { focused = it.isFocused }
         .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
         .focusable()
-        .background(
-            if (focused) colorResource(R.color.dialog_control_bg_focused)
-            else colorResource(R.color.dialog_control_bg),
-            RoundedCornerShape(playerDim(R.dimen.vs_6)),
-        )
-        .border(
-            playerDim(R.dimen.vs_1),
-            if (focused) colorResource(R.color.dialog_control_stroke_focused)
-            else colorResource(R.color.dialog_control_stroke),
-            RoundedCornerShape(playerDim(R.dimen.vs_6)),
+        .background(container, ItemShape)
+        .then(
+            if (focused) Modifier.border(FocusStroke, MaterialTheme.colorScheme.primary, ItemShape)
+            else Modifier
         )
         .tvConfirmKey(onClick, null)
         .pointerInput(onClick) { detectTapGestures(onTap = { onClick() }) }
@@ -129,9 +136,13 @@ internal fun SheetButton(
     Box(modifier = m, contentAlignment = Alignment.Center) {
         Text(
             text = text,
-            color = if (selected) Color(0xFF02F8E1) else colorResource(R.color.dialog_text_primary),
+            color = when {
+                selected -> MaterialTheme.colorScheme.onPrimaryContainer
+                focused -> MaterialTheme.colorScheme.primary
+                else -> MaterialTheme.colorScheme.onSurface
+            },
             fontSize = playerTextSize(R.dimen.ts_20),
-            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+            fontWeight = if (selected || focused) FontWeight.Medium else FontWeight.Normal,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
@@ -144,7 +155,7 @@ internal fun SheetButton(
     }
 }
 
-/** 左标签行:120mm 右对齐标签 + 右侧 50mm 高控件区 */
+/** 左标签行:120mm 右对齐标签(`onSurfaceVariant`)+ 右侧 50mm 高控件区 */
 @Composable
 internal fun SheetLabelRow(label: String, content: @Composable RowScope.() -> Unit) {
     Row(
@@ -155,7 +166,7 @@ internal fun SheetLabelRow(label: String, content: @Composable RowScope.() -> Un
     ) {
         Text(
             text = label,
-            color = colorResource(R.color.dialog_text_primary),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontSize = playerTextSize(R.dimen.ts_20),
             textAlign = TextAlign.End,
             modifier = Modifier.width(playerDim(R.dimen.vs_120)),
@@ -202,7 +213,7 @@ internal fun SheetStepper(
         SheetButton("-", onClick = onMinus, modifier = Modifier.size(playerDim(R.dimen.vs_50)))
         Text(
             text = valueText,
-            color = colorResource(R.color.dialog_text_primary),
+            color = MaterialTheme.colorScheme.onSurface,
             fontSize = playerTextSize(R.dimen.ts_20),
             textAlign = TextAlign.Center,
             modifier = Modifier.weight(1f),
@@ -211,7 +222,7 @@ internal fun SheetStepper(
     }
 }
 
-/** 面板输入框:描边圆角 + hint 6CFFFFFF;IME 搜索键提交 */
+/** 面板输入框:M3 输入框样式(`surfaceContainerHighest` 底 + outline 描边,聚焦 primary 描边);IME 搜索键提交 */
 @Composable
 internal fun SheetInput(
     value: String,
@@ -220,16 +231,18 @@ internal fun SheetInput(
     modifier: Modifier = Modifier,
     onSubmit: (() -> Unit)? = null,
 ) {
+    var focused by remember { mutableStateOf(false) }
     Box(
         modifier = modifier
-            .background(
-                colorResource(R.color.dialog_control_bg),
-                RoundedCornerShape(playerDim(R.dimen.vs_6)),
-            )
+            .background(MaterialTheme.colorScheme.surfaceContainerHighest, ItemShape)
             .border(
-                playerDim(R.dimen.vs_1),
-                colorResource(R.color.dialog_control_stroke),
-                RoundedCornerShape(playerDim(R.dimen.vs_6)),
+                if (focused) FocusStroke else 1.dp,
+                if (focused) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.outlineVariant
+                },
+                ItemShape,
             )
             .padding(horizontal = playerDim(R.dimen.vs_20), vertical = playerDim(R.dimen.vs_10)),
         contentAlignment = Alignment.CenterStart,
@@ -239,19 +252,21 @@ internal fun SheetInput(
             onValueChange = onValueChange,
             singleLine = true,
             textStyle = TextStyle(
-                color = colorResource(R.color.dialog_text_primary),
+                color = MaterialTheme.colorScheme.onSurface,
                 fontSize = playerTextSize(R.dimen.ts_26),
             ),
-            cursorBrush = SolidColor(Color.White),
+            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             keyboardActions = KeyboardActions(onSearch = { onSubmit?.invoke() }),
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .onFocusChanged { focused = it.isFocused },
             decorationBox = { inner ->
                 Box {
                     if (value.isEmpty()) {
                         Text(
                             text = hint,
-                            color = Color(0x6CFFFFFF),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = playerTextSize(R.dimen.ts_26),
                             maxLines = 1,
                         )
@@ -265,11 +280,11 @@ internal fun SheetInput(
 
 /** 对话框内加载指示 */
 @Composable
-internal fun SheetLoading(size: androidx.compose.ui.unit.Dp, modifier: Modifier = Modifier) {
+internal fun SheetLoading(size: Dp, modifier: Modifier = Modifier) {
     Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         CircularProgressIndicator(
             modifier = Modifier.size(size),
-            color = Color.White,
+            color = MaterialTheme.colorScheme.primary,
             strokeWidth = playerDim(R.dimen.vs_2),
         )
     }

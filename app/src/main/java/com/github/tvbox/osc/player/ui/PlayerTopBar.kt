@@ -146,6 +146,29 @@ fun PlayerTopBar(state: PlayerUiState, actions: PlayerActions) {
                         if (state.seekTimeVisible) {
                             TopBarText(state.seekTimeText)
                         }
+                        if (state.sysTimeVisible && state.batteryPercent in 0..100) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                // 时间文字自带 top=vs_5，此处不补会与时间错位
+                                modifier = Modifier.padding(
+                                    end = playerDim(R.dimen.vs_10),
+                                    top = playerDim(R.dimen.vs_5),
+                                ),
+                            ) {
+                                Text(
+                                    text = "${state.batteryPercent}%",
+                                    color = Color.White,
+                                    fontSize = playerTextSize(R.dimen.ts_20),
+                                    fontWeight = FontWeight.Medium,
+                                    modifier = Modifier.padding(end = 4.dp),
+                                )
+                                Image(
+                                    painter = painterResource(batteryIcon(state)),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(24.dp),
+                                )
+                            }
+                        }
                         if (state.sysTimeVisible) {
                             TopBarText(state.sysTime)
                         }
@@ -159,6 +182,17 @@ fun PlayerTopBar(state: PlayerUiState, actions: PlayerActions) {
             }
         }
     }
+}
+
+/** 电池图标档位：充电/充满 → 闪电帧；否则按百分比映射 1~6 档（每档约 16.7%） */
+private fun batteryIcon(state: PlayerUiState): Int = when {
+    state.batteryCharging -> R.drawable.ic_battery_charging
+    state.batteryPercent <= 16 -> R.drawable.ic_battery_1
+    state.batteryPercent <= 33 -> R.drawable.ic_battery_2
+    state.batteryPercent <= 50 -> R.drawable.ic_battery_3
+    state.batteryPercent <= 66 -> R.drawable.ic_battery_4
+    state.batteryPercent <= 83 -> R.drawable.ic_battery_5
+    else -> R.drawable.ic_battery_6
 }
 
 @Composable

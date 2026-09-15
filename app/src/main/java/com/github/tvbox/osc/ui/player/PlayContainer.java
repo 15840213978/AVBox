@@ -1510,9 +1510,14 @@ public class PlayContainer extends FrameLayout implements CustomAdapt, PlaybackH
 
     public boolean onBackPressed() {
         int requestedOrientation = mActivity.getRequestedOrientation();
-        if (requestedOrientation == ActivityInfo.SCREEN_ORIENTATION_PORTRAIT || requestedOrientation == ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT || requestedOrientation == ActivityInfo.SCREEN_ORIENTATION_REVERSE_PORTRAIT) {
+        boolean portrait = requestedOrientation == ActivityInfo.SCREEN_ORIENTATION_PORTRAIT || requestedOrientation == ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT || requestedOrientation == ActivityInfo.SCREEN_ORIENTATION_REVERSE_PORTRAIT;
+        if (portrait) {
+            // 竖屏全屏：菜单开着先收菜单；否则侧滑返回只转回横屏继续播，不退全屏
+            if (mController.onBackPressed()) {
+                return true;
+            }
             mActivity.setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
-            mController.setLandscapePortraitText("竖屏");
+            return true;
         }
         if (mController.onBackPressed()) {
             return true;

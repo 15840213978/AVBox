@@ -3,6 +3,7 @@ package com.github.tvbox.osc.player.controller
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.pm.ActivityInfo
+import android.os.BatteryManager
 import android.content.res.Configuration
 import android.media.AudioManager
 import android.os.Handler
@@ -287,7 +288,7 @@ class ComposeVideoController @JvmOverloads constructor(
                 state.position = 0
             }
             VideoView.STATE_PLAYING -> {
-                initLandscapePortraitBtnInfo()
+                initOrientationState()
                 startProgress()
             }
             VideoView.STATE_PAUSED -> {
@@ -347,10 +348,6 @@ class ComposeVideoController @JvmOverloads constructor(
         return if (hours > 0) String.format(Locale.getDefault(), "%d:%02d:%02d", hours, minutes, seconds)
         else String.format(Locale.getDefault(), "%02d:%02d", minutes, seconds)
     }
-
-    // ============================================================
-    // 手势（§4.4 方案 A：照抄 BaseController + VodController 扩展）
-    // ============================================================
 
     private fun isInPlaybackState(): Boolean {
         return mControlWrapper != null &&
@@ -598,13 +595,9 @@ class ComposeVideoController @JvmOverloads constructor(
         }
     }
 
-    // ============================================================
-    // 锁屏（两个「锁」统一到 BaseVideoController.mIsLocked，§7.4）
-    // ============================================================
-
     private fun showLockView() {
-        if (previewMode || state.isPortrait) {
-            if (state.isPortrait) setLocked(false)
+        if (previewMode) {
+            setLocked(false)
             uiHandler.removeCallbacks(lockHideRunnable)
             state.lockState = LockVisibility.GONE
             return
@@ -617,49 +610,16 @@ class ComposeVideoController @JvmOverloads constructor(
         }
     }
 
-    // ============================================================
-    // 横竖屏 / 按钮态（照搬 initLandscapePortraitBtnInfo / updatePlayerCfgView 等）
-    // ============================================================
-
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
-        initLandscapePortraitBtnInfo()
+        initOrientationState()
     }
 
-    private fun initLandscapePortraitBtnInfo() {
+    private fun initOrientationState() {
         val isPortrait = resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT
         state.isPortrait = isPortrait
         if (isPortrait) {
             state.backVisible = false
-            uiHandler.removeCallbacks(lockHideRunnable)
-            state.lockState = LockVisibility.GONE
-        }
-        var showButton = false
-        val wrapper = mControlWrapper
-        val activity = mActivity
-        if (wrapper != null && activity != null && !ScreenUtils.isTv(activity)) {
-            val videoSize = wrapper.videoSize
-            val width = videoSize[0]
-            val height = videoSize[1]
-            val duration = PlayerUtils.safeTimeMs(wrapper.duration)
-            val shortVideo = duration > 0 && duration < 12 * 60 * 1000L
-            showButton = width > 0 && height > 0 && (width <= height || shortVideo) &&
-                    ScreenUtils.getSqrt(activity) < 10.0
-        }
-        state.landscapePortraitVisible = showButton
-        if (showButton) {
-            state.landscapePortraitText = if (isPortrait) "横屏" else "竖屏"
-        }
-    }
-
-    private fun setLandscapePortrait() {
-        val activity = mActivity ?: return
-        if (activity.resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT) {
-            state.landscapePortraitText = "竖屏"
-            activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-        } else {
-            state.landscapePortraitText = "横屏"
-            activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
         }
     }
 
@@ -693,10 +653,6 @@ class ComposeVideoController @JvmOverloads constructor(
     private fun updateDanmuSearchBtnState() {
         state.danmuSearchAvailable = ApiConfig.get().hasDanmuSearchUi()
     }
-
-    // ============================================================
-    // 长按倍速与倍速重试（替代 fromLongPress / msg 1004）
-    // ============================================================
 
     private fun speedPlayStart() {
         fromLongPress = true
@@ -740,10 +696,6 @@ class ComposeVideoController @JvmOverloads constructor(
         }
     }
 
-    // ============================================================
-    // PlayerControlApi 实现（§5.1/§5.2 契约）
-    // ============================================================
-
     override fun getUiState(): PlayerUiState = state
 
     override fun getSubtitleView(): SimpleSubtitleView = mSubtitleView
@@ -751,10 +703,6 @@ class ComposeVideoController @JvmOverloads constructor(
     override fun getLyricView(): SimpleSubtitleView = mLyricView
 
     override fun getExoSubtitleView(): SubtitleView = mExoSubtitleView
-
-    override fun setLandscapePortraitText(text: String) {
-        state.landscapePortraitText = text
-    }
 
     override fun setListener(l: VodControlListener?) {
         listener = l
@@ -1167,9 +1115,14 @@ class ComposeVideoController @JvmOverloads constructor(
         hideBottom()
     }
 
-    override fun onLandscapePortraitClicked() {
-        if (!fastClickAllowed("landscape_portrait")) return
-        setLandscapePortrait()
+    override fun onRotateClicked() {
+        if (isLocked()) return
+        if (!fastClickAllowed("rotate")) return
+        val toPortrait =
+            resources.configuration.orientation != Configuration.ORIENTATION_PORTRAIT
+        mActivity?.requestedOrientation =
+            if (toPortrait) ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+            else ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
         hideBottom()
     }
 
@@ -1185,7 +1138,7 @@ class ComposeVideoController @JvmOverloads constructor(
 
     override fun onBackClicked() {
         if (resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT) {
-            setLandscapePortrait()
+            mActivity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
             hideBottom()
             return
         }
@@ -1245,7 +1198,6 @@ class ComposeVideoController @JvmOverloads constructor(
         mControlWrapper?.startFadeOut()
     }
 
-    /** 方向键/滚轮步进（旧 moveSeekBarByKey + AbsSeekBar 键控 begin/stop 组合等价） */
     override fun onSeekStep(dir: Int) {
         val wrapper = mControlWrapper ?: return
         val duration = PlayerUtils.safeTimeMs(wrapper.duration)
@@ -1288,18 +1240,29 @@ class ComposeVideoController @JvmOverloads constructor(
         return maxOf(1, (increment * SEEK_MAX / duration).toInt())
     }
 
-    // ============================================================
-    // 1s 轮询（替代 myRunnable2）
-    // ============================================================
 
     override fun refreshSystemInfo() {
         val wrapper = mControlWrapper ?: return
         state.sysTime = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
+        readBattery()
         val speed = runCatching { wrapper.tcpSpeed }.getOrDefault(0L)
         state.netSpeedTopRight = PlayerHelper.getDisplaySpeedBps(speed, true)
         state.netSpeedCenter = PlayerHelper.getDisplaySpeed(speed, false)
         val size = runCatching { wrapper.videoSize }.getOrDefault(intArrayOf(0, 0))
         state.videoSize = "" + size[0] + " X " + size[1]
+    }
+
+    /** 系统电量与充电状态（读不到/越界时 batteryPercent=-1 不显示） */
+    private fun readBattery() {
+        runCatching {
+            val bm = context.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
+                ?: return
+            val level = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
+            state.batteryPercent = if (level in 0..100) level else -1
+            val status = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_STATUS)
+            state.batteryCharging = status == BatteryManager.BATTERY_STATUS_CHARGING ||
+                    status == BatteryManager.BATTERY_STATUS_FULL
+        }
     }
 
     override fun hideSeekHint() {
@@ -1309,10 +1272,6 @@ class ComposeVideoController @JvmOverloads constructor(
     override fun hideSlideHint() {
         state.slideHintVisible = false
     }
-
-    // ============================================================
-    // 弹窗（阶段 7：尺寸/倍速/播放器迁至 Compose 选择弹窗，其余弹窗仍走原 Dialog）
-    // ============================================================
 
     private fun showScaleDialog() {
         try {
