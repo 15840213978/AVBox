@@ -317,6 +317,16 @@ public class PlayContainer extends FrameLayout implements CustomAdapt, PlaybackH
         }
 
         @Override
+        public void playM3u8(String url, HashMap<String, String> headers, int gen) {
+            // 净化是后台链路(OkGo):起播前校验代际 —— 净化期间已切集的话,旧集地址不得起播(Bug 7)
+            if (!scheduler.isParseResultCurrent(gen)) {
+                LOG.i("echo-ignore stale m3u8 result");
+                return;
+            }
+            playM3u8(url, headers);
+        }
+
+        @Override
         public void startVideoPlayback(String url, HashMap<String, String> headers, boolean forceExoPlayer) {
             if (mVideoView == null) return;
             mController.hidePauseRoot();

@@ -700,6 +700,13 @@ public final class PlaybackEngine implements PlaybackHostApi {
         }
 
         @Override
+        public void playM3u8(String url, HashMap<String, String> headers, int gen) {
+            // 无页面桥不做净化(页面才有控制器/净化用例):与 2 参实现一致直接起播,但同样要过代际
+            if (!controller.isParseResultCurrent(gen)) return;
+            startVideoPlayback(url, headers, false);
+        }
+
+        @Override
         public void startVideoPlayback(String url, HashMap<String, String> headers, boolean forceExoPlayer) {
             if (released) return;
             // 与页面桥一致的复用/释放防线:stopPlaybackKeepPlayer 可能留下"IDLE + 内核仍在"的组合,

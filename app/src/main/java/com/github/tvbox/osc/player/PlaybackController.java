@@ -144,6 +144,8 @@ public class PlaybackController {
         // 上,而共享调度层是引擎级的 —— 页面销毁时序与新页面 attach 的先后并不确定,"快速返回再进入"
         // 时旧页面会把新页面刚发起的取流一起撤掉。收尾的正确位置是**会话边界**:新会话开始即清旧账。
         cancelInFlight();
+        // 解析/嗅探代际复位(2026-09-15 Bug 7):上一会话的迟到回调不得作用到新会话
+        parseGeneration.set(0);
         this.currentSession = session;
         // 本次会话的内容尚未真正交给播放器:先清掉"已起播内容"标记 ——
         // 否则"切到 B 但取流失败(播放器里其实还是 A)"后重进 B,会被 D6 误判成同片接管(播错内容)
@@ -1083,6 +1085,35 @@ public class PlaybackController {
     private HashMap<String, String> webHeaderMap;
     private String webUserAgent;
 
+    /**
+     * 解析/嗅探代际(2026-09-15 Bug 7):每次"新播放"(切集/换线/换源/重播)与每次"发起解析"(含换解析器、
+     * 起播后重播兜底)自增。回调在**发起时捕获**该值,起播前比对,不一致即丢弃。
+     *
+     * <p>为什么必须有:`doParse`(json/聚合/超级解析)与 WebView 嗅探的回调完成后是**直接** `playUrl` 的,
+     * 不经过取流观察者(那条路已有 `SourceViewModel.postPlayResult` 的请求序号 + {@link #isStalePlayResult}
+     * 双重防线);而 `stopParse()` 的 `shutdown()/stopLoading()/cancelTag()` 都只能"不再新增",
+     * **拦不住已经在跑的任务**(type 2/3/4 是阻塞式爬虫,可跑数十秒;WebView 的迟到请求仍会进
+     * `shouldInterceptRequest`)⇒ 慢源上快速切集时,旧集的解析结果晚到会把旧地址拉起,出现
+     * "界面是第 N 集、画面声音是第 M 集",并把进度写到新集的键上(错内容 + 污染记录)。
+     *
+     * <p>为什么不能只靠 {@code progressKey} 或 {@code switchStopPending}:①进度键在 `play()` 里就被
+     * 新集覆盖,而旧解析**发起时**看到的已经是新键 → 拿键比对拦不住;②`switchStopPending` 只在
+     * 换源点击即停时置位({@code markStoppedForSourceSwitch}),切集/换线不置位。
+     *
+     * <p>读写线程:`play()`/`doParse()` 均主线程(前者全部调用点、后者 4 个调用点均主线程);
+     * {@code checkIsVideo} 读自 WebView 网络线程 → 必须用 {@link AtomicInteger}。
+     */
+    private final AtomicInteger parseGeneration = new AtomicInteger(0);
+    /**
+     * 最近一次**通过校验**的起播请求所属的代际(仅主线程读写):由 {@link #goPlayUrl} 在入口签发
+     * (该入口与调用方同线程:解析回调在解析线程、净化/重试/重播在主线程),{@link #goPlayUrl} 的
+     * UI 落地闭包用它比对 —— 排队期(回调 → runOnUi)若换了集,排队中的旧地址会被丢弃。
+     *
+     * <p>签发点的选择很关键:不能只在"解析产物入口"({@code playUrl(int,...)})签发 ——
+     * M3U8 净化结果是从**主线程**直接进 {@link #goPlayUrl} 的,会带着过期字段被误判为陈旧而丢弃(自审二轮修复)。
+     */
+    private int playUrlGeneration;
+
     private SourceViewModel sourceViewModel;
     private Observer<JSONObject> playResultObserver;
 
@@ -1113,6 +1144,14 @@ public class PlaybackController {
 
     /** 嗅探 WebView(1×1 挂在页面内容视图上;视图由 view.newSniffWebView()/attachSniffWebView() 提供) */
     private WebView mSysWebView;
+    /**
+     * 当前嗅探页所属的解析代际(Bug 7):{@link #loadUrl(String)} 投递导航前赋值,
+     * {@code checkIsVideo} 在**网络线程**读(故 volatile),-1 = 尚无有效嗅探页。
+     *
+     * <p>用途:判定"这个 in-flight 请求是不是当前页发出的"。旧页(上一集/上一轮解析)的迟到请求必须丢弃 ——
+     * `stopLoading()`/`about:blank` 只能停止后续加载,已经在途的请求仍会进 `shouldInterceptRequest`。
+     */
+    private volatile int webSniffGeneration = -1;
     // ⚠️ shouldInterceptRequest 在非 UI 线程执行且不保证串行:以下三个集合必须并发安全(2026-09-13 加固)
     private final Map<String, Boolean> loadedUrls = new ConcurrentHashMap<>();
     private volatile Queue<String> loadFoundVideoUrls = new ConcurrentLinkedQueue<>();
@@ -1406,12 +1445,16 @@ public class PlaybackController {
         return taskResult;
     }
 
-    /** 停止解析/嗅探:取消解析超时、停 WebView、取消 OkGo 请求、关线程池 */
+    /** 停止解析/嗅探:取消解析超时、停 WebView、取消 OkGo 请求(含 M3U8 净化)、关线程池 */
     public void stopParse() {
         timeoutHandler.removeMessages(MSG_PARSE_TIMEOUT);
         stopLoadWebView(false);
         OkGo.getInstance().cancelTag("play");
         OkGo.getInstance().cancelTag("json_jx");
+        // M3U8 净化(去广告)的在途请求也要撤(Bug 7 自审三轮):净化结果被代际闸门丢弃后,
+        // 请求本身没人取消会一直持网到超时(默认 60s),快速切集时白挂数条连接
+        OkGo.getInstance().cancelTag("m3u8-1");
+        OkGo.getInstance().cancelTag("m3u8-2");
         if (parseThreadPool != null) {
             try {
                 parseThreadPool.shutdown();
@@ -1437,11 +1480,28 @@ public class PlaybackController {
         if (view != null) playUrl(videoUrl, header);
     }
 
+    /**
+     * 本轮解析/嗅探是否仍然有效(Bug 7):回调在**发起时**捕获的 {@code gen} 与当前代际相等才放行。
+     * 不等 ⇒ 期间已切集/换线/换源/重播/换解析器,结果必须丢弃(否则旧地址会把新播放顶掉)。
+     *
+     * <p>不带日志:嗅探拦截({@code shouldInterceptRequest})在**网络线程**逐请求调用,旧页的迟到请求会成百上千次
+     * 命中本方法,打日志会刷爆;其他调用点(解析回调)每次解析最多几条,由调用方按需自行 LOG。
+     *
+     * <p>public 的唯一外部用途:M3U8 净化结果是异步的(三参 {@code PlaybackViewBridge.playM3u8}),
+     * 页面桥在拿结果起播前需要用它判定"净化期间是否已切集"。
+     */
+    public boolean isParseResultCurrent(int gen) {
+        return gen == parseGeneration.get();
+    }
+
     public void doParse(ParseBean pb) {
+        // 解析代际自增(Bug 7):本方法入口即作废上一轮解析(含"换解析器"与起播后重播兜底里重新发起的解析);
+        // 下面的回调统一捕获 gen,只有仍属本轮时才允许起播
+        final int gen = parseGeneration.incrementAndGet();
         stopParse();
         initParseLoadFound();
         if (pb.getType() == 4) {
-            parseMix(pb, true);
+            parseMix(pb, true, gen);
         } else if (pb.getType() == 0) {
             if (view != null) view.showTip("正在嗅探播放地址", true, false);
             timeoutHandler.removeMessages(MSG_PARSE_TIMEOUT);
@@ -1497,6 +1557,8 @@ public class PlaybackController {
 
                         @Override
                         public void onSuccess(Response<String> response) {
+                            // 解析代际校验(Bug 7):切集/换源/换解析后,旧请求的结果不得再驱动播放或嗅探
+                            if (!isParseResultCurrent(gen)) return;
                             String json = response.body();
                             try {
                                 JSONObject rs = jsonParse(webUrl, json);
@@ -1509,7 +1571,7 @@ public class PlaybackController {
                                     }
                                     loadWebView(DefaultConfig.checkReplaceProxy(rs.getString("url")));
                                 } else {
-                                    if (view != null) playUrl(rs.getString("url"), headers);
+                                    if (view != null) playUrl(gen, rs.getString("url"), headers);
                                 }
                             } catch (Throwable e) {
                                 e.printStackTrace();
@@ -1535,9 +1597,11 @@ public class PlaybackController {
             parseThreadPool.execute(new Runnable() {
                 @Override
                 public void run() {
+                    // jsonExt 是阻塞爬虫(可跑数十秒):结果到达时先做代际校验(Bug 7)
+                    if (!isParseResultCurrent(gen)) return;
                     JSONObject rs = ApiConfig.get().jsonExt(pb.getUrl(), jxs, webUrl);
                     if (rs == null || !rs.has("url") || rs.optString("url").isEmpty()) {
-                        if (view != null) view.showTip("解析错误", false, true);
+                        if (isParseResultCurrent(gen) && view != null) view.showTip("解析错误", false, true);
                     } else {
                         HashMap<String, String> headers = extractHeaders(rs);
                         if (rs.has("jxFrom") && view != null) {
@@ -1547,15 +1611,15 @@ public class PlaybackController {
                         boolean parseWV = rs.optInt("parse", 0) == 1;
                         if (parseWV) {
                             String wvUrl = DefaultConfig.checkReplaceProxy(rs.optString("url", ""));
-                            loadUrl(wvUrl);
+                            loadUrl(gen, wvUrl);
                         } else {
-                            if (view != null) playUrl(rs.optString("url", ""), headers);
+                            if (view != null) playUrl(gen, rs.optString("url", ""), headers);
                         }
                     }
                 }
             });
         } else if (pb.getType() == 3) { // json 聚合
-            parseMix(pb, false);
+            parseMix(pb, false, gen);
         }
     }
 
@@ -1563,8 +1627,13 @@ public class PlaybackController {
         if (view != null) view.showErrorWithRetry(err, finish);
     }
 
-    /** 聚合解析(type 3/4):超级解析 = 嗅探与 json 并发;普通聚合 = jsonExtMix */
-    private void parseMix(ParseBean pb, boolean isSuper) {
+    /**
+     * 聚合解析(type 3/4):超级解析 = 嗅探与 json 并发;普通聚合 = jsonExtMix。
+     *
+     * @param gen 本轮解析代际(由 {@link #doParse} 自增并传入):本方法所有异步回调都要带着它做校验,
+     *            否则旧轮(切集前的集)的结果会把新播放顶掉(Bug 7)
+     */
+    private void parseMix(ParseBean pb, boolean isSuper, final int gen) {
         if (view != null) view.showTip("正在解析播放地址", true, false);
         parseThreadPool = Executors.newSingleThreadExecutor();
         LinkedHashMap<String, HashMap<String, String>> jxs = new LinkedHashMap<>();
@@ -1590,11 +1659,13 @@ public class PlaybackController {
         parseThreadPool.execute(new Runnable() {
             @Override
             public void run() {
+                // 解析代际校验(Bug 7):超级解析/聚合解析是阻塞爬虫,结果到达时先作废旧轮
+                if (!isParseResultCurrent(gen)) return;
                 if (isSuper) {
                     // 并发执行 嗅探和json
                     JSONObject rs = SuperParse.parse(jxs, parseFlag + "123", webUrl, parseTargets);
                     if (!rs.has("url") || rs.optString("url").isEmpty()) {
-                        if (view != null) view.showTip("解析错误", false, true);
+                        if (isParseResultCurrent(gen) && view != null) view.showTip("解析错误", false, true);
                     } else {
                         if (rs.has("parse") && rs.optInt("parse", 0) == 1) {
                             if (rs.has("ua")) {
@@ -1604,6 +1675,8 @@ public class PlaybackController {
                             final String mixParseUrl = DefaultConfig.checkReplaceProxy(rs.optString("url", ""));
                             if (view != null) {
                                 view.runOnUi(() -> {
+                                    // 排队期(回调 → UI 线程)可能已切集:旧页不得替换当前嗅探页、更不得带着旧超时
+                                    if (!isParseResultCurrent(gen)) return;
                                     stopParse();
                                     timeoutHandler.removeMessages(MSG_PARSE_TIMEOUT);
                                     timeoutHandler.sendEmptyMessageDelayed(MSG_PARSE_TIMEOUT, PARSE_TIMEOUT_MS);
@@ -1614,17 +1687,17 @@ public class PlaybackController {
                                 @Override
                                 public void run() {
                                     JSONObject res = SuperParse.doJsonJx(parseTargets.jsonJx, webUrl);
-                                    rsJsonJX(res, true);
+                                    rsJsonJX(gen, res, true);
                                 }
                             });
                         } else {
-                            rsJsonJX(rs, false);
+                            rsJsonJX(gen, rs, false);
                         }
                     }
                 } else {
                     JSONObject rs = ApiConfig.get().jsonExtMix(parseFlag + "111", pb.getUrl(), finalExtendName, jxs, webUrl);
                     if (rs == null || !rs.has("url") || rs.optString("url").isEmpty()) {
-                        if (view != null) view.showTip("解析错误", false, true);
+                        if (isParseResultCurrent(gen) && view != null) view.showTip("解析错误", false, true);
                     } else {
                         if (rs.has("parse") && rs.optInt("parse", 0) == 1) {
                             if (rs.has("ua")) {
@@ -1633,6 +1706,8 @@ public class PlaybackController {
                             final String mixParseUrl = DefaultConfig.checkReplaceProxy(rs.optString("url", ""));
                             if (view != null) {
                                 view.runOnUi(() -> {
+                                    // 同上:排队期可能已切集
+                                    if (!isParseResultCurrent(gen)) return;
                                     stopParse();
                                     view.showTip("正在嗅探播放地址", true, false);
                                     timeoutHandler.removeMessages(MSG_PARSE_TIMEOUT);
@@ -1641,7 +1716,7 @@ public class PlaybackController {
                                 });
                             }
                         } else {
-                            rsJsonJX(rs, false);
+                            rsJsonJX(gen, rs, false);
                         }
                     }
                 }
@@ -1649,7 +1724,9 @@ public class PlaybackController {
         });
     }
 
-    private void rsJsonJX(JSONObject rs, boolean isSuper) {
+    private void rsJsonJX(int gen, JSONObject rs, boolean isSuper) {
+        // 主动停止视图动作(关嗅探页)必须属本轮:否则切集后,上一轮遗留的 jsonJx 回调还会把新集的嗅探页关掉
+        if (!isParseResultCurrent(gen)) return;
         if (isSuper) {
             if (rs == null || !rs.has("url")) return;
             stopLoadWebView(false);
@@ -1659,7 +1736,7 @@ public class PlaybackController {
             final String jxFrom = rs.optString("jxFrom");
             view.runOnUi(() -> view.toast("解析来自:" + jxFrom));
         }
-        if (view != null) playUrl(rs.optString("url", ""), headers);
+        if (view != null) playUrl(gen, rs.optString("url", ""), headers);
     }
 
     // -------------------- WebView 嗅探 --------------------
@@ -1681,6 +1758,9 @@ public class PlaybackController {
 
     void loadUrl(String url) {
         if (view == null || !view.isPageAlive()) return;
+        // 本次导航所属代际:checkIsVideo 用它判定"请求是不是当前嗅探页发出的"。
+        // 在**投递前**赋值(非 runnable 内),否则旧页请求与新一轮导航之间会出现窗口期
+        webSniffGeneration = parseGeneration.get();
         view.runOnUi(new Runnable() {
             @Override
             public void run() {
@@ -1699,6 +1779,36 @@ public class PlaybackController {
         });
     }
 
+    /**
+     * 带代际的嗅探页导航(Bug 7):type 2 的 WebView 分支在**后台线程**发起,排队到 UI 线程期间若已切集,
+     * 这次导航会把新集的嗅探页换成上一轮解析出的页面(随后嗅出的地址还会走时已失效的队列)。
+     */
+    private void loadUrl(int gen, String url) {
+        if (view == null || !view.isPageAlive()) return;
+        webSniffGeneration = gen;
+        view.runOnUi(new Runnable() {
+            @Override
+            public void run() {
+                if (!isParseResultCurrent(gen)) return;
+                loadUrl(url);
+            }
+        });
+    }
+
+    /**
+     * 当前请求是否属于正在嗅探的页面(Bug 7):旧页的迟到请求(与 stopLoading/about:blank 并发的那些)
+     * 一律丢弃,否则会把上一集的地址塞进新一轮的命中队列。
+     *
+     * <p>必须拿"页面所属代际"({@link #webSniffGeneration})与当前代际比 —— **不能**写成
+     * {@code isParseResultCurrent(parseGeneration.get())}:那是恒真的自比较,闸门等于没装
+     * (2026-09-15 自审末轮发现的实现错误)。
+     *
+     * <p>不单独打日志:拦截面处按请求调用(网络线程),由调用方决定是否落日志。
+     */
+    private boolean isSniffRequestOfCurrentRound() {
+        return webSniffGeneration >= 0 && webSniffGeneration == parseGeneration.get();
+    }
+
     public void stopLoadWebView(boolean destroy) {
         if (view == null) return;
         view.runOnUi(new Runnable() {
@@ -1712,6 +1822,8 @@ public class PlaybackController {
                         mSysWebView.removeAllViews();
                         mSysWebView.destroy();
                         mSysWebView = null;
+                        // 页面已销毁:代际标记一并失效(再有任何请求进来都应丢弃,Bug 7)
+                        webSniffGeneration = -1;
                     }
                 }
             }
@@ -1842,6 +1954,11 @@ public class PlaybackController {
                 return null;
             }
 
+            // 嗅探代际校验(Bug 7):旧页面的迟到请求不得进入新一轮的结果队列 ——
+            // stopLoadWebView 的 stopLoading/about:blank 只能"尽量停",在途请求仍会打到这里
+            if (!isSniffRequestOfCurrentRound()) {
+                return null;
+            }
             boolean isFilter = VideoParseRuler.isFilter(webUrl, url);
             if (isFilter) {
                 LOG.i("shouldInterceptLoadRequest filter:" + url);
@@ -1953,6 +2070,9 @@ public class PlaybackController {
     public void play(boolean reset) {
         // 新播放是用户显式请求(换源落地/回滚重播):解除换源停播抑制
         switchStopPending = false;
+        // 解析/嗅探代际自增(入口即失效,见 parseGeneration):上一集的在途解析/嗅探结果不得再拉起播放。
+        // 必须在下一行的 early return 之前执行(此时尚不确定新剧集是否存在,宁多作废一次)
+        parseGeneration.incrementAndGet();
         // 预载失效事件(切集/换线/换源/重播):作废在途预解析与预载数据,稳定播放后重新评估(规格 §6)
         invalidatePreload();
         if (view != null) view.hidePreloadReadyTip();
@@ -2037,6 +2157,8 @@ public class PlaybackController {
             }
             return;
         }
+        // p2p 取流是**异步**回调(可能数十秒):同样要带着发起时的代际,切集后旧地址不得起播(Bug 7)
+        final int thunderGen = parseGeneration.get();
         if (Thunder.play(vs.url, new Thunder.ThunderCallback() {
             @Override
             public void status(int code, String info) {
@@ -2049,7 +2171,7 @@ public class PlaybackController {
 
             @Override
             public void play(String url) {
-                playUrl(url, null);
+                playUrl(thunderGen, url, null);
             }
         })) {
             if (view != null) view.showParse(false);
@@ -2068,6 +2190,27 @@ public class PlaybackController {
         if (sourceViewModel != null) {
             sourceViewModel.getPlay(sourceKey(), vod().playFlag, progressKey(), vs.url, subtitleCacheKey());
         }
+    }
+
+    /**
+     * 解析/嗅探产物入口(Bug 7):记录产物所属代际,并做入口校验(见 {@link #goPlayUrl} 与下方注释)。
+     *
+     * <p>入口校验挡的是"回调已在**当前**线程跑起来"的旧结果:此时若已切集,连 {@code RefreshEvent} 播放地址
+     * 与"换线播放超时"都不该被这条旧链改写(否则详情页投屏读到的是旧集地址,超时还可能在稍后触发一次换线);
+     * {@link #goPlayUrl} 里那道校验挡的是"回调 → UI 线程排队"期间的切集。
+     *
+     * <p>⚠️ 自动重试/重播兜底/自动软解回退/自动换线走的都是 2 参 {@link #playUrl}(读了当时的
+     * {@code parseGeneration})⇒ 判定相等,**不会误杀**这些合法路径。
+     */
+    private void playUrl(int gen, String url, HashMap<String, String> headers) {
+        if (!isParseResultCurrent(gen)) {
+            LOG.i("echo-ignore stale parse result");
+            return;
+        }
+        // 本字段只在主线程读写(解析线程的赋值是"提交意图",判定发生在 UI 线程)。⚠️ 不要用做跨线程
+        // 一致性依赖:它记录的是"上一次合法起播请求所属的代际",真正签发发生在 goPlayUrl 入口
+        playUrlGeneration = gen;
+        playUrl(url, headers);
     }
 
     /** 取流结果入口:先按 M3U8 去广告规则分流,再交给 goPlayUrl 起播 */
@@ -2090,7 +2233,12 @@ public class PlaybackController {
             return;
         }
         LOG.i("echo-playM3u8:" + url);
-        if (view != null) view.playM3u8(url, headers);
+        // 净化链是**唯一不走 goPlayUrl** 的起播路径(净化完成回调 startPlayUrl),由页面桥在起播前做代际校验
+        // ——否则旧集净化出来的地址会在切集后直接起播(Bug 7 的旁路)
+        if (view != null) view.playM3u8(url, headers, playUrlGeneration);
+        // 净化期间起点仍是"本次播放已确定的地址":同样要记进 webPlayUrl,否则净化源上
+        // autoRetry/retryAfterStartedError 找不到可重播地址,起播失败会直接跳到换线(原先在 goPlayUrl 首行赋值)
+        if (isFirstAttempt()) setWebPlayUrl(url);
     }
 
     /** 真正起播一个可播地址(外部播放器 / dash 强制 EXO / 复用播放器换集都在这里分流) */
@@ -2100,8 +2248,11 @@ public class PlaybackController {
             handleResolvePlayUrlFailed("获取播放地址为空");
             return;
         }
-        if (isFirstAttempt()) setWebPlayUrl(url);
         if (view == null || !view.isPageAlive()) return;
+        // 本地址归属当前轮(调用方要么与解析回调同帧、要么同线程):在**排队前**签发代际。
+        // 不能用"上一次产物记录"的字段串到主线程回调(净化链就是主线程调进来的)——
+        // 那两个用途混用会让本该起播的地址被判成陈旧而丢弃(Bug 7 自审二轮修复)。
+        playUrlGeneration = parseGeneration.get();
         final String finalUrl = url;
         view.runOnUi(new Runnable() {
             @Override
@@ -2111,6 +2262,16 @@ public class PlaybackController {
                     LOG.i("echo-ignore goPlayUrl while source switching");
                     return;
                 }
+                if (playUrlGeneration != parseGeneration.get()) {
+                    // 解析/嗅探代际校验(Bug 7):本地址是上一轮的产物(排队期间已切集/换线/换源/重播)⇒ 丢弃,
+                    // 并撤掉旧链的超时 —— 否则旧链到期还会走一次"取流超时 → 自动换线",把新播放带偏
+                    LOG.i("echo-ignore goPlayUrl of stale parse result");
+                    timeoutHandler.removeMessages(MSG_PARSE_TIMEOUT);
+                    return;
+                }
+                // 重播/重试地址在**归属确认之后**才记录:否则排队期被丢弃的旧地址会留在 webPlayUrl 上,
+                // 后续 autoRetry / retryAfterStartedError 会拿旧集的地址重播(Bug 7 的次生问题)
+                if (isFirstAttempt()) setWebPlayUrl(finalUrl);
                 stopParse();
                 if (view == null || finalUrl == null) return;
                 String url = finalUrl;
