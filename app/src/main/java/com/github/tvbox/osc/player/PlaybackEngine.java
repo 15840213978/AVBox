@@ -701,7 +701,7 @@ public final class PlaybackEngine implements PlaybackHostApi {
 
         @Override
         public void playM3u8(String url, HashMap<String, String> headers, int gen) {
-            // 无页面桥不做净化(页面才有控制器/净化用例):与 2 参实现一致直接起播,但同样要过代际
+            // 无页面桥不做净化(净化用例在页面),与 2 参实现一致直接起播,但同样要过代际
             if (!controller.isParseResultCurrent(gen)) return;
             startVideoPlayback(url, headers, false);
         }

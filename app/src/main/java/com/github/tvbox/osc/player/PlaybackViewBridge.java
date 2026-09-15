@@ -125,10 +125,8 @@ public interface PlaybackViewBridge {
     void playM3u8(String url, HashMap<String, String> headers);
 
     /**
-     * 同 {@link #playM3u8(String, HashMap)},但携带发起方的解析代际(Bug 7)。
-     *
-     * <p>净化链是**唯一不经 `goPlayUrl` 的起播路径**:请求在后台跑(OkGo),完成后再回头起播 ——
-     * 期间用户切集的话,旧集净化出的地址会把新播放顶掉。实现方须在起播前用
+     * 同 {@link #playM3u8(String, HashMap)},但携带发起方的解析代际:净化在后台跑,完成后再回头起播,
+     * 期间切集的话旧集地址会把新播放顶掉。实现方须在起播前用
      * {@link PlaybackController#isParseResultCurrent(int)} 校验,不一致则丢弃。
      */
     void playM3u8(String url, HashMap<String, String> headers, int gen);

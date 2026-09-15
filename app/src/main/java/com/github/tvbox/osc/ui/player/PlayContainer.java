@@ -318,7 +318,7 @@ public class PlayContainer extends FrameLayout implements CustomAdapt, PlaybackH
 
         @Override
         public void playM3u8(String url, HashMap<String, String> headers, int gen) {
-            // 净化是后台链路(OkGo):起播前校验代际 —— 净化期间已切集的话,旧集地址不得起播(Bug 7)
+            // 净化是后台链路(OkGo),完成时校验代际:净化期间已切集则丢弃旧集结果
             if (!scheduler.isParseResultCurrent(gen)) {
                 LOG.i("echo-ignore stale m3u8 result");
                 return;
