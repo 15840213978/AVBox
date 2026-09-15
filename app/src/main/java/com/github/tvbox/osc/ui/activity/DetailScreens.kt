@@ -72,7 +72,7 @@ import com.github.tvbox.osc.ui.components.LoadState
 import com.github.tvbox.osc.ui.components.LoadStateBox
 import com.github.tvbox.osc.ui.components.LocalSheetDismiss
 import com.github.tvbox.osc.ui.components.VodCard
-import com.github.tvbox.osc.ui.page.jumpToDetail
+import com.github.tvbox.osc.ui.page.openVodCardOrDetail
 import com.github.tvbox.osc.ui.player.PlayerTipBridge
 
 // ================= UI =================
@@ -614,7 +614,7 @@ private fun RelatedSection(activity: DetailActivity, vm: DetailViewModel) {
             ) { _, video ->
                 VodCard(
                     video = video,
-                    onClick = { activity.jumpToDetail(video.id, video.sourceKey, video.name, video.pic) },
+                    onClick = { activity.openVodCardOrDetail(video) },
                     onLongClick = {},
                     modifier = Modifier.width(110.dp),
                 )

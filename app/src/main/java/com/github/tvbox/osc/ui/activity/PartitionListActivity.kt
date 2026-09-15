@@ -57,7 +57,7 @@ import com.github.tvbox.osc.ui.components.AppTopBarScaffold
 import com.github.tvbox.osc.ui.components.VodCard
 import com.github.tvbox.osc.ui.page.PartitionListVM
 import com.github.tvbox.osc.ui.page.dispatchVodCardClick
-import com.github.tvbox.osc.ui.page.jumpToDetail
+import com.github.tvbox.osc.ui.page.openVodCardOrDetail
 import com.github.tvbox.osc.ui.theme.AVBoxTheme
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
@@ -199,7 +199,8 @@ private fun PartitionListScreen(mode: String, title: String, sortJson: String?, 
         when {
             mode == PartitionListActivity.MODE_SEARCH -> VideoGrid(
                 videos = searchVideos,
-                onCardClick = { video -> context.jumpToDetail(video.id, video.sourceKey, video.name, video.pic) },
+                // search 模式:走搜索链路入口(只特判目录卡,其余进详情)
+                onCardClick = { video -> context.openVodCardOrDetail(video) },
                 onCardLongClick = {},
                 onLoadMore = {},
                 // 顶栏高度 - 20dp(+网格内部 28dp = 首卡距顶栏 8dp,与设置页一致;2026-09-12 用户定稿)
@@ -228,8 +229,7 @@ private fun PartitionListScreen(mode: String, title: String, sortJson: String?, 
 
             else -> VideoGrid(
                 videos = ui.videos,
-                // 2026-09-11:与首页共用统一分发(action > 网盘目录下钻 > 源级策略 搜索/详情);
-                // search 模式(搜索结果页进入)保持进详情
+                // 2026-09-11:与首页共用统一分发(action > 网盘目录下钻 > 源级策略 搜索/详情)
                 onCardClick = { video -> context.dispatchVodCardClick(video, onAction = { vm.runAction(it) }) },
                 onCardLongClick = {},
                 onLoadMore = { vm.loadMore() },

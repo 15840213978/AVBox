@@ -57,9 +57,9 @@ object VodCardPolicy {
 }
 
 /** 目录卡判定:上游 `Vod.isFolder()` 的等价物(AbsJson 已把 cate 归一到 tag) */
-private fun Movie.Video.isFolderCard(): Boolean = tag == "folder"
+internal fun Movie.Video.isFolderCard(): Boolean = tag == "folder"
 
-/** 卡片点击目标判定(可单测的纯函数) */
+/** 卡片点击目标判定(首页/栏目页分发用;读源级策略 KV,纯 JVM 下不可测) */
 fun resolveVodCardTarget(video: Movie.Video): VodCardTarget = when {
     !video.action.isNullOrEmpty() -> VodCardTarget.Action(video)
     video.isFolderCard() -> VodCardTarget.Folder(video)
@@ -83,6 +83,18 @@ fun Context.dispatchVodCardClick(video: Movie.Video, onAction: (Movie.Video) -> 
             target.video.pic,
         )
     }
+}
+
+/**
+ * 搜索链路(搜索页结果/源级结果页/相关推荐)入口:**只特判目录卡**,其余照旧进详情页。
+ * 不复用 [dispatchVodCardClick]:其源级策略的 SEARCH 分支在这些场景会把点击变成"再跳一次搜索页"(成环)。
+ */
+fun Context.openVodCardOrDetail(video: Movie.Video) {
+    if (video.isFolderCard()) {
+        openVodFolder(video)
+        return
+    }
+    jumpToDetail(video.id, video.sourceKey, video.name, video.pic)
 }
 
 /** 目录下钻:复用栏目二级页(folderId 直接当分类 id 传给 spider.categoryContent,可逐级递归) */

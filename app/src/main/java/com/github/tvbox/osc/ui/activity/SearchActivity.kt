@@ -84,7 +84,7 @@ import com.github.tvbox.osc.ui.theme.AVBoxTheme
 import com.github.tvbox.osc.ui.theme.cardContainer
 import com.github.tvbox.osc.ui.activity.PartitionListActivity
 import com.github.tvbox.osc.ui.page.ManageActionIcon
-import com.github.tvbox.osc.ui.page.jumpToDetail
+import com.github.tvbox.osc.ui.page.openVodCardOrDetail
 import com.github.tvbox.osc.util.HawkConfig
 import com.github.tvbox.osc.util.SearchHelper
 import com.github.tvbox.osc.util.HistoryHelper
@@ -828,9 +828,7 @@ fun SearchScreen(vm: SearchViewModel = viewModel()) {
                                 itemsIndexed(result.videos) { _, video ->
                                     VodCard(
                                         video = video,
-                                        onClick = {
-                                            context.jumpToDetail(video.id, video.sourceKey, video.name, video.pic)
-                                        },
+                                        onClick = { context.openVodCardOrDetail(video) },
                                         onLongClick = {},
                                         modifier = Modifier.width(110.dp),
                                     )
