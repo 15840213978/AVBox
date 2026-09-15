@@ -42,6 +42,11 @@
 - 非 Android 12+ 的品牌色板仍待定(§7),主题暂用 Material 基线色板占位。
 - **脱糖(2026-09-12 补)**:四个模块(app / player / quickjs / pyramid)统一开启 `isCoreLibraryDesugaringEnabled` + `desugar_jdk_libs_nio:2.1.5`(与 fongmi 的 catvod/app 做法一致)。作用范围 = **编译进 APK 的代码**(自身 + 库依赖;实测 APK 内出现 1200 处 `j$/*` 引用,说明 compose/media3/okhttp 等库确实在用 `java.time`/`java.nio`)。代价 +912KB。⚠️ **不覆盖动态加载的爬虫 jar** —— jar 是预编译 dex,不经过 D8,其 `java.time.*` 引用原样保留,API 24/25 上仍会 `NoClassDefFoundError`(详见 §6.3)。
 
+**文件布局与可测性基线(2026-09-15 文件级拆分后)**:
+
+- **UI 层文件布局**(四轮 A 档拆分只挪文件、不改行为;**新增代码按归属落位,别再往页面 Activity 里堆**):详情/播放页 = `ui/activity/DetailActivity.kt`(Activity)+ `DetailViewModel.kt`(VM)+ `DetailScreens.kt`(Compose 顶层函数);播放器面板 = `player/ui/PlayerSheets.kt`(公共骨架,`SheetLoading`/`findActivityOrNull` 等在此)+ `DanmuSheets.kt` / `SubtitleSheets.kt` / `CastSheet.kt` / `EpisodeSheet.kt`;直播页 = `ui/activity/LivePlayActivity.kt`(页面态 + 网络编排 + `epgVersion` 代际校验)+ `LiveScreens.kt`(Compose UI,13 个 Composable)+ **`LiveEpgParser.kt`(EPG 与回看的纯解析,无状态 object)**。跨文件暴露的成员一律 `internal` —— 其 JVM 名会带模块后缀(`parseXmlEpg$AVBox_app_debug`)且可见性是 public,**Java 侧调用不到、反射名字也带后缀**;本项目无 Java 调用者与反射需求,故可放心放宽。过程与等价性证据见 `history/features.md`。
+- **单测基线**:`app/src/test` = 4 个测试类(`SearchHelperTest` / `KVKeySpecTest` / `KVDecoderTest` / `LiveEpgParserTest`),**纯 JVM** —— 只有 `testImplementation(libs.junit)`,**无 Robolectric / Mockito / `isReturnDefaultValues`** ⇒ 被测代码一碰 `android.*` 或 `org.json` 即 `not mocked`;可测面只限**无 android 依赖的纯逻辑**(EPG 解析族 / 搜索 / KV 编解码),VM、Activity、用 `JSONObject` 的函数都测不了。**要测纯逻辑就得先把它抽成无状态 object 或顶层函数**(样板 = `ui/activity/LiveEpgParser.kt` + `LiveEpgParserTest`);是否引入 Robolectric 属独立决策(会改变验证模型),当前口径倾向不引入 —— 本项目的验证瓶颈在真机行为(挂摘时序 / 合成 / 坏流),不在 JVM 逻辑。R8 后用单测复验的姿势见 §6.3。
+
 ## 3. 信息架构与主题(已定)
 
 - **MainActivity**:Scaffold + NavigationBar + HorizontalPager,4 个 tab:首页 / 历史 / 收藏 / 设置;支持手势横滑切换;每页滚动状态独立保留。
