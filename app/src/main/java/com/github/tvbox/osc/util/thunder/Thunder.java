@@ -1,14 +1,14 @@
 package com.github.tvbox.osc.util.thunder;
 
 import android.content.Context;
-import android.content.SharedPreferences;
 import android.net.Uri;
 import android.text.TextUtils;
-import android.util.Log;
 
 import com.github.tvbox.osc.base.App;
 import com.github.tvbox.osc.bean.Movie;
 import com.github.tvbox.osc.util.FileUtils;
+import com.github.tvbox.osc.util.HawkConfig;
+import com.github.tvbox.osc.util.KV;
 import com.xunlei.downloadlib.XLDownloadManager;
 import com.xunlei.downloadlib.XLTaskHelper;
 import com.xunlei.downloadlib.android.XLUtil;
@@ -37,17 +37,16 @@ public class Thunder {
 
 
     private static void init(Context context) {
-        // fake deviceId and Mac
-        SharedPreferences sharedPreferences = context.getSharedPreferences("rand_thunder_id", Context.MODE_PRIVATE);
-        String imei = sharedPreferences.getString("imei", null);
-        String mac = sharedPreferences.getString("mac", null);
-        if (imei == null) {
+        // fake deviceId and Mac(2026-09-15 由独立 SP `rand_thunder_id` 迁入 KV,见 HawkConfig.THUNDER_IMEI/THUNDER_MAC)
+        String imei = KV.get(HawkConfig.THUNDER_IMEI, "");
+        String mac = KV.get(HawkConfig.THUNDER_MAC, "");
+        if (TextUtils.isEmpty(imei)) {
             imei = randomImei();
-            sharedPreferences.edit().putString("imei", imei).commit();
+            KV.put(HawkConfig.THUNDER_IMEI, imei);
         }
-        if (mac == null) {
+        if (TextUtils.isEmpty(mac)) {
             mac = randomMac();
-            sharedPreferences.edit().putString("mac", mac).commit();
+            KV.put(HawkConfig.THUNDER_MAC, mac);
         }
 
         XLUtil.mIMEI = imei;

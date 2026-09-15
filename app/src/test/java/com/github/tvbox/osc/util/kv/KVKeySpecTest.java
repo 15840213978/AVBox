@@ -15,7 +15,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * 生产类型登记表的**结构**测试(不碰 Android:不实例化 MMKV、不读 SharedPreferences)。
+ * 生产类型登记表的**结构**测试(纯 JVM:不实例化 MMKV、不碰任何 Android 存储)。
  *
  * <p>存在理由:`KVKeySpec` 的集合类型靠匿名 `TypeToken` 子类的泛型签名恢复
  * (`TypeToken.getSuperclassTypeParameter` 读的是 class 的 Signature 属性)。R8 只保留了

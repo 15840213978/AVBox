@@ -83,6 +83,9 @@ public final class KVKeySpec implements KVDecoder.TypeRegistry {
         register(HawkConfig.THEME_PALETTE_STYLE, "");
         register(HawkConfig.HOME_HOT, "");
         register(HawkConfig.HOME_HOT_DAY, "");
+        // 迅雷伪造设备标识(2026-09-15 由独立 SP `rand_thunder_id` 迁入;调用侧带 "" 默认值,登记用于类型自检)
+        register(HawkConfig.THUNDER_IMEI, "");
+        register(HawkConfig.THUNDER_MAC, "");
 
         // ---- int ----
         register(HawkConfig.PLAY_TYPE, 0);

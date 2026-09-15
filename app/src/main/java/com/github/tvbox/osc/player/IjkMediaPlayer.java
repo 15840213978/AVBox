@@ -32,14 +32,12 @@ public class IjkMediaPlayer extends IjkPlayer {
 
     private IJKCode codec = null;
     protected String currentPlayPath;
-    private static AudioTrackMemory memory;
     private static final String DEFAULT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36";
     private static final String DEFAULT_ACCEPT = "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/json;q=0.9";
 
     public IjkMediaPlayer(Context context, IJKCode codec) {
         super(context);
         this.codec = codec;
-        memory = AudioTrackMemory.getInstance(context);
     }
 
     /**
@@ -385,7 +383,7 @@ public class IjkMediaPlayer extends IjkPlayer {
         int audioSelected = mMediaPlayer.getSelectedTrack(ITrackInfo.MEDIA_TRACK_TYPE_AUDIO);
         if (trackIndex!=audioSelected){
             if (!playKey.isEmpty()) {
-                memory.save(playKey, trackIndex);
+                AudioTrackMemory.save(playKey, trackIndex);
             }
             mMediaPlayer.selectTrack(trackIndex);
         }
@@ -397,7 +395,7 @@ public class IjkMediaPlayer extends IjkPlayer {
 
     public void loadDefaultTrack(TrackInfo trackInfo,String playKey) {
         if(trackInfo!=null && trackInfo.getAudio().size()>1){
-            Integer trackIndex = memory.ijkLoad(playKey);
+            Integer trackIndex = AudioTrackMemory.ijkLoad(playKey);
             if (trackIndex == -1) {
                 int firsIndex=trackInfo.getAudio().get(0).index;
                 setTrack(firsIndex);

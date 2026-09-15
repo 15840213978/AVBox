@@ -118,4 +118,7 @@ public class HawkConfig {
     public static final String LIQUID_GLASS_ENABLED = "liquid_glass_enabled";
     public static final String LIQUID_GLASS_BLUR = "liquid_glass_blur"; //模糊强度 dp(0~40,默认 20)
     public static final String LIQUID_GLASS_DISTORTION = "liquid_glass_distortion"; //折射强度 dp(0~30,默认 30)
+    // 迅雷下载库的伪造设备标识(2026-09-15 由独立 SharedPreferences `rand_thunder_id` 迁入 KV,该 SP 与其 xml 已废弃)
+    public static final String THUNDER_IMEI = "thunder_imei";
+    public static final String THUNDER_MAC = "thunder_mac";
 }

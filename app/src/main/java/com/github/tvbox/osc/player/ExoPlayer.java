@@ -40,7 +40,6 @@ import xyz.doikki.videoplayer.exo.ExoMediaPlayer;
 
 public class ExoPlayer extends ExoMediaPlayer {
 
-    private static AudioTrackMemory memory;
     private volatile long internalSubtitleDelayUs;
     private OnCuesListener onCuesListener;
     private boolean defaultSubtitleTrackSelected;
@@ -66,7 +65,6 @@ public class ExoPlayer extends ExoMediaPlayer {
                 .build());
         setRenderersFactory(buildRenderersFactory(context));
         LOG.i("echo-exo-low-memory-load-control");
-        memory = AudioTrackMemory.getInstance(context);
     }
 
     @Override
@@ -329,7 +327,7 @@ public class ExoPlayer extends ExoMediaPlayer {
             trackSelector.setParameters(builder.build());
 
             if (mappedInfo.getRendererType(rendererIndex) == C.TRACK_TYPE_AUDIO && !playKey.isEmpty()) {
-                memory.save(playKey, groupIndex, trackIndex);
+                AudioTrackMemory.save(playKey, groupIndex, trackIndex);
             }
         } catch (Exception e) {
             LOG.i("echo-setTrack error: " + e.getMessage());
@@ -337,7 +335,7 @@ public class ExoPlayer extends ExoMediaPlayer {
     }
 
     public void loadDefaultTrack(String playKey) {
-        Pair<Integer, Integer> pair = memory.exoLoad(playKey);
+        Pair<Integer, Integer> pair = AudioTrackMemory.exoLoad(playKey);
         if (pair == null) return;
 
         MappingTrackSelector.MappedTrackInfo mappedInfo = trackSelector.getCurrentMappedTrackInfo();
