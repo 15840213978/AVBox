@@ -1,3 +1,7 @@
+<div align="center">
+  <img src="images/avbox.svg" width="120" alt="AVBox"/>
+</div>
+
 # AVBox（AudioVideoBox）
 
 - 基于 https://github.com/q215613905/TVBoxOS

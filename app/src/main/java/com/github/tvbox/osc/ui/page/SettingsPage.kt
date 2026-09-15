@@ -6,7 +6,6 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -23,6 +22,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -38,6 +38,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -480,14 +481,16 @@ private fun AppInfoHeaderCard(versionName: String) {
                     )
                 }
             }
-            // 图标圆角裁剪(iOS 风格圆角方形,约 24% 圆角半径)
-            Image(
-                painter = painterResource(R.drawable.ic_avbox_logo),
+            // 图标:复用自适应图标前景矢量(不占位图,随主题 tint 着色,深浅模式共用一套资源);
+            // 前景自带启动器安全边距(图形约占画布 48%),放大 1.7 倍以匹配原图标的视觉大小
+            Icon(
+                painter = painterResource(R.drawable.ic_launcher_foreground),
                 contentDescription = null,
+                tint = scheme.onPrimaryContainer,
                 modifier = Modifier
                     .padding(start = 12.dp)
                     .size(84.dp)
-                    .clip(RoundedCornerShape(20.dp)),
+                    .scale(1.7f),
             )
         }
     }
