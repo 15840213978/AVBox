@@ -136,7 +136,9 @@ private fun MainContent() {
 
     val sheetHost = remember { SheetHostState() }
     val liquidGlassConfig = LiquidGlassState.config
-    val liquidGlassEnabled = liquidGlassConfig.enabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    // 「底部导航」开关 × API(2026-09-16 起与"应用控件"各自独立,无总开关)
+    val liquidGlassEnabled = liquidGlassConfig.navbarEnabled &&
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
     val liquidBackdropBgColor = MaterialTheme.colorScheme.surfaceContainer
     val liquidBackdropOnDraw: ContentDrawScope.() -> Unit =
         remember(liquidBackdropBgColor) {

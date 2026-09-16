@@ -199,7 +199,18 @@ fun SettingsSliderRow(
         ) {
             RowTitle(title = title, enabled = true, modifier = Modifier.weight(1f))
             if (valueText != null) {
-                RowValue(text = valueText, enabled = true)
+                Spacer(Modifier.width(16.dp))
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                ) {
+                    Text(
+                        text = valueText,
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                    )
+                }
             }
         }
         Slider(

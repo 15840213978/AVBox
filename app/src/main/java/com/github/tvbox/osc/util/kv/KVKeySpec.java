@@ -13,17 +13,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
 
-/**
- * 「键 → 显式类型」登记表(avbox-kv-mmkv-spec §4.3 / §7-Q3):集合与嵌套泛型的元素类型**必须**在这里声明。
- *
- * <p>为什么必须有这张表:Java 泛型擦除后,调用侧默认值 `new ArrayList()` / `new HashMap<>()` 与 `null`
- * 都带不来元素类型,按它们解码会得到元素为 LinkedTreeMap 的集合 —— 调用侧 `(String)` 取值时
- * ClassCastException,或写回时把元素类型写坏(gson 2.13+ 版本的 Hawk 正是栽在"用匿名 TypeToken
- * 捕获类型变量"推元素类型上,旧键会整体读不出来)。故改为一处集中、显式、可审查的登记。
- *
- * <p>调用侧仍保持 `KV.get(key, def)` 形态,可机械替换;未登记的键在给了具体 defaultValue 时
- * (String / 基本类型)照常工作,复杂类型未登记则打 `echo-kv` 日志并回落默认值,不静默。
- */
 public final class KVKeySpec implements KVDecoder.TypeRegistry {
 
     /** 动态键族前缀(键名带变量后缀,无法逐键登记) */
@@ -133,7 +122,8 @@ public final class KVKeySpec implements KVDecoder.TypeRegistry {
         register(HawkConfig.DANMU_OPEN, false);
         register(HawkConfig.DANMU_RANDOM_COLOR, false);
         register(HawkConfig.DANMU_API_USE_DEFAULT, false);
-        register(HawkConfig.LIQUID_GLASS_ENABLED, false);
+        register(HawkConfig.LIQUID_GLASS_NAVBAR, false);
+        register(HawkConfig.LIQUID_GLASS_CONTROLS, false);
 
         // ---- float ----
         register(HawkConfig.DANMU_SPEED, 0f);

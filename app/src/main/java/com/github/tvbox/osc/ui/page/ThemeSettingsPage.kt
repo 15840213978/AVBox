@@ -162,8 +162,10 @@ fun ThemeSettingsScreen(onNavigateBack: () -> Unit) {
                 }
             }
 
-            // 液态玻璃导航栏组(2026-09-13,用户定稿:布局照搬示例 NavStyleScreen 设计稿——
-            // 头部卡(标题+重置,无 icon)、开关卡、两张滑条卡;重置按钮不带容器底,其余与设计稿一致)
+            // 液态玻璃组(2026-09-13,用户定稿:布局照搬示例 NavStyleScreen 设计稿——
+            // 头部卡(标题+重置,无 icon)、开关卡、两张滑条卡;重置按钮不带容器底,其余与设计稿一致;
+            // 2026-09-16 用户定稿:无总开关,「底部导航」「应用控件」两个开关各自控制自己的效果
+            // (默认都开),模糊/扭曲两档参数共用)
             SettingsGroup(title = null) {
                 // 头部卡:标题 + 重置(纯文字),下行为版本支持说明(2026-09-13 用户定稿:去掉 icon,只保留标题)
                 SettingsCard(SettingsCardPosition.FIRST) {
@@ -174,7 +176,7 @@ fun ThemeSettingsScreen(onNavigateBack: () -> Unit) {
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                text = "导航栏效果",
+                                text = "液态玻璃效果",
                                 style = MaterialTheme.typography.titleMedium,
                                 color = MaterialTheme.colorScheme.onSurface,
                                 modifier = Modifier.weight(1f),
@@ -192,9 +194,16 @@ fun ThemeSettingsScreen(onNavigateBack: () -> Unit) {
                 }
                 SettingsCard(SettingsCardPosition.MIDDLE) {
                     SettingsSwitchRow(
-                        title = "开启液态玻璃效果",
-                        checked = glassConfig.enabled,
-                        onCheckedChange = { LiquidGlassState.setEnabled(it) },
+                        title = "底部导航",
+                        checked = glassConfig.navbarEnabled,
+                        onCheckedChange = { LiquidGlassState.setNavbarEnabled(it) },
+                    )
+                }
+                SettingsCard(SettingsCardPosition.MIDDLE) {
+                    SettingsSwitchRow(
+                        title = "应用控件",
+                        checked = glassConfig.controlsEnabled,
+                        onCheckedChange = { LiquidGlassState.setControlsEnabled(it) },
                     )
                 }
                 SettingsCard(SettingsCardPosition.MIDDLE) {

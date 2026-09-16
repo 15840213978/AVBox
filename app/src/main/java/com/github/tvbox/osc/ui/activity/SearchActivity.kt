@@ -81,9 +81,11 @@ import com.github.tvbox.osc.ui.components.LoadStateBox
 import com.github.tvbox.osc.ui.components.LoadState
 import com.github.tvbox.osc.ui.components.VodCard
 import com.github.tvbox.osc.ui.components.VodCardMenu
+import com.github.tvbox.osc.ui.components.glassTopBarSurface
 import com.github.tvbox.osc.ui.components.rememberVodCardMenuState
 import com.github.tvbox.osc.ui.theme.AVBoxTheme
 import com.github.tvbox.osc.ui.theme.cardContainer
+import com.kyant.capsule.ContinuousCapsule
 import com.github.tvbox.osc.ui.activity.PartitionListActivity
 import com.github.tvbox.osc.ui.page.ManageActionIcon
 import com.github.tvbox.osc.ui.page.openVodCardOrDetail
@@ -525,12 +527,11 @@ fun SearchScreen(vm: SearchViewModel = viewModel()) {
             )
         },
         navigationIcon = {
-            // 返回按钮(40dp 圆形容器 surfaceBright,图标来自 .tubiao/左箭头.svg,2026-09-11)
+            // 返回按钮(40dp 圆形容器,图标来自 .tubiao/左箭头.svg,2026-09-11;2026-09-16 容器玻璃化)
             Box(
                 modifier = Modifier
                     .size(40.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.surfaceBright)
+                    .glassTopBarSurface(CircleShape, MaterialTheme.colorScheme.surfaceBright)
                     .clickable { activity?.finish() },
                 contentAlignment = Alignment.Center,
             ) {
@@ -900,9 +901,9 @@ private fun SearchField(
     modifier: Modifier = Modifier,
 ) {
     Row(
+        // 2026-09-16:容器改走 glassTopBarSurface(液态玻璃开启时为玻璃胶囊,跟随底部导航栏)
         modifier = modifier
-            .clip(RoundedCornerShape(20.dp))
-            .background(MaterialTheme.colorScheme.cardContainer)
+            .glassTopBarSurface(ContinuousCapsule, MaterialTheme.colorScheme.cardContainer)
             .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

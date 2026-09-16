@@ -12,7 +12,6 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -69,6 +68,7 @@ import com.github.tvbox.osc.ui.components.SettingsCardPosition
 import com.github.tvbox.osc.ui.components.SettingsIconBadge
 import com.github.tvbox.osc.ui.components.SettingsSwitchRow
 import com.github.tvbox.osc.ui.components.TopBarActionBox
+import com.github.tvbox.osc.ui.components.glassSurface
 import com.github.tvbox.osc.ui.theme.cardContainer
 import com.github.tvbox.osc.util.HawkConfig
 import com.github.tvbox.osc.util.HistoryHelper
@@ -183,8 +183,9 @@ private fun applyLiveFollowVod() {
 
 /**
  * 配置管理页(2026-09-11,用户多轮迭代定稿;2026-09-12 点播/直播拆分):
- * 全 App 唯一的源添加/管理入口 —— 右上角「添加订阅」圆钮(40dp surfaceBright 圆底 +
- * `.tubiao/添加订阅.svg`)→ Material3 dialog(名字 / 链接两行输入 + 标题右上角「从本地选择」+ 右下角保存);
+ * 全 App 唯一的源添加/管理入口 —— 右上角「添加订阅」圆钮(40dp 圆底 +
+ * `.tubiao/添加订阅.svg`,即 [TopBarActionBox],液态玻璃开启时为玻璃圆钮)→
+ * Material3 dialog(名字 / 链接两行输入 + 标题右上角「从本地选择」+ 右下角保存);
  * 已保存订阅源以 28dp 圆角卡片展示(距屏幕边缘 16dp),卡片右侧开关 = 切换当前接口(单选);
  * **已开启的源置顶**,其余按添加顺序排列(后加的在下);长按卡片进入管理模式(卡片转勾选),
  * 右上角出现编辑/删除控件;**正在使用的源不可删除、但可编辑**(2026-09-15:早期实现用"在用"同时拦掉了
@@ -658,7 +659,8 @@ private fun SubscribeCard(
 
 /**
  * 添加 / 编辑订阅对话框(Material3 AlertDialog):两行输入(名字 / 链接)+ 右下角保存;
- * 标题右上角「从本地选择」控件(40dp 圆形 surfaceBright 圆底 + `.tubiao/文件选择.svg`),
+ * 标题右上角「从本地选择」控件(40dp 圆形圆底 + `.tubiao/文件选择.svg`,2026-09-16 起走
+ * [glassSurface] 与顶栏玻璃控件同材质),
  * 打开系统 SAF 选择器,选中后把 clan:// 接口地址回填到链接输入框。
  * [initialName] / [initialUrl] 用于编辑态预填(新增态传空串)。
  */
@@ -700,10 +702,10 @@ private fun AddSubscribeDialog(
                     modifier = Modifier.weight(1f),
                 )
                 Box(
+                    // 对话框是独立 window,取不到顶栏采样层 ⇒ 走 glassSurface(空采样玻璃材质)
                     modifier = Modifier
                         .size(40.dp)
-                        .clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.surfaceBright)
+                        .glassSurface(CircleShape, MaterialTheme.colorScheme.surfaceBright)
                         .clickable { onPickFile { picked -> url = picked } },
                     contentAlignment = Alignment.Center,
                 ) {

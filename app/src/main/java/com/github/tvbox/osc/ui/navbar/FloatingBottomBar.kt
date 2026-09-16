@@ -81,12 +81,6 @@ data class GlassTabItem(
 
 private val LocalFloatingBottomBarTabScale = staticCompositionLocalOf { { 1f } }
 
-/**
- * 底层完整背景常驻 vibrancy + blur + lens + shadow;
- * 中层透明录制层 pressProgress 驱动 lens/highlight 增强;
- * 顶层滑动指示器 CombinedBackdrop 采样 + 速度感知形变。
- * (2026-09-13 照搬 `示例文件/android` 的 FloatingBottomBar,图标由调用方传入现有 AppTab 资源)
- */
 @Composable
 fun FloatingBottomBar(
     modifier: Modifier = Modifier,
@@ -100,7 +94,7 @@ fun FloatingBottomBar(
 ) {
     val tabsCount = tabs.size
     val isLightTheme = !isSystemInDarkTheme()
-    val isBlurEnabled = config.enabled
+    val isBlurEnabled = config.navbarEnabled
     val supportsLens = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
 
     val accentColor = MaterialTheme.colorScheme.primary

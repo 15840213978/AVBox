@@ -37,7 +37,7 @@ class ConfigManageActivity : BaseActivity() {
             if (!granted.isNullOrEmpty()) {
                 startLocalConfig(localConfigLauncher) { api -> onResult(api) }
             } else {
-                Toast.makeText(this, "未开启「所有文件访问」,已取消导入(可再点一次重试)", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "请授予权限", Toast.LENGTH_SHORT).show()
             }
         }
     }

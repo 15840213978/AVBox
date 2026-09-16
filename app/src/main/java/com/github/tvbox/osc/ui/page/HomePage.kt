@@ -93,8 +93,10 @@ import com.github.tvbox.osc.ui.components.SettingsOptionRow
 import com.github.tvbox.osc.ui.components.SettingsRow
 import com.github.tvbox.osc.ui.components.SkeletonBox
 import com.github.tvbox.osc.ui.components.VodCardMenu
+import com.github.tvbox.osc.ui.components.glassTopBarSurface
 import com.github.tvbox.osc.ui.components.rememberVodCardMenuState
 import com.github.tvbox.osc.ui.theme.cardContainer
+import com.kyant.capsule.ContinuousCapsule
 
 /**
  * [bottomPadding]:液态玻璃模式下悬浮导航栏的遮挡高度(MainScreen 统一下发,M3 栏模式传 0 走布局避让),
@@ -152,11 +154,11 @@ fun HomePage(vm: HomeViewModel, bottomPadding: Dp = 0.dp) {
                 // 订阅源胶囊:宽度随源名自适应、上限 240dp
                 // (2026-09-12 由"占满剩余宽度"改为上限 220dp;2026-09-13 用户要求"宽度增加 20dp" → 240dp),
                 // 不再占满顶栏剩余宽度;源名超长在该宽度内省略号截断
+                // 2026-09-16:容器改走 glassTopBarSurface(液态玻璃开启时为玻璃胶囊,跟随底部导航栏)
                 Row(
                     modifier = Modifier
                         .widthIn(max = 240.dp)
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(MaterialTheme.colorScheme.cardContainer)
+                        .glassTopBarSurface(ContinuousCapsule, MaterialTheme.colorScheme.cardContainer)
                         .heightIn(min = 40.dp)
                         .clickable { showSourceSheet = true }
                         .padding(horizontal = 12.dp, vertical = 8.dp),
@@ -199,12 +201,11 @@ fun HomePage(vm: HomeViewModel, bottomPadding: Dp = 0.dp) {
             }
         },
         actions = {
-            // 搜索入口:仅图标,surfaceBright 圆形容器,高 40dp(2026-09-11 改为正圆)
+            // 搜索入口:仅图标,40dp 圆形控件(2026-09-11 改为正圆;2026-09-16 容器玻璃化)
             Box(
                 modifier = Modifier
                     .size(40.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.surfaceBright)
+                    .glassTopBarSurface(CircleShape, MaterialTheme.colorScheme.surfaceBright)
                     .clickable {
                         context.startActivity(Intent(context, SearchActivity::class.java))
                     },

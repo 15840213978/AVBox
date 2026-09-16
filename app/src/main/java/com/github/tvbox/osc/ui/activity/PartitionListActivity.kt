@@ -8,7 +8,6 @@ import android.content.Intent
 import android.os.Bundle
 import android.widget.Toast
 import com.github.tvbox.osc.ui.theme.enableTransparentEdgeToEdge
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -24,7 +23,6 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -37,7 +35,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.LocalContext
@@ -56,6 +53,7 @@ import com.github.tvbox.osc.ui.components.LoadStateBox
 import com.github.tvbox.osc.ui.components.AppTopBarScaffold
 import com.github.tvbox.osc.ui.components.VodCard
 import com.github.tvbox.osc.ui.components.VodCardMenu
+import com.github.tvbox.osc.ui.components.glassTopBarSurface
 import com.github.tvbox.osc.ui.components.rememberVodCardMenuState
 import com.github.tvbox.osc.ui.page.PartitionListVM
 import com.github.tvbox.osc.ui.page.dispatchVodCardClick
@@ -262,8 +260,9 @@ private fun PartitionListScreen(mode: String, title: String, sortJson: String?, 
 }
 
 /**
- * 顶栏操作按钮:40dp 圆角容器(surfaceBright 底),图标 22dp(2026-09-11,
- * 替代裸 IconButton;返回/筛选共用)。
+ * 顶栏操作按钮:40dp 圆角容器,图标 22dp(2026-09-11,
+ * 替代裸 IconButton;返回/筛选共用)。2026-09-16 起容器走 [glassTopBarSurface],
+ * 液态玻璃开启时为玻璃圆钮(跟随底部导航栏),关闭/低版本仍是原实心 surfaceBright 圆底。
  */
 @Composable
 private fun BarActionBox(
@@ -275,8 +274,7 @@ private fun BarActionBox(
     Box(
         modifier = Modifier
             .size(40.dp)
-            .clip(CircleShape)
-            .background(MaterialTheme.colorScheme.surfaceBright)
+            .glassTopBarSurface(CircleShape, MaterialTheme.colorScheme.surfaceBright)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {

@@ -67,6 +67,7 @@ import com.github.tvbox.osc.event.RefreshEvent
 import com.github.tvbox.osc.ui.components.AppTopBarScaffold
 import com.github.tvbox.osc.ui.components.LoadState
 import com.github.tvbox.osc.ui.components.LoadStateBox
+import com.github.tvbox.osc.ui.components.glassTopBarSurface
 import com.github.tvbox.osc.ui.theme.cardContainer
 import com.github.tvbox.osc.util.HawkConfig
 import com.github.tvbox.osc.util.HistoryHelper
@@ -376,6 +377,12 @@ private fun HistoryRow(
     }
 }
 
+/**
+ * 40dp 圆形操作钮(surfaceBright 底)。
+ * 既作顶栏操作(历史/收藏页清空、配置管理编辑/删除),也作卡片内操作(搜索页历史卡删除);
+ * 2026-09-16 起容器走 [glassTopBarSurface] —— 只有顶栏槽内拿得到玻璃采样层,会玻璃化,
+ * 卡片内(采样层未下发)自动回退实心容器,两处外观各自保持不变。
+ */
 @Composable
 internal fun ManageActionIcon(
     iconRes: Int,
@@ -387,8 +394,7 @@ internal fun ManageActionIcon(
         modifier = Modifier
             .alpha(if (enabled) 1f else 0.4f)
             .size(40.dp)
-            .clip(CircleShape)
-            .background(MaterialTheme.colorScheme.surfaceBright)
+            .glassTopBarSurface(CircleShape, MaterialTheme.colorScheme.surfaceBright)
             .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {

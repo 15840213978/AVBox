@@ -1,5 +1,6 @@
 package com.github.tvbox.osc.ui.components
 
+import android.os.Build
 import androidx.annotation.DrawableRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -28,15 +29,20 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.ContentDrawScope
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.github.tvbox.osc.ui.theme.LiquidGlassState
+import com.kyant.backdrop.backdrops.layerBackdrop
+import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 
 /**
  * 页面顶栏壳(2026-09-11 晚,照 `示例文件/android` 的官方方案整体重做):
@@ -49,6 +55,9 @@ import androidx.compose.ui.unit.dp
  * - `contentWindowInsets = 0`,内容延伸到状态栏下,由 [TopScrim] 渐隐穿过顶栏区域的内容;
  * - `TopAppBar` 自身 `windowInsets = 0`,外层补 statusBars padding,透明底;
  * - 内容留白用 content 回调里的 `padding.calculateTopPadding()`(= 顶栏实测总高)计算。
+ *
+ * 2026-09-16 追加:内容层额外录一份到玻璃采样图层,顶栏内的控件(经 [glassTopBarSurface])据此
+ * 做真模糊 —— 与底部悬浮导航栏同一套液态玻璃。顶栏与 [TopScrim] 都画在采样层之外。
  *
  * @param titleContent 顶栏标题区(纯文字大标题,或首页这类复杂行);
  *                     M3 TopAppBar 标准高 64dp,标题垂直居中,随滚动整体滚出
@@ -74,40 +83,63 @@ fun AppTopBarScaffold(
     } else {
         TopAppBarDefaults.pinnedScrollBehavior()
     }
+    // 顶栏玻璃采样层(2026-09-16):内容录进独立图层,顶栏控件经 [LocalTopBarGlassBackdrop]
+    // 用它 drawBackdrop 做真模糊;顶栏自身在图层之外(否则自采样)。开关关闭/低版本不挂
+    // layerBackdrop(图层不录制,零开销),顶栏控件回退原实心容器
+    // 门控 = 「应用控件」开关 × API(与底部导航各自独立,无总开关)
+    val glassConfig = LiquidGlassState.config
+    val glassEnabled = glassConfig.controlsEnabled &&
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    val glassOnDraw: ContentDrawScope.() -> Unit = remember(containerColor) {
+        { drawRect(containerColor); drawContent() }
+    }
+    val glassBackdrop = rememberLayerBackdrop(onDraw = glassOnDraw)
     Scaffold(
         modifier = modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         containerColor = containerColor,
         topBar = {
-            TopAppBar(
-                modifier = Modifier.windowInsetsPadding(WindowInsets.statusBars),
-                windowInsets = WindowInsets(0, 0, 0, 0),
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.Transparent,
-                    scrolledContainerColor = Color.Transparent,
-                ),
-                title = titleContent,
-                // 槽内边距补齐:M3 槽自身 start/end 各 4dp(TopAppBarHorizontalPadding),
-                // 再加 12dp 使 40dp 圆钮外缘距屏 16dp —— 与全站卡片距屏 16dp 规范及迁移前自研顶栏一致
-                navigationIcon = {
-                    if (navigationIcon != null) {
-                        Box(modifier = Modifier.padding(start = 12.dp)) { navigationIcon() }
-                    }
-                },
-                actions = {
-                    Row(modifier = Modifier.padding(end = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        actions()
-                    }
-                },
-                scrollBehavior = scrollBehavior,
-            )
+            // 采样层只在顶栏槽内下发:内容区的同名控件(搜索页历史卡删除钮等)不玻璃化
+            CompositionLocalProvider(
+                LocalTopBarGlassBackdrop provides glassBackdrop.takeIf { glassEnabled }
+            ) {
+                TopAppBar(
+                    modifier = Modifier.windowInsetsPadding(WindowInsets.statusBars),
+                    windowInsets = WindowInsets(0, 0, 0, 0),
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = Color.Transparent,
+                        scrolledContainerColor = Color.Transparent,
+                    ),
+                    title = titleContent,
+                    // 槽内边距补齐:M3 槽自身 start/end 各 4dp(TopAppBarHorizontalPadding),
+                    // 再加 12dp 使 40dp 圆钮外缘距屏 16dp —— 与全站卡片距屏 16dp 规范及迁移前自研顶栏一致
+                    navigationIcon = {
+                        if (navigationIcon != null) {
+                            Box(modifier = Modifier.padding(start = 12.dp)) { navigationIcon() }
+                        }
+                    },
+                    actions = {
+                        Row(modifier = Modifier.padding(end = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            actions()
+                        }
+                    },
+                    scrollBehavior = scrollBehavior,
+                )
+            }
         },
     ) { padding ->
         Box(modifier = Modifier.fillMaxSize()) {
-            content(
-                padding.calculateTopPadding(),
-                padding.calculateBottomPadding(),
-            )
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .then(if (glassEnabled) Modifier.layerBackdrop(glassBackdrop) else Modifier),
+            ) {
+                content(
+                    padding.calculateTopPadding(),
+                    padding.calculateBottomPadding(),
+                )
+            }
+            // 顶部渐变遮罩画在采样层之外:否则顶栏玻璃会把遮罩自身也模糊进来(近乎纯色,看不出玻璃)
             TopScrim(height = padding.calculateTopPadding())
         }
     }
@@ -142,8 +174,10 @@ fun TopScrim(
 }
 
 /**
- * 顶栏操作按钮:40dp 圆形容器(surfaceBright 底)+ 22dp 图标,与栏目页/搜索页顶栏控件同规格
- * (2026-09-11);带返回键的二级页复用,避免各页各写一份。
+ * 顶栏操作按钮:40dp 圆形容器 + 22dp 图标(surfaceBright 底;2026-09-11);
+ * 带返回键的二级页复用,避免各页各写一份。
+ * 2026-09-16 起容器改走 [glassTopBarSurface]:液态玻璃开启时为玻璃圆钮(跟随底部导航栏),
+ * 关闭/低版本仍是原实心 surfaceBright 圆底。
  */
 @Composable
 fun TopBarActionBox(
@@ -156,8 +190,7 @@ fun TopBarActionBox(
     Box(
         modifier = modifier
             .size(40.dp)
-            .clip(CircleShape)
-            .background(MaterialTheme.colorScheme.surfaceBright)
+            .glassTopBarSurface(CircleShape, MaterialTheme.colorScheme.surfaceBright)
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
