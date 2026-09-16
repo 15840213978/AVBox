@@ -204,9 +204,12 @@ public class VideoView<P extends AbstractPlayer> extends FrameLayout
             setPlayState(STATE_START_ABORT);
             return false;
         }
-        //监听音频焦点改变
+        //监听音频焦点改变(只建一次:覆盖引用会留下永不释放的旧 listener,它们仍会响应焦点事件去 pause/start)
         if (mEnableAudioFocus) {
-            mAudioFocusHelper = new AudioFocusHelper(this);
+            if (mAudioFocusHelper == null) {
+                mAudioFocusHelper = new AudioFocusHelper(this);
+            }
+            mAudioFocusHelper.onNewPlayback();
         }
         //读取播放进度
         if (mProgressManager != null) {
@@ -439,6 +442,11 @@ public class VideoView<P extends AbstractPlayer> extends FrameLayout
      * 释放播放器
      */
     public void release() {
+        //焦点监听与 IDLE 无关:stopPlaybackKeepPlayer 置 IDLE 后再 release 也必须清,否则 listener 残留在系统里
+        if (mAudioFocusHelper != null) {
+            mAudioFocusHelper.abandonFocus();
+            mAudioFocusHelper = null;
+        }
         if (!isInIdleState()) {
             //释放播放器
             if (mMediaPlayer != null) {
@@ -458,11 +466,6 @@ public class VideoView<P extends AbstractPlayer> extends FrameLayout
                 } catch (IOException e) {
                     e.printStackTrace();
                 }
-            }
-            //关闭AudioFocus监听
-            if (mAudioFocusHelper != null) {
-                mAudioFocusHelper.abandonFocus();
-                mAudioFocusHelper = null;
             }
             //关闭屏幕常亮
             mPlayerContainer.setKeepScreenOn(false);
