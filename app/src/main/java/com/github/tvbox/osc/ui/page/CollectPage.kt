@@ -96,7 +96,6 @@ class CollectViewModel : ViewModel() {
         if (event.type == RefreshEvent.TYPE_COLLECT_REFRESH) refresh(scrollToTop = true)
     }
 
-
     fun deleteOne(item: VodCollect) {
         placementAnim.value = true
         viewModelScope.launch(Dispatchers.IO) {

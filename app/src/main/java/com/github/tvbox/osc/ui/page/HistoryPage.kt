@@ -97,9 +97,7 @@ class HistoryViewModel : ViewModel() {
 
     val placementAnim = MutableStateFlow(false)
 
-
     fun refresh(scrollToTop: Boolean = false) {
-        // 仅首屏(列表为空)显示全屏 loading;删除/事件刷新原位更新列表,避免整页转圈闪烁
         if (items.value.isEmpty()) loading.value = true
         if (scrollToTop) placementAnim.value = false
         viewModelScope.launch(Dispatchers.IO) {
@@ -116,20 +114,11 @@ class HistoryViewModel : ViewModel() {
     @Subscribe(threadMode = ThreadMode.MAIN)
     fun onRefreshEvent(event: RefreshEvent) {
         if (event.type == RefreshEvent.TYPE_HISTORY_REFRESH) refresh(scrollToTop = true)
-        // 换点播源(onApiUrlChanged):旧源已作废 → 立即重解析一次(回退快照/key);
-        // 新配置加载完成后 Boot.Ready 会再触发一次(HistoryPage 的 LaunchedEffect)
         else if (event.type == RefreshEvent.TYPE_API_URL_CHANGE) resolveSourceNames()
     }
 
     private var resolveJob: Job? = null
 
-    /**
-     * 把每张卡片的源显示名解析进 [VodInfo.sourceName](内存字段,2026-09-14):
-     * 优先级 = 当前配置源名 → KV 快照(`SOURCE_NAME_CACHE`,源在配置里时自动写入)→ sourceKey 兜底。
-     * 历史记录只存 sourceKey 不存源名 —— 换源/冷启动后源不在当前配置时,靠快照仍能显示
-     * 记录时的完整源名(含 emoji);从没见过且不在配置里的源只能显示 key。
-     * 触发时机:refresh() 数据就绪后、Boot.Ready(配置就绪/换源完成)、收到 TYPE_API_URL_CHANGE。
-     */
     fun resolveSourceNames() {
         resolveJob?.cancel()
         resolveJob = viewModelScope.launch(Dispatchers.IO) {
@@ -164,7 +153,6 @@ class HistoryViewModel : ViewModel() {
         }
     }
 
-
     fun deleteOne(item: VodInfo) {
         placementAnim.value = true
         viewModelScope.launch(Dispatchers.IO) {
@@ -174,7 +162,7 @@ class HistoryViewModel : ViewModel() {
     }
 
     fun deleteAll() {
-        placementAnim.value = false // 全部淡出,无补位可言
+        placementAnim.value = false
         viewModelScope.launch(Dispatchers.IO) {
             RoomDataManger.deleteVodRecordAll()
             refresh()
@@ -204,8 +192,6 @@ fun HistoryPage(vm: HistoryViewModel = viewModel(), bottomPadding: Dp = 0.dp) {
         }
     }
 
-    // 配置就绪(冷启动首次加载完成/换源完成):重解析源显示名一次。
-    // Loading 期 getSource 拿不到源,卡片先显示 key 或快照;就绪后补齐当前配置里的完整源名
     LaunchedEffect(Unit) {
         AppBootstrap.state.collect { boot ->
             if (boot == AppBootstrap.Boot.Ready) vm.resolveSourceNames()
@@ -253,26 +239,19 @@ fun HistoryPage(vm: HistoryViewModel = viewModel(), bottomPadding: Dp = 0.dp) {
             else -> LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
-                // 顶部 = 顶栏高度 + 8dp:首卡与顶栏间距与设置页一致(2026-09-12 用户定稿,原 -8+28=+20);
-                // 内容可延伸到状态栏下,滚动时从顶栏区域穿过并被顶部遮罩渐隐
                 contentPadding = PaddingValues(
                     start = 16.dp,
                     end = 16.dp,
                     top = topPad + 8.dp,
-                    // 液态玻璃模式:叠加悬浮栏遮挡高度(MainScreen 下发,M3 栏模式为 0)
                     bottom = 8.dp + bottomPadding,
                 ),
-                verticalArrangement = Arrangement.spacedBy(12.dp), // 卡片间距 12dp(2026-09-09 用户定稿,原 8dp)
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 items(items, key = { HistoryViewModel.key(it) }) { item ->
                     HistoryRow(
                         item = item,
-                        // 淡入淡出动画保留;位移动画禁用(placementSpec=null):观看后记录会从
-                        // 列表中部跳到顶部,长距离滑行会穿过顶部透明顶栏/状态栏区域,观感怪异
-                        // (2026-09-12 用户反馈"卡片往前顶时变形")
                         modifier = Modifier.animateItem(
                             fadeInSpec = spring(stiffness = Spring.StiffnessMediumLow),
-                            // 补位动画按场景开关:删除=开启(短距离补位);观看刷新回顶=关闭(瞬时)
                             placementSpec = if (placementAnim) {
                                 spring(stiffness = Spring.StiffnessMediumLow)
                             } else {
@@ -316,10 +295,6 @@ private fun HistoryRow(
     onClick: () -> Unit,
     onLongClick: () -> Unit,
 ) {
-    // 影视源显示名(卡片下方第三段)由 HistoryViewModel.resolveSourceNames 解析进
-    // VodInfo.sourceName 内存字段(当前配置源名 → KV 快照 → sourceKey 兜底),本行不自行查询:
-    // 冷启动/换源后 getSource 拿不到源时,避免把 sourceKey 永久缓存进 remember(emoji 消失)
-    // 16dp 圆角卡片容器(2026-09-11 用户定稿,与收藏页海报卡一致);Surface 提供底色,内层 clip 保证 ripple 按圆角裁剪
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
@@ -330,7 +305,7 @@ private fun HistoryRow(
                 .clip(RoundedCornerShape(16.dp))
                 .combinedClickable(onClick = onClick, onLongClick = onLongClick)
                 .padding(horizontal = 12.dp, vertical = 12.dp)
-                .height(IntrinsicSize.Min), // 使右侧文字列与海报等高,三段垂直分布
+                .height(IntrinsicSize.Min),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             AsyncImage(
@@ -344,7 +319,6 @@ private fun HistoryRow(
                     .background(MaterialTheme.colorScheme.surfaceContainerHighest),
             )
             Spacer(modifier = Modifier.width(12.dp))
-            // 三段垂直分布:名称(上)/集数(中)/影视源(下),2026-09-09 用户定稿(原两行居中拥挤)
             Column(
                 modifier = Modifier
                     .weight(1f)
@@ -359,7 +333,7 @@ private fun HistoryRow(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    text = item.note ?: "", // 集数/播放进度("上次看到第X集")
+                    text = item.note ?: "",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
@@ -377,12 +351,6 @@ private fun HistoryRow(
     }
 }
 
-/**
- * 40dp 圆形操作钮(surfaceBright 底)。
- * 既作顶栏操作(历史/收藏页清空、配置管理编辑/删除),也作卡片内操作(搜索页历史卡删除);
- * 2026-09-16 起容器走 [glassTopBarSurface] —— 只有顶栏槽内拿得到玻璃采样层,会玻璃化,
- * 卡片内(采样层未下发)自动回退实心容器,两处外观各自保持不变。
- */
 @Composable
 internal fun ManageActionIcon(
     iconRes: Int,

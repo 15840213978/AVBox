@@ -30,11 +30,6 @@ import com.github.tvbox.osc.util.HawkConfig
 import com.github.tvbox.osc.util.PlayerHelper
 import xyz.doikki.videoplayer.player.VideoView
 
-/**
- * 播放设置页(2026-09-12 用户定稿):设置 tab 入口,原设置页「播放器」组整体迁入
- * (播放内核/画面渲染/画面缩放/解码方式/IJK 缓存播放/隧道模式/AAC 优先),
- * 卡片顺序与拆分前设置页保持一致。
- */
 @Composable
 fun PlaySettingsScreen(onNavigateBack: () -> Unit, vm: SettingsViewModel = viewModel()) {
     val state by vm.state
@@ -64,7 +59,6 @@ fun PlaySettingsScreen(onNavigateBack: () -> Unit, vm: SettingsViewModel = viewM
                 .padding(horizontal = 16.dp)
                 .padding(bottom = 8.dp),
         ) {
-            // 顶部占位 = 顶栏高度 + 8dp:首卡与顶栏间距与设置页一致(2026-09-12 用户定稿,原 -8+28=+20)
             Spacer(Modifier.height(topPad + 8.dp))
 
             SettingsGroup(title = null) {
@@ -95,7 +89,6 @@ fun PlaySettingsScreen(onNavigateBack: () -> Unit, vm: SettingsViewModel = viewM
                         onClick = {
                             openOptions("画面渲染", listOf("SurfaceView", "TextureView"), 1 - state.playRender) { idx ->
                                 val render = 1 - idx
-                                // 隧道模式要求视频直出 Surface(fongmi 同款):切到 TextureView 时自动关闭隧道
                                 if (render == 0 && state.playTunnel) vm.put(HawkConfig.PLAY_TUNNEL, false)
                                 vm.put(HawkConfig.PLAY_RENDER, render)
                             }
@@ -141,7 +134,6 @@ fun PlaySettingsScreen(onNavigateBack: () -> Unit, vm: SettingsViewModel = viewM
                         onCheckedChange = { vm.put(HawkConfig.IJK_CACHE_PLAY, it) },
                     )
                 }
-                // 隧道模式:MediaCodec tunneled playback(对齐 fongmi);要求视频直出 Surface,打开时自动切 SurfaceView 渲染
                 SettingsCard(SettingsCardPosition.MIDDLE) {
                     SettingsSwitchRow(
                         title = "隧道模式",
@@ -152,7 +144,6 @@ fun PlaySettingsScreen(onNavigateBack: () -> Unit, vm: SettingsViewModel = viewM
                         },
                     )
                 }
-                // AAC 优先:独立开关,选轨时优先 AAC 编码(提高隧道命中率;未开隧道时同样生效)
                 SettingsCard(SettingsCardPosition.LAST) {
                     SettingsSwitchRow(
                         title = "AAC 优先",

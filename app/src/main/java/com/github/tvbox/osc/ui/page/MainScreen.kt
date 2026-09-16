@@ -136,7 +136,6 @@ private fun MainContent() {
 
     val sheetHost = remember { SheetHostState() }
     val liquidGlassConfig = LiquidGlassState.config
-    // 「底部导航」开关 × API(2026-09-16 起与"应用控件"各自独立,无总开关)
     val liquidGlassEnabled = liquidGlassConfig.navbarEnabled &&
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
     val liquidBackdropBgColor = MaterialTheme.colorScheme.surfaceContainer
@@ -153,7 +152,6 @@ private fun MainContent() {
                 contentWindowInsets = WindowInsets(0, 0, 0, 0),
                 bottomBar = {
                     if (!liquidGlassEnabled) {
-                        // M3 内部已含 windowInsetsPadding+height(80dp),勿在此定高(三键导航图标会被裁)
                         NavigationBar(
                             containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                         ) {
@@ -177,14 +175,11 @@ private fun MainContent() {
                 ) {
                     HorizontalPager(
                         state = pagerState,
-                        // 2026-09-10:预组合全部 4 个 tab(beyondViewportPageCount=3),切 tab 无首次构建开销
                         beyondViewportPageCount = 3,
                         modifier = Modifier
                             .fillMaxSize()
-                            // M3 分支照旧布局避让;玻璃分支内容延伸到栏后,页面用 bottomPadding 自行避让
                             .then(if (liquidGlassEnabled) Modifier else Modifier.padding(innerPadding)),
                     ) { page ->
-                        // 悬浮栏遮挡高度 = 系统导航条 inset + 栏高 64dp + 底边距 12dp
                         val pageBottomPadding = if (liquidGlassEnabled) {
                             WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() +
                                 FLOATING_NAV_OVERLAY_DP.dp
@@ -200,11 +195,8 @@ private fun MainContent() {
                     }
                 }
             }
-            // 液态玻璃分支:底部渐变 + 悬浮玻璃导航栏(在采样层之外,z 序高于 Scaffold、低于 SheetHost)
             if (liquidGlassEnabled) {
                 val density = LocalDensity.current
-                // 渐变高度 = 导航条 inset + 悬浮栏区域;inset 组合期读取首帧可能为 0,
-                // insets 就绪后随重组自愈(示例 AppRoot 同做法)
                 val gradientHeight = with(density) {
                     WindowInsets.navigationBars.getBottom(density).toDp() + FLOATING_NAV_OVERLAY_DP.dp
                 }
@@ -220,7 +212,6 @@ private fun MainContent() {
                             )
                         ),
                 )
-                // 悬浮栏容器:inset 用布局期 windowInsetsPadding 读取(组合期读值首帧为 0 不刷新,示例踩坑)
                 Box(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
@@ -231,19 +222,15 @@ private fun MainContent() {
                 ) {
                     FloatingBottomBar(
                         backdrop = liquidBackdrop,
-                        // targetPage(非 currentPage):拖拽跟随期间指示器不被旧页码拉回
                         selectedTabIndex = { pagerState.targetPage },
                         onTabSelected = { index -> scope.launch { pagerState.animateScrollToPage(index) } },
                         tabs = glassTabs,
                         config = liquidGlassConfig,
-                        // 底栏只在 MainScreen 渲染,恒可交互
                         interactive = { true },
-                        // 切 tab 动画期间降级:去 vibrancy+lens 只留 blur,压 GPU 开销
                         isTabSwitching = { pagerState.currentPage != pagerState.targetPage },
                     )
                 }
             }
-            // sheet 槽位:在 Scaffold 之上渲染,覆盖底栏与系统栏(§2 决策 2026-09-11)
             SheetHost(sheetHost)
         }
     }

@@ -22,7 +22,6 @@ import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.github.tvbox.osc.bean.Movie
 
-/** 海报卡片(§4.1 最终版):PressableCard + 2:3 海报 + 底部 scrim + 16sp 标题 + 14sp 年份 */
 @Composable
 fun VodCard(
     video: Movie.Video,
@@ -53,8 +52,6 @@ fun VodCard(
                         )
                     ),
             )
-            // 右上角角标(2026-09-10 揭秘日风格):「评分： 8.7」/「8.2 分」提取纯数字,
-            // 非评分备注(共40集/HD)原样展示,空或评分为 0 不显示
             val badge = ratingBadgeText(video.note)
             if (badge != null) {
                 Text(
@@ -80,7 +77,6 @@ fun VodCard(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                // 名称下方元信息:年份 / 地区(2026-09-10 揭秘日风格,字段缺失时整行隐藏)
                 val meta = buildString {
                     if (video.year > 0) append(video.year)
                     if (!video.area.isNullOrBlank()) {
@@ -103,15 +99,9 @@ fun VodCard(
     }
 }
 
-/** 评分提取正则(顶层常量):ratingBadgeText 在首页横排/相关推荐/HeroCarousel 每卡组合时调用,
- * 提出函数体避免每次调用重新编译(2026-09-14 性能优化) */
 private val RATING_SCORE_REGEX = Regex("评分[:：]?\\s*(\\d+(?:\\.\\d+)?)")
 private val RATING_SCORE_SUFFIX_REGEX = Regex("^(\\d+(?:\\.\\d+)?)\\s*分$")
 
-/**
- * note → 角标文本:「评分： 8.7」/「评分:8.7」/「8.2 分」→ 纯数字;
- * 评分为 0 或 note 为空返回 null(隐藏角标);其余备注(共40集/HD)原样返回。
- */
 internal fun ratingBadgeText(note: String?): String? {
     val n = note?.trim().orEmpty()
     if (n.isEmpty()) return null

@@ -98,10 +98,6 @@ import com.github.tvbox.osc.ui.components.rememberVodCardMenuState
 import com.github.tvbox.osc.ui.theme.cardContainer
 import com.kyant.capsule.ContinuousCapsule
 
-/**
- * [bottomPadding]:液态玻璃模式下悬浮导航栏的遮挡高度(MainScreen 统一下发,M3 栏模式传 0 走布局避让),
- * 叠加到列表 contentPadding 与 FAB 底部偏移,末尾内容不被悬浮栏遮住。
- */
 @Composable
 fun HomePage(vm: HomeViewModel, bottomPadding: Dp = 0.dp) {
     val context = LocalContext.current
@@ -109,27 +105,19 @@ fun HomePage(vm: HomeViewModel, bottomPadding: Dp = 0.dp) {
     val sources by vm.sources.collectAsState()
     val rec by vm.rec.collectAsState()
     val partitions by vm.partitions.collectAsState()
-    // 长按卡片菜单(收藏/搜索相似内容):与搜索页、栏目二级页共用同一组件
     val vodMenu = rememberVodCardMenuState()
 
-    // 无边框顶栏(2026-09-11 晚照 `示例文件/android` 官方方案重做):Scaffold + M3 TopAppBar
     val listState = rememberLazyListState()
 
-    // 下拉刷新(2026-09-12 用户要求):下拉出现圆形加载指示器(48dp),松手整页重载
     val pullState = rememberPullToRefreshState()
 
-    // 整页加载(2026-09-12 用户定稿:进 App/切源/下拉刷新不显示占位卡片,页面中心
-    // 圆形加载指示器,加载完成后消失;开始/结束判定均由 VM.pageLoading 管理)
     val pageLoading by vm.pageLoading.collectAsState()
-    // 整页/分区加载失败(看门狗 20s 超时,携带文案)Toast 提示(2026-09-12 用户要求)
     LaunchedEffect(vm) {
         vm.pageErrorEvents.collect { msg ->
             Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
         }
     }
 
-    // BugReview #14:action 卡片结果(旧 GridFragment:Toast + forceRefresh),
-    // 补回 Compose 版丢失的观察链路,避免点击后静默死交互
     LaunchedEffect(vm) {
         vm.actionMessages.collect { msg ->
             Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
@@ -137,24 +125,16 @@ fun HomePage(vm: HomeViewModel, bottomPadding: Dp = 0.dp) {
         }
     }
 
-    // 订阅源切换 sheet 开关(2026-09-10:源 chips 行收敛为左上角胶囊入口)
     var showSourceSheet by remember { mutableStateOf(false) }
-    // 源级卡片点击策略变更计数:驱动 sheet 内策略标记重组(策略本体存 KV)
     var policyTick by remember { mutableStateOf(0) }
 
     AppTopBarScaffold(
-        // 顶栏不折叠(2026-09-12):exitUntilCollapsed 与下拉刷新手势冲突,顶栏会被折死不恢复
         collapseEnabled = false,
         titleContent = {
-            // 顶部区:左=订阅源胶囊(点击弹源切换 sheet)(§4.1);右=搜索图标卡片走 actions 槽
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                // 订阅源胶囊:宽度随源名自适应、上限 240dp
-                // (2026-09-12 由"占满剩余宽度"改为上限 220dp;2026-09-13 用户要求"宽度增加 20dp" → 240dp),
-                // 不再占满顶栏剩余宽度;源名超长在该宽度内省略号截断
-                // 2026-09-16:容器改走 glassTopBarSurface(液态玻璃开启时为玻璃胶囊,跟随底部导航栏)
                 Row(
                     modifier = Modifier
                         .widthIn(max = 240.dp)
@@ -164,7 +144,6 @@ fun HomePage(vm: HomeViewModel, bottomPadding: Dp = 0.dp) {
                         .padding(horizontal = 12.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    // 胶囊头像:站点 icon 优先,其次接口配置顶层 logo(2026-09-10),均无则回退 Tune 图标
                     val capsuleLogo = currentSource?.icon?.takeIf { it.isNotEmpty() }
                         ?: ApiConfig.get().configLogo.takeIf { it.isNotEmpty() }
                     if (!capsuleLogo.isNullOrEmpty()) {
@@ -201,7 +180,6 @@ fun HomePage(vm: HomeViewModel, bottomPadding: Dp = 0.dp) {
             }
         },
         actions = {
-            // 搜索入口:仅图标,40dp 圆形控件(2026-09-11 改为正圆;2026-09-16 容器玻璃化)
             Box(
                 modifier = Modifier
                     .size(40.dp)
@@ -220,12 +198,6 @@ fun HomePage(vm: HomeViewModel, bottomPadding: Dp = 0.dp) {
         },
     ) { topPad, _ ->
         when {
-            // 整页加载优先(2026-09-12):进 App 后配置/jar 在后台加载,首页页心转圈
-            // 覆盖"配置+数据"两段,未配置接口的引导态等加载结束(pageLoading=false)再显示,
-            // 避免初始 sources 为空时闪一下引导态。
-            // BugFix(2026-09-12 用户反馈"转圈突然下移一下"):不用 padding(top = topPad) 居中——
-            // 冷启动首帧状态栏 inset 未派发,topPad 先 64dp 后变"状态栏+64dp",容器中心随之下跳;
-            // 改整屏(fillMaxSize)居中,不依赖 inset,首帧即稳定
             pageLoading -> {
                 Box(
                     modifier = Modifier.fillMaxSize(),
@@ -235,7 +207,6 @@ fun HomePage(vm: HomeViewModel, bottomPadding: Dp = 0.dp) {
                 }
             }
             sources.isEmpty() -> {
-                // 未配置接口:引导态(§4.1 无配置时不进入内容流)
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -243,7 +214,6 @@ fun HomePage(vm: HomeViewModel, bottomPadding: Dp = 0.dp) {
                     contentAlignment = Alignment.Center,
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        // 空态图标与历史/收藏页一致:ic_empty_record,64dp,onSurfaceVariant
                         Icon(
                             painter = painterResource(R.drawable.ic_empty_record),
                             contentDescription = null,
@@ -263,26 +233,17 @@ fun HomePage(vm: HomeViewModel, bottomPadding: Dp = 0.dp) {
                 }
             }
             else -> {
-            // 内容流:推荐 + 全部分类分区(§4.1);顶部留白 = 顶栏高度,内容可延伸到状态栏后被遮罩渐隐
             LazyColumn(
                 state = listState,
                 modifier = Modifier
                     .fillMaxSize()
-                    // 下拉刷新:仅在列表顶部下拉时消费手势,松手触发整页重载(vm.reload 会清运行期缓存)。
-                    // 刷新反馈由页心 ContainedLoadingIndicator 承担(vm.pageLoading),
-                    // 顶部指示器只做下拉手势形变反馈,松手即收回
                     .pullToRefresh(
                         isRefreshing = false,
                         state = pullState,
                         onRefresh = { vm.reload() },
                     ),
-                // 底部留 FAB 悬浮空间,末尾卡片不被遮挡;液态玻璃模式再叠加悬浮栏遮挡高度
                 contentPadding = PaddingValues(top = topPad + 8.dp, bottom = 88.dp + bottomPadding),
             ) {
-                // Hero 大卡轮播:推荐前 5 部(2026-09-10 揭秘日风格)。
-                // BugFix:LazyColumn 以首可见项 key 锚定滚动位置,若 Hero 数据到位后才插入首项,
-                // 锚点仍停在原首项(推荐分区),Hero 会被顶到视口上方需手动上滑;
-                // 因此 Loading 态就用骨架占位首项,数据到位为原位替换,不再产生插入位移
                 item(key = "hero") {
                     if (rec.state == HomeViewModel.PartitionState.Ready && rec.videos.isNotEmpty()) {
                         HeroCarousel(
@@ -298,7 +259,6 @@ fun HomePage(vm: HomeViewModel, bottomPadding: Dp = 0.dp) {
                             shape = RoundedCornerShape(24.dp),
                         )
                     } else if (rec.state == HomeViewModel.PartitionState.Error) {
-                        // 2026-09-11:看门狗超时错误态——原位替换骨架,提供整页重试入口
                         Box(
                             modifier = Modifier
                                 .fillParentMaxWidth(0.78f)
@@ -317,7 +277,6 @@ fun HomePage(vm: HomeViewModel, bottomPadding: Dp = 0.dp) {
                         }
                     }
                 }
-                // 推荐分区与 Hero 错位去重:跳过 Hero 已展示的前 5 部
                 if (rec.state != HomeViewModel.PartitionState.Empty &&
                     (rec.state == HomeViewModel.PartitionState.Loading || rec.videos.size > 5)
                 ) {
@@ -342,7 +301,6 @@ fun HomePage(vm: HomeViewModel, bottomPadding: Dp = 0.dp) {
                         onCardClick = { video -> handleCardClick(vm, video, context) },
                         onCardLongClick = { video -> vodMenu.show(video) },
                         onOpenAll = {
-                            // 2026-09-09:筛选控件删除,改「全部 >」进栏目二级页(全量分页+筛选)
                             PartitionListActivity.startForPartition(context, p.sort)
                         },
                         onRetry = { vm.retryPartition(p) },
@@ -352,8 +310,6 @@ fun HomePage(vm: HomeViewModel, bottomPadding: Dp = 0.dp) {
         }
         }
 
-        // 下拉刷新指示器(2026-09-12):仅内容流态显示(未配置接口的引导态无可刷内容);
-        // 刷新转圈反馈已移交页心指示器(vm.pageLoading),此处恒为下拉形变态、松手即收回
         if (sources.isNotEmpty()) {
             HomePullRefreshIndicator(
                 state = pullState,
@@ -363,30 +319,24 @@ fun HomePage(vm: HomeViewModel, bottomPadding: Dp = 0.dp) {
             )
         }
 
-        // 直播入口:右下角图标 FAB(2026-09-10 去文字,仅保留图标;图标换成 .tubiao/直播fab.svg)
         FloatingActionButton(
             onClick = { context.startActivity(Intent(context, LivePlayActivity::class.java)) },
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .padding(16.dp)
-                // 液态玻璃模式:悬浮栏盖住屏幕底部,FAB 随 bottomPadding 抬到栏上方
                 .padding(bottom = bottomPadding),
         ) {
             Icon(painter = painterResource(R.drawable.ic_live_fab), contentDescription = "直播")
         }
     }
 
-    // 订阅源切换 sheet(§4.3 bottom sheet;2026-09-10 改为设置页同款分组卡片风格,末组保留接口配置入口)
     if (showSourceSheet) {
         AVBoxBottomSheet(
             onDismissRequest = { showSourceSheet = false },
             title = "订阅源",
             containerColor = MaterialTheme.colorScheme.surfaceContainer,
-            // 内容自带 LazyColumn(heightIn 420dp),滚动交给它
             isScrollable = false,
         ) {
-            // 行内点击改走「带动画关闭」(2026-09-13):先执行动作,面板滑出后再移除,
-            // 替代原先直接置 false 的瞬间消失。此处读取发生在 SheetOverlay 的 provider 作用域内
             val dismissAnimated = LocalSheetDismiss.current
             LazyColumn(
                 modifier = Modifier
@@ -396,7 +346,6 @@ fun HomePage(vm: HomeViewModel, bottomPadding: Dp = 0.dp) {
                 contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
             ) {
                 item {
-                    // 源列表:每项一张小卡,按卡位拼圆角(FIRST/MIDDLE/LAST),与设置页一致
                     SettingsGroup(title = "卡片点击状态:进入搜索 / 进入详情(点右侧标记切换)") {
                         sources.forEachIndexed { index, bean ->
                             val selected = bean.key == currentSource?.key
@@ -443,7 +392,6 @@ fun HomePage(vm: HomeViewModel, bottomPadding: Dp = 0.dp) {
                             SettingsRow(
                                 title = "配置管理",
                                 onClick = {
-                                    // 面板滑出与新 Activity 转场同时进行,返回时 sheet 已关闭
                                     dismissAnimated()
                                     ConfigManageActivity.start(context)
                                 },
@@ -455,20 +403,9 @@ fun HomePage(vm: HomeViewModel, bottomPadding: Dp = 0.dp) {
         }
     }
 
-    // 长按卡片:收藏/操作菜单(§4.1)
     VodCardMenu(vodMenu)
 }
 
-/**
- * 首页下拉刷新指示器(2026-09-12,用户定稿:进 App 引导页同款 M3 expressive
- * [ContainedLoadingIndicator],md3e 风格 48dp;除播放器页面外全项目圆形加载指示器统一用它)。
- * 滑入/隐藏/裁剪机制复用 [PullToRefreshDefaults.IndicatorBox],但 shape=RectangleShape +
- * 透明底 + 无阴影 → 不产生圆底徽章,观感与引导页加载器一致;
- * 下拉过程按 [PullToRefreshState.distanceFraction] 形变(>1 时整体旋转,同 M3 官方
- * `PullToRefreshDefaults.LoadingIndicator` 的实现),松手刷新中转不定态转圈。
- * 顶栏是透明覆盖层且位于内容之上,整体下移 [topPadding],使指示器从顶栏下沿滑出,
- * 不被左上角订阅源胶囊遮挡(指示器无手势,不拦截列表触摸)。
- */
 @Composable
 private fun HomePullRefreshIndicator(
     state: PullToRefreshState,
@@ -510,15 +447,10 @@ private fun HomePullRefreshIndicator(
     }
 }
 
-/**
- * 卡片点击:统一分发(2026-09-11 用户定稿)
- * 优先级 = action 卡 > 网盘目录卡(递归下钻) > 源级策略(搜索 / 详情,默认搜索)。
- */
 private fun handleCardClick(vm: HomeViewModel, video: Movie.Video, context: android.content.Context) {
     context.dispatchVodCardClick(video, onAction = { vm.handleAction(it) })
 }
 
-/** 源级卡片点击策略标记:点一下在「搜索 / 详情」间切换(详情态高亮 primary) */
 @Composable
 private fun CardPolicyPill(policy: SourceCardPolicy, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Text(
@@ -563,8 +495,6 @@ private fun PartitionSection(
                 modifier = Modifier.weight(1f),
             )
             if (onOpenAll != null) {
-                // 2026-09-09:筛选控件删除,改「全部 >」进栏目二级页
-                // 2026-09-11:加半透明 surface 容器背景(同 VodCard 评分条样式)
                 Row(
                     modifier = Modifier
                         .clip(RoundedCornerShape(18.dp))
@@ -589,7 +519,6 @@ private fun PartitionSection(
         }
         when (state) {
             HomeViewModel.PartitionState.Loading -> {
-                // 横排灰卡骨架 shimmer(§4.1 三态)
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -616,7 +545,6 @@ private fun PartitionSection(
             )
 
             HomeViewModel.PartitionState.Error -> {
-                // 2026-09-11:看门狗超时错误行 + 单分区重试
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()

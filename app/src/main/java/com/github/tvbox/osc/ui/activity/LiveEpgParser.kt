@@ -23,11 +23,6 @@ import java.util.regex.Pattern
 import javax.xml.parsers.DocumentBuilderFactory
 import kotlin.math.max
 
-/**
- * 直播 EPG / 时移回看的**纯解析工具**(自 LivePlayActivity 抽出):不读页面状态、无副作用。
- * 页面态(当前频道、EPG 缓存、请求代际)与网络编排仍留在 LivePlayActivity —— 本对象只做
- * "地址拼装 + 响应解析 + 回看地址改写",因此可在纯 JVM 单测里直接调用。
- */
 internal object LiveEpgParser {
 
     internal fun getFirstPartBeforeSpace(str: String?): String? {
@@ -162,7 +157,6 @@ internal object LiveEpgParser {
         val compactName = trimName.replace("-", "").replace(" ", "")
         val cctvMatcher = Pattern.compile("(?i)^(CCTV\\d+(?:\\+|K)?)(?:[\\u4e00-\\u9fa5].*|$)").matcher(compactName)
         if (cctvMatcher.matches()) {
-            // group(1) 是 Java 平台类型(String!),matches() 成立时它必然存在;显式非空断言等价于原语义
             return cctvMatcher.group(1)!!.uppercase(Locale.ROOT)
         }
         if (compactName.uppercase(Locale.ROOT).startsWith("CCTV")) {
@@ -303,7 +297,6 @@ internal object LiveEpgParser {
         val matcher = CATCHUP_TOKEN_PATTERN.matcher(source)
         val result = StringBuffer()
         while (matcher.find()) {
-            // 同上:捕获组必然存在,显式非空断言把平台类型 String! 收紧为 String
             val token = matcher.group(1)!!
             matcher.appendReplacement(result, Matcher.quoteReplacement(formatCatchupToken(token, epg)))
         }
@@ -313,7 +306,6 @@ internal object LiveEpgParser {
     internal fun formatCatchupToken(token: String, epg: Epginfo): String {
         val matcher = CATCHUP_TAG_PATTERN.matcher(token)
         if (!matcher.find()) return ""
-        // 与上面同理:find() 成立时捕获组存在,显式非空断言收紧平台类型
         val tag = matcher.group(1)!!
         if (tag.startsWith("utcend:")) return (epg.enddateTime!!.time / 1000).toString()
         if (tag.startsWith("utc:")) return (epg.startdateTime!!.time / 1000).toString()

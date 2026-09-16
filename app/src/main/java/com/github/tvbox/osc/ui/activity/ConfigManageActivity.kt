@@ -33,7 +33,6 @@ class ConfigManageActivity : BaseActivity() {
             return
         }
         PermissionHelper.requestStorage(this) { granted, _ ->
-            // 拒绝则取消本次导入(复制分支下同目录引用会静默失效),不替用户弹出选择器
             if (!granted.isNullOrEmpty()) {
                 startLocalConfig(localConfigLauncher) { api -> onResult(api) }
             } else {

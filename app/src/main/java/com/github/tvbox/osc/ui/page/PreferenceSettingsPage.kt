@@ -32,7 +32,6 @@ import kotlin.math.roundToInt
 @Composable
 fun PreferenceSettingsScreen(onNavigateBack: () -> Unit, vm: SettingsViewModel = viewModel()) {
     val state by vm.state
-    // 滑块拖动中值(松手才落盘;key 绑定 state,落盘刷新后自动与持久值同步)
     var sliderSpeed by remember(state.longPressSpeed) { mutableStateOf(state.longPressSpeed) }
     var sliderBuffer by remember(state.bufferTimes) { mutableStateOf(state.bufferTimes) }
     var sliderThreads by remember(state.searchThreads) { mutableStateOf(state.searchThreads) }
@@ -58,7 +57,6 @@ fun PreferenceSettingsScreen(onNavigateBack: () -> Unit, vm: SettingsViewModel =
                 .padding(horizontal = 16.dp)
                 .padding(bottom = 8.dp),
         ) {
-            // 顶部占位 = 顶栏高度 + 8dp:首卡与顶栏间距与设置页一致(2026-09-12 用户定稿,原 -8+28=+20)
             Spacer(Modifier.height(topPad + 8.dp))
 
             SettingsGroup(title = null) {
@@ -76,7 +74,6 @@ fun PreferenceSettingsScreen(onNavigateBack: () -> Unit, vm: SettingsViewModel =
                         onCheckedChange = { vm.put(HawkConfig.M3U8_PURIFY, it) },
                     )
                 }
-                // 无痕模式(2026-09-12):开启后搜索历史与观看历史都不再写入,手动收藏照常
                 SettingsCard(SettingsCardPosition.MIDDLE) {
                     SettingsSwitchRow(
                         title = "无痕模式",
@@ -84,7 +81,6 @@ fun PreferenceSettingsScreen(onNavigateBack: () -> Unit, vm: SettingsViewModel =
                         onCheckedChange = { vm.put(HawkConfig.INCOGNITO, it) },
                     )
                 }
-                // 禁用手势控制(2026-09-13):开启后播放器不再响应上下滑调亮度/音量(单击/双击/横滑进度不受影响)
                 SettingsCard(SettingsCardPosition.MIDDLE) {
                     SettingsSwitchRow(
                         title = "禁用手势控制",
@@ -107,7 +103,6 @@ fun PreferenceSettingsScreen(onNavigateBack: () -> Unit, vm: SettingsViewModel =
                         onClick = { danmuApiDialog = true },
                     )
                 }
-                // 长按倍速(2026-09-12):长按画面临时提速倍率,2x~10x 步长 1(9 档);松手落盘,长按触发时实时读 KV
                 SettingsCard(SettingsCardPosition.MIDDLE) {
                     SettingsSliderRow(
                         title = "长按倍速",

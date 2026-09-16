@@ -78,8 +78,6 @@ import com.github.tvbox.osc.ui.components.rememberVodCardMenuState
 import com.github.tvbox.osc.ui.page.openVodCardOrDetail
 import com.github.tvbox.osc.ui.player.PlayerTipBridge
 
-// ================= UI =================
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DetailScreen(activity: DetailActivity, vm: DetailViewModel) {
@@ -90,25 +88,17 @@ fun DetailScreen(activity: DetailActivity, vm: DetailViewModel) {
     val playSignal by vm.playSignal.collectAsState()
     val toast by vm.toastEvent.collectAsState()
     val finish by vm.finishEvent.collectAsState()
-    // 相关推荐长按菜单(收藏/搜索相似内容):与首页等页面共用同一组件(2026-09-16)。
-    // 状态须在页面根部持有:相关推荐行位于 LazyColumn item 内,面板若在 item 内渲染
-    // 只会占一个列表项的空间,无法全屏覆盖
     val vodMenu = rememberVodCardMenuState()
 
-    // 播放器区形态(必须与 DetailActivity.isFullBox() 同一判定):过渡期跟随实际方向,
-    // 落地后才切目标态 —— 否则会在横屏窗口里算出竖屏的 16:9 盒(高度超屏 → 视频缩放跳动)
     val configuration = LocalConfiguration.current
     val isLandscapeNow = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     val fullBox = if (rotating) isLandscapeNow else full
-    // 预览态播放区高度:短边 × 16:9,钳制在 [150dp, 长边/2] —— 与窗口方向无关,
-    // 即使形态被切也是合法小矩形(不会"宽推高 → 超出屏幕")
     val shortEdge = minOf(configuration.screenWidthDp, configuration.screenHeightDp).dp
     val longEdge = maxOf(configuration.screenWidthDp, configuration.screenHeightDp).dp
     val previewBoxHeight = (shortEdge * 9f / 16f)
         .coerceAtLeast(150.dp)
         .coerceAtMost(maxOf(150.dp, longEdge / 2))
 
-    // 容器随首次组合创建;Activity 重建时 remember 重置,自动重建并补播
     val container = remember { activity.ensurePlayContainer().also { vm.playContainerRef = it } }
 
     LaunchedEffect(container, playSignal) {
@@ -138,7 +128,6 @@ fun DetailScreen(activity: DetailActivity, vm: DetailViewModel) {
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.surfaceContainer),
     ) {
-        // 顶部 16:9 播放器:全屏占满整屏,预览态高度由 previewBoxHeight 显式给出
         Box(
             modifier = if (fullBox) {
                 Modifier.fillMaxSize().background(Color.Black)
@@ -159,20 +148,14 @@ fun DetailScreen(activity: DetailActivity, vm: DetailViewModel) {
                     modifier = Modifier.fillMaxSize().background(Color.Black),
                     contentAlignment = Alignment.Center,
                 ) {
-                    // 纯黑底上默认配色过亮,统一用低透明白
                     ContainedLoadingIndicator(
                         containerColor = Color.White.copy(alpha = 0.2f),
                         indicatorColor = Color.White.copy(alpha = 0.75f),
                     )
                 }
             }
-            // 取流 loading / 播放错误覆盖层:无 pointer 处理,触摸穿透到控制器;
-            // 声明在全屏入口之前,不遮挡其点击
             PlayerTipOverlay()
-            // 预览态不要盖透明点击层:会拦掉下方控制器全部触摸,单击显隐由控制器手势处理
             if (!fullBox) {
-                // 右下角全屏入口。bottom 与预览态进度条水平线对齐:16dp + 进度条高(vs_30)/2 - 图标盒 40dp/2,
-                // 改播放页底栏边距时此处要同步(DetailActivity 全屏入口同式)
                 Icon(
                     painter = painterResource(R.drawable.ic_player_expand),
                     contentDescription = "全屏播放",
@@ -227,7 +210,6 @@ private fun DetailContent(
     onCardLongClick: (Movie.Video) -> Unit,
 ) {
     val info = vm.vodInfo ?: return
-    // revision 仅用于触发重组(vodInfo 为可变 bean)
     @Suppress("UNUSED_EXPRESSION") revision
 
     val flags = info.seriesFlags.orEmpty()
@@ -246,10 +228,7 @@ private fun DetailContent(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(bottom = 32.dp),
     ) {
-        // ---- 标题 / 来源 / 简介：surfaceBright 圆角卡片(距屏 16dp) ----
         item(key = "header") {
-            // 必须 remember(info.des):removeHtmlTag 含正则编译 + Html.fromHtml,
-            // 而 revision 会随切集/换源等频繁 bump。须在 item 内(LazyListScope 非 Composable 上下文)
             val desc = remember(info.des) { removeHtmlTag(info.des) }
             Column(
                 modifier = Modifier
@@ -257,7 +236,6 @@ private fun DetailContent(
                     .background(MaterialTheme.colorScheme.surfaceBright, RoundedCornerShape(16.dp))
                     .padding(horizontal = 16.dp, vertical = 12.dp)
             ) {
-                // 标题 + 投屏 + 收藏
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = info.name ?: "TVBox",
@@ -267,7 +245,6 @@ private fun DetailContent(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),
                     )
-                    // 投屏:复用播放器「投屏」面板(showCast → CastSheet),DLNA/TVBox 扫描投送同一条链路
                     IconButton(onClick = { activity.playContainer?.showCast() }) {
                         Icon(
                             painter = painterResource(R.drawable.ic_detail_cast),
@@ -277,7 +254,6 @@ private fun DetailContent(
                         )
                     }
                     IconButton(onClick = { vm.toggleCollect() }) {
-                        // 未收藏＝描边星，已收藏＝实心星＋主题色（描边 tint 对空心图标不直观，用户反馈）
                         AnimatedContent(
                             targetState = collected,
                             transitionSpec = {
@@ -297,7 +273,6 @@ private fun DetailContent(
                         }
                     }
                 }
-                // 来源 pill(surfaceContainer) + 其余元信息
                 val metaParts = listOfNotNull(
                     if (info.year > 0) info.year.toString() else null,
                     info.area?.takeIf { it.isNotBlank() },
@@ -334,7 +309,6 @@ private fun DetailContent(
                         )
                     }
                 }
-                // 简介：surfaceContainer 圆角块 + 右下角 展开/收起(向下箭头)
                 if (desc.isNotEmpty()) {
                     Column(
                         modifier = Modifier
@@ -380,7 +354,6 @@ private fun DetailContent(
             }
         }
 
-        // ---- 清晰度(仅多清晰度时显示) ----
         if (qualityOptions.size > 1) {
             item(key = "quality") {
                 ChipRow(title = "清晰度") {
@@ -396,11 +369,9 @@ private fun DetailContent(
             }
         }
 
-        // ---- 线路 ----
         if (flags.size > 1) {
             item(key = "flags") {
                 ChipRow(title = "线路") {
-                    // key 拼入索引:线路名可能为空或重复,纯 name 拼接会撞 key 崩溃
                     itemsIndexed(flags, key = { i, f -> "${i}_${f.name}" }) { _, flag ->
                         FilterChip(
                             selected = flag.name == currentFlag,
@@ -413,19 +384,16 @@ private fun DetailContent(
             }
         }
 
-        // ---- 选集横向行 ----
         if (episodes.isNotEmpty()) {
             item(key = "episodes") {
                 EpisodeRow(vm, info, episodes, playIndex, currentFlag)
             }
         }
 
-        // ---- 换源行 ----
         item(key = "sources") {
             SourceSection(vm, currentSourceName = displaySourceName, revision = revision)
         }
 
-        // ---- 相关推荐 ----
         item(key = "related") {
             RelatedSection(activity, vm, onCardLongClick)
         }
@@ -440,7 +408,6 @@ private fun EpisodeRow(
     playIndex: Int,
     currentFlag: String?,
 ) {
-    // surfaceBright 圆角卡片(圆角 16dp,距屏 6dp)
     Column(
         modifier = Modifier
             .padding(start = 6.dp, end = 6.dp, top = 12.dp)
@@ -472,8 +439,6 @@ private fun EpisodeRow(
             )
         }
         val listState = rememberLazyListState()
-        // 倒序/正序切换后回到新顺序顶部(主流 app 行为:倒序让最新集立即可见,当前集仅保持高亮);
-        // 其余场景(进页/切线路/切集)仍定位到当前集
         var prevReverseSort by remember { mutableStateOf(info.reverseSort) }
         LaunchedEffect(playIndex, currentFlag, episodes.size, info.reverseSort) {
             if (episodes.isEmpty()) return@LaunchedEffect
@@ -511,7 +476,6 @@ private fun EpisodeRow(
     }
 }
 
-/** surfaceContainer 药丸按钮：左 icon + 右文字（选集卡片 倒序/全部） */
 @Composable
 private fun PillAction(iconRes: Int, text: String, onClick: () -> Unit) {
     Row(
@@ -539,17 +503,14 @@ private fun PillAction(iconRes: Int, text: String, onClick: () -> Unit) {
 
 @Composable
 private fun SourceSection(vm: DetailViewModel, currentSourceName: String?, revision: Int) {
-    // revision 仅用于触发重组
     @Suppress("UNUSED_EXPRESSION") revision
     val sourceChips by vm.sourceChips.collectAsState()
     val sourcesSearching by vm.sourcesSearching.collectAsState()
     if (!sourcesSearching && sourceChips.isEmpty()) return
     val listState = rememberLazyListState()
-    // 换源后把行首的当前源 chip 滚回视野(行滚动位置会跨数据更新保留)
     LaunchedEffect(currentSourceName) {
         if (currentSourceName != null) listState.scrollToItem(0)
     }
-    // surfaceBright 圆角卡片(圆角 16dp,距屏 6dp)
     Column(
         modifier = Modifier
             .padding(start = 6.dp, end = 6.dp, top = 12.dp)
@@ -640,11 +601,6 @@ private fun RelatedSection(
     }
 }
 
-/**
- * chips 分区行:surfaceBright 圆角卡片(同选集/换源卡)+ 标题 + LazyRow。
- * Column 与 LazyRow 都必须显式 fillMaxWidth —— 两者默认 wrapContent,不给宽度时卡片会缩成
- * 标题/chips 的宽度(线路只有两条时比「选集」卡窄一截的根因),且横向手势区也只覆盖 chips 那几个字。
- */
 @Composable
 private fun ChipRow(title: String, content: LazyListScope.() -> Unit) {
     Column(
@@ -682,7 +638,6 @@ private fun removeHtmlTag(info: String?): String {
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 private fun EpisodeSheet(vm: DetailViewModel, revision: Int) {
-    // revision 仅用于触发重组
     @Suppress("UNUSED_EXPRESSION") revision
     val show by vm.episodeSheet.collectAsState()
     if (!show) return
@@ -712,7 +667,6 @@ private fun EpisodeSheet(vm: DetailViewModel, revision: Int) {
     val gridState = androidx.compose.foundation.lazy.grid.rememberLazyGridState()
     var selectedGroup by rememberSaveable { mutableStateOf(0) }
 
-    // 打开时定位到当前集所在分组;之后点分组跳转
     LaunchedEffect(show, currentFlag, playIndex) {
         if (show && playIndex >= 0) {
             val target = (playIndex / groupCount) * groupCount
@@ -727,15 +681,11 @@ private fun EpisodeSheet(vm: DetailViewModel, revision: Int) {
         }
     }
 
-    // 自适应多列网格:短集名一行多列,长集名单列全宽;仍 lazy,保留 scrollToItem 定位当前集
-
     AVBoxBottomSheet(
         onDismissRequest = { vm.dismissEpisodeSheet() },
         title = if (info.name.isNullOrEmpty()) "选集" else "${info.name} 选集",
-        // 内容自带横向 LazyRow 与 LazyVerticalGrid(height 自适应 + 560dp 上限),滚动交给它们
         isScrollable = false,
     ) {
-        // 集卡点击走「带动画关闭」:先切集播放,面板滑出后再移除;须在 SheetOverlay 的 provider 作用域内取
         val dismissAnimated = LocalSheetDismiss.current
         Column(modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
             if (flags.size > 1) {
@@ -743,7 +693,6 @@ private fun EpisodeSheet(vm: DetailViewModel, revision: Int) {
                     contentPadding = PaddingValues(horizontal = 16.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    // key 拼入索引:线路名可能为空或重复,纯 name 拼接会撞 key 崩溃
                     itemsIndexed(flags, key = { i, f -> "${i}_${f.name}" }) { _, flag ->
                         FilterChip(
                             selected = flag.name == currentFlag,
@@ -771,14 +720,12 @@ private fun EpisodeSheet(vm: DetailViewModel, revision: Int) {
                 }
                 Spacer(modifier = Modifier.height(8.dp))
             }
-            // 列数随集名长度自适应:短集名 4 列,中等 2 列,长文件名单列全宽
             val maxNameLength = episodes.maxOfOrNull { it.name?.length ?: 0 } ?: 0
             val gridColumnCount = when {
                 maxNameLength <= 4 -> 4
                 maxNameLength <= 12 -> 2
                 else -> 1
             }
-            // 高度随集数收缩并封顶 560dp(否则短列表也会撑满全屏)
             val rowCount = if (episodes.isEmpty()) 0 else (episodes.size + gridColumnCount - 1) / gridColumnCount
             val gridContentHeight = (rowCount * 40).dp + (((rowCount - 1).coerceAtLeast(0)) * 8).dp
             val gridHeight = minOf(560.dp, gridContentHeight)
@@ -806,14 +753,11 @@ private fun EpisodeSheet(vm: DetailViewModel, revision: Int) {
                                 maxLines = 1,
                                 softWrap = false,
                                 textAlign = TextAlign.Center,
-                                // 4 列下每格约 76dp,两位集数(14sp)实测需 41~42dp,仅差约 3dp 即溢出 ——
-                                // 故字号改 13sp + 左右内边距 6dp(余量约 9dp),并去掉跑马灯改用省略号。
                                 fontSize = 13.sp,
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.fillMaxWidth(),
                             )
                         },
-                        // 收窄 chip 水平内边距(默认 FilterChipDefaults.ContentPadding = 8dp),换取文字可用宽度
                         contentPadding = PaddingValues(horizontal = 6.dp),
                         shape = RoundedCornerShape(12.dp),
                     )
@@ -823,10 +767,6 @@ private fun EpisodeSheet(vm: DetailViewModel, revision: Int) {
     }
 }
 
-/**
- * 播放器提示覆盖层(状态读 [PlayerTipBridge]):loading = 白色系指示器,err = 错误图标 + 文案。
- * 纯黑底铺满播放器区;无 pointer 处理 → 触摸穿透,不拦控制器与全屏入口。
- */
 @Composable
 private fun PlayerTipOverlay() {
     val tip = PlayerTipBridge.state
@@ -839,7 +779,6 @@ private fun PlayerTipOverlay() {
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             if (tip.loading) {
-                // 纯黑底白色系,同竖屏玩家区 Loading(默认 secondaryContainer 在黑底上过亮)
                 ContainedLoadingIndicator(
                     containerColor = Color.White.copy(alpha = 0.2f),
                     indicatorColor = Color.White.copy(alpha = 0.75f),

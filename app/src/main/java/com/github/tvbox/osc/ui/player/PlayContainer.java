@@ -84,21 +84,10 @@ import xyz.doikki.videoplayer.render.TextureRenderViewFactory;
 
 public class PlayContainer extends FrameLayout implements CustomAdapt, PlaybackHostApi {
 
-    /** BugReview #17:轨道切换延迟恢复序号;窗口期内切内核/连续切换/页面销毁后旧回调作废 */
     private final AtomicInteger trackSwitchSeq = new AtomicInteger(0);
-    /**
-     * 播放会话与派生数据(P1 第一步,播放服务化 Spec §2.1/§3):播什么(vod / 源 key / 播放器配置)、
-     * 进度与字幕缓存键、线路与剧集匹配、清晰度、投屏地址改写、请求头提取。
-     * P2 起随前台服务/引擎走,页面只通过 {@link PlaybackHostApi} 下指令。
-     *
-     * <p>P5 起唯一形态:构造期同步取 {@link PlaybackEngine#controller()},之后不再变更(旧路径的页面自建控制器已删除)。
-     */
     private PlaybackController scheduler;
-    /** 引擎侧渲染容器的显示宿主(P2 挂摘协议:进入页面=搬进来,离开=摘回引擎) */
     private FrameLayout surfaceSlot;
-    /** 播放引擎(P2):页面只借它的 player/controller,不得 release */
     private PlaybackEngine engine;
-    /** 页面能力(P0:收口原先对 DetailActivity 的 instanceof 回调;P2 起改为弱引用注册) */
     private PageHost pageHost;
     private Activity mActivity;
     private final Context mContext;
@@ -107,32 +96,23 @@ public class PlayContainer extends FrameLayout implements CustomAdapt, PlaybackH
         super(activity);
         mActivity = activity;
         mContext = activity;
-        // 调度层归属(P2 起唯一形态):引擎与页面构造同帧取出 —— 不能"先自建控制器、服务就绪再替换",
-        // 否则要处理在途取流结果/观察者双投递
         engine = PlaybackService.engine(activity);
         scheduler = engine.controller();
         AutoSize.autoConvertDensity(activity, getSizeInDp(), isBaseOnWidth());
         LayoutInflater.from(activity).inflate(R.layout.view_play_container, this, true);
-        // 新容器创建即清掉全局桥里上一个页面实例的提示残留(如源站错误文案)
         PlayerTipBridge.hide();
         init();
-        // 调度层 → 视图侧的回调入口(P1 第二组:重试/换线/超时全部经 viewBridge)
         scheduler.setViewBridge(viewBridge);
-        // 页面挂载:搬渲染容器进槽位 + 把视图桥切到本页面(提示/弹幕/字幕/控制器动作都在页面)
         if (engine != null) engine.attach(this, surfaceSlot);
     }
 
-    /** P2:页面视图桥(引擎挂载期把它设为控制器的视图桥,见 PlaybackEngine.attach) */
     public PlaybackViewBridge viewBridge() {
         return viewBridge;
     }
 
-    /** P2:引擎释放(宿主服务销毁/任务移除)时回调:页面立刻放弃对播放器视图的引用 */
     public void onServiceStopped() {
         mVideoView = null;
         engine = null;
-        // 引擎没了,页面可能仍然活着(空闲 TTL 释放时页面并未销毁):补一次 EventBus 解注册,
-        // 否则 refresh() 这类订阅回调会在这之后继续打到已经没有播放器的页面上
         if (EventBus.getDefault().isRegistered(this)) {
             EventBus.getDefault().unregister(this);
         }
@@ -143,18 +123,10 @@ public class PlayContainer extends FrameLayout implements CustomAdapt, PlaybackH
         return mActivity != null && !mActivity.isFinishing();
     }
 
-    /** 由页面在创建容器后注册(替代原先"直接依赖 DetailActivity"的两处 instanceof 回调) */
     public void setPageHost(PageHost host) {
         this.pageHost = host;
     }
 
-    /**
-     * 视图契约(P1 第二组,`skill/avbox-playback-service-spec.md` §3-P1):`PlaybackController` 的
-     * "重试/换线/超时"决策要用到的播放动作与提示入口。
-     *
-     * <p>用匿名实现而不让 PlayContainer `implements`:避免把调度内部用到的动作扩散成容器公开 API;
-     * P2 起这份实现将改由"服务 → 页面"的桥提供(服务持有播放器,页面只留显示宿主与提示层)。
-     */
     private final PlaybackViewBridge viewBridge = new PlaybackViewBridge() {
         @Override
         public boolean isPageAlive() {
@@ -285,7 +257,6 @@ public class PlayContainer extends FrameLayout implements CustomAdapt, PlaybackH
 
         @Override
         public void onNewPlayStarted() {
-            // 新一次播放:退出预览态标记复位(退后台暂停语义依赖它,见 hostPause)
             exitingPreview = false;
         }
 
@@ -318,7 +289,6 @@ public class PlayContainer extends FrameLayout implements CustomAdapt, PlaybackH
 
         @Override
         public void playM3u8(String url, HashMap<String, String> headers, int gen) {
-            // 净化是后台链路(OkGo),完成时校验代际:净化期间已切集则丢弃旧集结果
             if (!scheduler.isParseResultCurrent(gen)) {
                 LOG.i("echo-ignore stale m3u8 result");
                 return;
@@ -336,7 +306,6 @@ public class PlayContainer extends FrameLayout implements CustomAdapt, PlaybackH
                 releasePlayerKernel();
             }
             mVideoView.setProgressKey(scheduler.progressKey());
-            // 内容真正交给播放器 → 记录归属(D6 接管的可信依据;见 PlaybackController.startedPlaybackKey)
             scheduler.markContentStarted();
             if (headers != null) {
                 mVideoView.setUrl(url, headers);
@@ -431,13 +400,8 @@ public class PlayContainer extends FrameLayout implements CustomAdapt, PlaybackH
         }
     };
 
-    /**
-     * 生命周期自动暂停标记：退后台时若在播放中由 hostPause 自动暂停，回前台 hostResume 需恢复；
-     * 用户手动暂停（isPlaying=false）退后台时不动，回前台保持暂停直到用户手动播放。
-     */
     private boolean lifecyclePaused;
 
-    /** 由 Compose 宿主在页面可见时调用(对应旧 Fragment onResume/onHiddenChanged(false)) */
     public void hostResume() {
         exitingPreview = false;
         if (mController != null) mController.setLifecyclePaused(false);
@@ -448,10 +412,6 @@ public class PlayContainer extends FrameLayout implements CustomAdapt, PlaybackH
         }
     }
 
-    /**
-     * P4 点播→直播→点播:直播页会把引擎从本页收回(容器摘走、直播模式打开)。本页再次可见时若发现自己
-     * 不再是引擎的挂载页面,就重新挂载(退出直播模式 + 搬容器 + 重设控制器),避免"回来一片空白"。
-     */
     private void reattachIfOwnedByOther() {
         if (engine == null || surfaceSlot == null) return;
         if (engine.attachedPage() == this) return;
@@ -464,12 +424,7 @@ public class PlayContainer extends FrameLayout implements CustomAdapt, PlaybackH
         LOG.i("echo-p4 re-attach after live/other page");
     }
 
-    /** 由 Compose 宿主在页面不可见时调用(对应旧 Fragment onPause/onHiddenChanged(true)) */
     public void hostPause() {
-        // 只有**确定是纯音频**(TRUE)才不退后台暂停;影视(FALSE)与「轨道信息未知(null)」都按既有行为暂停 ——
-        // 迁移前 `!Boolean.TRUE.equals(getAudioOnlyPlayback())` 正是这个语义(null 落到 pause 分支);
-        // 迁移中改写成 `!hasAudioOnlyPlayback()` 后 **null 变成了「不暂停」**:起播瞬间 getTrackInfo()
-        // 返回 null 时影视会被留在后台继续出声(行为回归,但只在极窄的时间窗内可观测)。本次恢复三态判定。
         if (mVideoView != null && !exitingPreview && !scheduler.isConfirmedAudioOnly()) {
             lifecyclePaused = mVideoView.isPlaying();
             if (mController != null) mController.setLifecyclePaused(true);
@@ -477,26 +432,13 @@ public class PlayContainer extends FrameLayout implements CustomAdapt, PlaybackH
         }
     }
 
-    /** 由 Compose 宿主在页面销毁时调用(对应旧 Fragment onDestroyView) */
     public void hostDestroy() {
-        // 2026-09-13 23:40 SIGSEGV 排查:退出播放页后 ~1.2s 进程静默死亡(无 tombstone/无 Fatal signal),
-        // 释放链路加分步落盘日志(echo-music 前缀),复现时定位最后走到的步骤
         LOG.i("echo-music destroy: hostDestroy enter");
-        // 播放器归引擎:只摘除页面(影视停画面、确认纯音频则继续播 —— 判定在引擎里),
-        // 不释放实例、不停媒体会话(退页面音频续播/通知持续)。
-        // **共享调度层的在途收尾(解析/嗅探/取流/超时/当前播放源)已全部挪到会话边界** ——
-        // 见 PlaybackController.startSession / stopPlaybackForPageExit(架构评审第 3 项)。
-        // 理由:调度层是**引擎级**的,而"页面销毁"与"新页面 attach"的先后由系统决定,
-        // 拿页面销毁当收尾时机会误撤新页面的在途动作。这里只收本页私有资源。
         if (engine != null) engine.detach(this);
-        // 预载第二期:撤下 Toast(就绪回调已由调度层注销)
         cancelPreloadToast();
-        // 用 isRegistered 守卫:onServiceStopped() 可能已经解注册过(引擎先于页面销毁),
-        // EventBus 对未注册的订阅者抛异常
         if (EventBus.getDefault().isRegistered(this)) {
             EventBus.getDefault().unregister(this);
         }
-        // BugReview #17:作废在途的轨道切换延迟回调,防对已释放播放器实例 seekTo/start
         trackSwitchSeq.incrementAndGet();
         if (danmuLoadController != null) {
             danmuLoadController.destroy();
@@ -519,13 +461,9 @@ public class PlayContainer extends FrameLayout implements CustomAdapt, PlaybackH
     }
 
     private static final int MSG_PARSE_TIMEOUT = 100;
-    /** 「下一集已就绪」Toast 续期延迟(预载方案第二期,2026-09-12 定稿 Toast+5s):1.5s 时续一次,LENGTH_LONG(≈3.5s)+1.5s≈5s */
     private static final long PRELOAD_TOAST_REFRESH_DELAY_MS = 1500L;
     private MyVideoView mVideoView;
     private PlayerControlApi mController;
-    /** 下一集预载协调器(预载方案第一期,见 skill/avbox-preload-next-episode-spec.md) */
-    /** 预载完成回调实例(第二期 UI 提示;销毁时按实例注销,防误清其他容器的回调) */
-    /** 「下一集已就绪」Toast 实例(第二期;切集/销毁时 cancel) */
     private Toast preloadReadyToast;
         private Handler mHandler;
     private boolean exitingPreview = false;
@@ -607,8 +545,6 @@ public class PlayContainer extends FrameLayout implements CustomAdapt, PlaybackH
         mController.setCanChangePosition(true);
         mController.setEnableInNormal(true);
         mController.setGestureEnabled(true);
-        // 播放器由引擎持有:进度落盘/状态监听(预载时机·音乐会话·弹幕启动)都在引擎侧,
-        // 本页只取实例用于控制器挂载与生命周期暂停/恢复
         mVideoView = engine == null ? null : engine.player();
         mController.setListener(new VodControlListener() {
             @Override
@@ -658,8 +594,6 @@ public class PlayContainer extends FrameLayout implements CustomAdapt, PlaybackH
 
             @Override
             public void updatePlayerCfg() {
-                // 落库/EventBus 用"剔除自动容错态"的快照(2026-09-15):自动切内核(pl)/自动切软解(ijk)
-                // 只对本次会话有效,写进播放记录就会变成"按剧记忆"、把用户的设置永久顶掉
                 JSONObject persistCfg = scheduler.playerCfgForPersist();
                 if (persistCfg == null) return;
                 scheduler.vod().playerCfg = persistCfg.toString();
@@ -668,14 +602,9 @@ public class PlayContainer extends FrameLayout implements CustomAdapt, PlaybackH
 
             @Override
             public void replay(boolean replay) {
-                // 重播/切内核也是用户主动发起的播放:引擎可能已被空闲释放,先自愈再下发
                 reviveEngineIfReleased();
                 scheduler.resetAutoRetryState();
                 scheduler.clearTriedLines();
-                // 复位"已在播放中"标记(2026-09-13):replay 用于切内核/重播,原标记只在
-                // play()(换集/换源)复位 —— 切内核后起播失败会被 errorWithRetry 误判为
-                // "已在播放中"而静默 return(不提示、不自动重试,表现为"没有画面且毫无反应");
-                // 复位后由 STATE_PLAYING → markPlaybackStarted() 重新置位。
                 scheduler.setPlaybackStarted(false);
                 if(replay){
                     playViaScheduler(true);
@@ -747,11 +676,6 @@ public class PlayContainer extends FrameLayout implements CustomAdapt, PlaybackH
         if (mVideoView != null) mVideoView.setVideoController((BaseVideoController) mController);
     }
 
-    /**
-     * 详情页投屏入口(2026-09-13):复用播放器底栏「投屏」的同一条链路 ——
-     * 同一个投屏面板(CastSheet,Dialog)、同一套 DLNA/TVBox 扫描与投送逻辑。
-     * 无可投地址时内部已有 Toast 提示。
-     */
     public void showCast() {
         showCastDialog();
     }
@@ -771,7 +695,6 @@ public class PlayContainer extends FrameLayout implements CustomAdapt, PlaybackH
         }));
     }
 
-    /** 弹幕搜索面板（Step 6：替代 View 版 SearchDanmuDialog，旧 openSearchDanmuDialog 内容） */
     private void openDanmuSearchSheet() {
         if (!isAttached()) return;
         VodInfo.VodSeries series = scheduler.vod() == null ? null : scheduler.currentSeries(scheduler.vod().playFlag, scheduler.vod().playIndex);
@@ -804,14 +727,11 @@ public class PlayContainer extends FrameLayout implements CustomAdapt, PlaybackH
         }
     }
 
-                //设置字幕
     void setSubtitle(String path) {
         if (path != null && path .length() > 0) {
             hideExoInternalSubtitle();
-            // 设置字幕
             mController.getSubtitleView().setVisibility(View.GONE);
             mController.getSubtitleView().setSubtitlePath(path);
-            // 恢复用户选择的文字样式(样式一 白 / 样式二 粉,2026-09-12 补回)
             setSubtitleViewTextStyle(KV.get(HawkConfig.SUBTITLE_TEXT_STYLE, 0));
             mController.getSubtitleView().setVisibility(View.VISIBLE);
         }
@@ -840,7 +760,6 @@ public class PlayContainer extends FrameLayout implements CustomAdapt, PlaybackH
                         return kotlin.Unit.INSTANCE;
                     },
                     style -> {
-                        // 样式一(0)/样式二(1):应用并持久化,下次挂载外挂字幕自动恢复
                         KV.put(HawkConfig.SUBTITLE_TEXT_STYLE, style);
                         setSubtitleViewTextStyle(style);
                         return kotlin.Unit.INSTANCE;
@@ -850,20 +769,11 @@ public class PlayContainer extends FrameLayout implements CustomAdapt, PlaybackH
         }
     }
 
-    /**
-     * 本地字幕文件选择:转发给宿主 Activity 的 SAF 系统选择器(2026-09-12)。
-     * 旧 obsez ChooserDialog 自检 WRITE_EXTERNAL_STORAGE,Android 13+ 该权限被系统
-     * 静默拒绝 → 永远弹 "You denied the Read/Write permissions on SDCard." 且无法打开。
-     */
     private void openLocalSubtitleChooser() {
         if (pageHost != null) pageHost.launchLocalSubtitlePicker();
     }
 
-    /** SAF 选中回调:content:// 拷贝到缓存目录再按文件路径渲染(Exo/IJK 双内核兼容) */
     public void onLocalSubtitlePicked(android.net.Uri uri) {
-        // 后台拷贝期间页面可能已销毁(hostDestroy 会置 mActivity=null):Activity 先快照到局部变量,
-        // 拷贝完成回主线程时再判一次宿主存活。原实现后台线程直接读 mActivity 字段 ——
-        // 拷贝大文件时按返回必 NPE,且 catch 分支再次访问字段造成二次 NPE(非主线程未捕获 = 进程崩溃)。
         final android.app.Activity activity = mActivity;
         if (activity == null || activity.isFinishing()) return;
         new Thread(() -> {
@@ -880,7 +790,6 @@ public class PlayContainer extends FrameLayout implements CustomAdapt, PlaybackH
                 }
                 String path = dst.getAbsolutePath();
                 activity.runOnUiThread(() -> {
-                    // 页面已销毁:放弃渲染(播放器已 release),防对已置空的 mVideoView 操作
                     if (!isAttached()) return;
                     LOG.i("echo-Local Subtitle Path: " + path);
                     setSubtitle(path);
@@ -896,7 +805,6 @@ public class PlayContainer extends FrameLayout implements CustomAdapt, PlaybackH
         }).start();
     }
 
-    /** SAF 文件显示名(用于保留字幕扩展名,渲染器按扩展名选解析器);Activity 由调用方传入,防销毁后读空字段 */
     private String queryDisplayName(android.app.Activity activity, android.net.Uri uri) {
         try (android.database.Cursor c = activity.getContentResolver().query(uri, null, null, null, null)) {
             if (c != null && c.moveToFirst()) {
@@ -908,7 +816,6 @@ public class PlayContainer extends FrameLayout implements CustomAdapt, PlaybackH
         return null;
     }
 
-    /** 在线字幕搜索面板（旧 SearchSubtitleListener 内容） */
     private void openSubtitleSearchSheet() {
         if (!isAttached()) return;
         String word = (scheduler.vod().playFlag.contains("Ali") || scheduler.vod().playFlag.contains("parse"))
@@ -932,7 +839,6 @@ public class PlayContainer extends FrameLayout implements CustomAdapt, PlaybackH
         } else if (style == 1) {
             mController.getSubtitleView().setTextColor(getContext().getResources().getColorStateList(R.color.color_FFB6C1));
         }
-        //内嵌字幕(Exo)同步跟随样式切换(2026-09-14)
         applyExoSubtitleStyle();
     }
 
@@ -972,10 +878,9 @@ public class PlayContainer extends FrameLayout implements CustomAdapt, PlaybackH
                             audio.selected = isSameTrack(audio, value);
                         }
                         mediaPlayer.pause();
-                        long progress = mediaPlayer.getCurrentPosition();//保存当前进度，ijk 切换轨道 会有快进几秒
+                        long progress = mediaPlayer.getCurrentPosition();
                         if (mediaPlayer instanceof IjkMediaPlayer) ((IjkMediaPlayer) mediaPlayer).setTrack(value.trackId, scheduler.progressKey());
                         if (mediaPlayer instanceof ExoPlayer) ((ExoPlayer) mediaPlayer).setTrack(value, scheduler.progressKey());
-                        // BugReview #17:序号防护,窗口期内切内核/连续切换/页面销毁后旧回调作废
                         final int seq = trackSwitchSeq.incrementAndGet();
                         new Handler(Looper.getMainLooper()).postDelayed(new Runnable() {
                             @Override
@@ -1026,7 +931,6 @@ public class PlayContainer extends FrameLayout implements CustomAdapt, PlaybackH
                         } else if (mediaPlayer instanceof ExoPlayer) {
                             ((ExoPlayer) mediaPlayer).setTrack(value, "");
                         }
-                        // BugReview #17:序号防护,窗口期内切内核/连续切换/页面销毁后旧回调作废
                         final int seq = trackSwitchSeq.incrementAndGet();
                         new Handler(Looper.getMainLooper()).postDelayed(new Runnable() {
                             @Override
@@ -1044,7 +948,6 @@ public class PlayContainer extends FrameLayout implements CustomAdapt, PlaybackH
     }
 
     void selectMyInternalSubtitle() {
-        // 字幕 sheet 打开的窗口期内引擎可能已释放(onServiceStopped 置空 mVideoView),裸取会未捕获 NPE
         if (mVideoView == null) return;
         AbstractPlayer mediaPlayer = mVideoView.getMediaPlayer();
         TrackInfo trackInfo = null;
@@ -1079,7 +982,6 @@ public class PlayContainer extends FrameLayout implements CustomAdapt, PlaybackH
                             mController.getSubtitleView().clearSubtitleCache();
                             mController.getSubtitleView().isInternal = true;
                             ((IjkMediaPlayer) mediaPlayer).setTrack(value.trackId);
-                            // BugReview #17:序号防护,窗口期内切内核/连续切换/页面销毁后旧回调作废
                             final int seq = trackSwitchSeq.incrementAndGet();
                             new Handler(Looper.getMainLooper()).postDelayed(new Runnable() {
                                 @Override
@@ -1163,11 +1065,6 @@ public class PlayContainer extends FrameLayout implements CustomAdapt, PlaybackH
         mController.getExoSubtitleView().setCues(displayCues);
     }
 
-    /**
-     * 内嵌字幕(Exo)样式与外挂字幕统一(2026-09-14):
-     * Media3 SubtitleView 默认 CaptionStyleCompat.DEFAULT 是“白字+纯黑底块”，
-     * 这里改为透明背景+黑色描边，文字颜色跟随“样式一 白/样式二 粉”设置，观感与自绘外挂字幕一致。
-     */
     private void applyExoSubtitleStyle() {
         if (mController == null || mController.getExoSubtitleView() == null) return;
         int style = KV.get(HawkConfig.SUBTITLE_TEXT_STYLE, 0);
@@ -1186,7 +1083,6 @@ public class PlayContainer extends FrameLayout implements CustomAdapt, PlaybackH
         return Math.max(min, Math.min(max, value));
     }
 
-    /** 提示改走 Compose 桥(PlayerTipBridge,任意线程可写);View 版提示已随 view_play_container.xml 移除 */
     void setTip(String msg, boolean loading, boolean err) {
         if (!isAttached()) return;
         PlayerTipBridge.setTip(msg, loading, err);
@@ -1201,17 +1097,12 @@ public class PlayContainer extends FrameLayout implements CustomAdapt, PlaybackH
         PlayerTipBridge.hide();
     }
 
-    /**
-     * 「下一集已就绪」Toast(预载方案第二期,2026-09-12 定稿:系统 Toast + 约 5s):
-     * 预载完成回调触发,1.5s 续期一次凑足 ≈5s;切集/重播(play 入口)与页面销毁时立即撤下(见 hidePreloadReady)。
-     */
     private void showPreloadReady() {
         final Activity activity = mActivity;
         if (activity == null || !isAttached() || mHandler == null) return;
         if (preloadReadyToast != null) preloadReadyToast.cancel();
         preloadReadyToast = Toast.makeText(activity, "下一集已就绪", Toast.LENGTH_LONG);
         preloadReadyToast.show();
-        // LENGTH_LONG ≈3.5s,1.5s 时续一次凑足 ≈5s(同实例再次 show 会重置计时)
         mHandler.removeCallbacks(refreshPreloadToastRunnable);
         mHandler.postDelayed(refreshPreloadToastRunnable, PRELOAD_TOAST_REFRESH_DELAY_MS);
     }
@@ -1223,7 +1114,6 @@ public class PlayContainer extends FrameLayout implements CustomAdapt, PlaybackH
         }
     };
 
-    /** 切集/重播(play 入口)与页面销毁时调用:立即撤下 Toast(未显示时为空操作) */
     private void hidePreloadReady() {
         if (Looper.myLooper() == Looper.getMainLooper()) {
             cancelPreloadToast();
@@ -1249,8 +1139,6 @@ public class PlayContainer extends FrameLayout implements CustomAdapt, PlaybackH
         if (scheduler.isPlaybackStarted()) {
             scheduler.cancelPlayTimeout();
             hideTipOnUiThread();
-            // Bug 6(2026-09-15):起播后错误此前被静默吞掉(无提示不重试,黑屏死在那)。
-            // 自动"同内核同地址"重播一次兜底;已试过/不可重试则给可见提示(与下方 autoRetry 失败分支同款)。
             if (scheduler.retryAfterStartedError()) return;
             scheduler.stopMusicSessionForFailedPlayback();
             if (!isAttached()) return;
@@ -1301,7 +1189,6 @@ public class PlayContainer extends FrameLayout implements CustomAdapt, PlaybackH
             if (trackInfo != null && trackInfo.getSubtitle().size() > 0) {
                 mController.getSubtitleView().hasInternal = true;
             }
-            //默认选中第一个音轨 一般第一个音轨是国语 && 加载上一次选中的
             ((IjkMediaPlayer)mediaPlayer).loadDefaultTrack(trackInfo,scheduler.progressKey());
             ((IjkMediaPlayer)mediaPlayer).setOnTimedTextListener(new IMediaPlayer.OnTimedTextListener() {
                 @Override
@@ -1384,32 +1271,17 @@ public class PlayContainer extends FrameLayout implements CustomAdapt, PlaybackH
         mController.getLyricView().setText("");
     }
 
-        /**
-     * 释放播放内核(换源点击即停 / 切内核重播 / 外部播放器接管)。
-     *
-     * <p>所有权收口(2026-09-14 架构评审第 2 项):播放器归引擎,页面**不得**直接 `mVideoView.release()`
-     * —— 只表达"我要换内核"的意图,由引擎执行并同步自己的状态(如清掉 D6 的接管依据)。
-     */
     private void releasePlayerKernel() {
         if (engine != null) {
             engine.releasePlayer();
         } else if (mVideoView != null) {
-            // 引擎已不在(宿主服务销毁且页面未收到回执)时的兜底,正常路径走不到
             mVideoView.release();
         }
     }
 
-    /**
-     * 引擎已被释放(空闲 TTL / 任务移除)而本页仍存活时,重新取一个引擎并把视图挂回来。
-     *
-     * <p>只可能是"页面在栈里但长时间没有播放"的窗口(如点播→直播→回点播后停着不播),
-     * 用户一旦再次发起播放(setData / play)就必须能自愈 —— 否则会黑屏且毫无反应。
-     */
     private boolean reviveEngineIfReleased() {
         if (engine != null && !engine.isReleased()) return false;
         if (mActivity == null || surfaceSlot == null) return false;
-        // 换引擎前先把**旧**调度层的在途收干净:三处超时/取流/解析若在切换后才到达,
-        // 会回调到本页面桥,而桥里的 mVideoView 已经换成新实例 —— 等于把上一轮的内容播到新播放器上
         if (scheduler != null) scheduler.stopPlaybackForPageExit();
         engine = PlaybackService.engine(mActivity);
         scheduler = engine.controller();
@@ -1423,14 +1295,12 @@ public class PlayContainer extends FrameLayout implements CustomAdapt, PlaybackH
         return true;
     }
 
-    /** 播放当前集(PlaybackHostApi;实现已迁至调度层,见 PlaybackController.play) */
     @Override
     public void play(boolean reset) {
         reviveEngineIfReleased();
         scheduler.play(reset);
     }
 
-    /** 切换清晰度(PlaybackHostApi;实现已迁至调度层,见 PlaybackController.selectQuality) */
     @Override
     public boolean selectQuality(int position) {
         return scheduler.selectQuality(position);
@@ -1438,70 +1308,36 @@ public class PlayContainer extends FrameLayout implements CustomAdapt, PlaybackH
                 @Override
     public void setData(PlaybackSession session) {
         if (engine == null || engine.isReleased()) {
-            // 引擎已释放:任务被移除、或空闲 TTL 到期自释放(见 PlaybackEngine.IDLE_RELEASE_DELAY_MS)。
-            // 本页可能还在栈里(点播→直播→回点播后长时间不播),此时重新取一个引擎接上,而不是放弃播放
             if (!reviveEngineIfReleased()) {
                 LOG.i("echo-p5 setData skipped: engine released");
                 return;
             }
         }
-        // D6 同片接管(P3,Spec §2.3):引擎里就是这一集(退页面音频续播后重进 / 预览态来回切换)时,
-        // 只同步 UI 与配置,不重新取流重播 —— 播放器与会话都还在
         if (isSamePlaybackOwned(session)) {
             LOG.i("echo-p3 take over same playback: " + session.playbackKey());
-            // 接管 ≠ 什么都不做(2026-09-14「快速返回再进入」回归修复):
-            // ① 会话归属必须切到本次 —— 否则 scheduler.vod() 仍指向**上一个已销毁页面**的 VodInfo,
-            //    选集/换线/投屏标题/播放记录改的都是旧对象,与新页面 UI 脱节(选集点了不跳、高亮不动);
-            // ② 标题只在 play() 里下发,接管不走 play() → 播放器顶栏标题为空;
-            // ③ startSession 会清空"已起播内容"标记,而播放器里确实还是这一集 → 补标回来,
-            //    否则再退再进就会被 D6 拒绝接管、白白重取一次流。
             engine.setData(session);
             mController.setPlayerConfig(scheduler.playerCfg());
             scheduler.markContentStarted();
             scheduler.publishTitle();
-            // 与正常路径对齐:接管同样是一次"新的播放",已尝试线路与手选线路标记要跟着重置 ——
-            // 否则上一轮自动换线留下的 triedLines 会让新一轮永远跳过某条线路,
-            // 上一轮残留的 userPickedLine 会让新一轮失败时"直接报错停留、不自动换线"
             scheduler.clearTriedLines();
             scheduler.setUserPickedLine(session.userPickedLine());
             if (mVideoView != null && !mVideoView.isPlaying()) mVideoView.start();
             return;
         }
-        // 会话落进引擎(引擎侧一并 startSession):detach 后仍可被接管
         engine.setData(session);
-        // 等价于原 initPlayerCfg 末尾那次调用:会话/配置就绪后刷到控制器
         mController.setPlayerConfig(scheduler.playerCfg());
         scheduler.clearTriedLines();
         scheduler.setUserPickedLine(session.userPickedLine());
         playViaScheduler(false);
     }
 
-    /**
-     * 所有 `scheduler.play()` 的统一入口:先做引擎自愈(见 {@link #reviveEngineIfReleased()}),
-     * 再下发 —— 换集/重播可能发生在"引擎已被空闲释放而页面还活着"的窗口里,
-     * 直接用旧 scheduler 会把内容播到已释放的播放器上(有声无画)。
-     */
     private void playViaScheduler(boolean reset) {
         reviveEngineIfReleased();
         scheduler.play(reset);
     }
 
-    /**
-     * D6:引擎当前会话与目标会话是同一集(源 key|片 id|线路|集索引),且播放器实例仍持有、非错误态 ——
-     * 判定为"接管续播"而非"换片重播"。
-     */
-    /**
-     * D6 接管判定的唯一可信依据是 **"播放器里的内容确实是这个会话起的"**(`startedPlaybackKey`),
-     * 而不是"会话登记过"或"播放器实例还在":
-     * <ul>
-     *   <li>会话登记过但取流失败 → 播放器里其实是上一部/上一集,接管就会播错内容;</li>
-     *   <li>直播接管过播放器 → 内容是直播流,且进入直播时已把会话与归属清空;</li>
-     *   <li>换源/外部播放器 → 播放器已被释放(`getMediaPlayer() == null`)。</li>
-     * </ul>
-     */
     private boolean isSamePlaybackOwned(PlaybackSession session) {
         if (!TextUtils.equals(scheduler.startedPlaybackKey(), session.playbackKey())) return false;
-        // 直播模式下的播放器属于直播页(内容是直播流),不能当"点播同片"接管(纵深防御)
         if (engine.isLiveMode()) return false;
         if (mVideoView == null || mVideoView.getMediaPlayer() == null) return false;
         int state = mVideoView.getCurrentPlayState();
@@ -1512,7 +1348,6 @@ public class PlayContainer extends FrameLayout implements CustomAdapt, PlaybackH
         int requestedOrientation = mActivity.getRequestedOrientation();
         boolean portrait = requestedOrientation == ActivityInfo.SCREEN_ORIENTATION_PORTRAIT || requestedOrientation == ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT || requestedOrientation == ActivityInfo.SCREEN_ORIENTATION_REVERSE_PORTRAIT;
         if (portrait) {
-            // 竖屏全屏：菜单开着先收菜单；否则侧滑返回只转回横屏继续播，不退全屏
             if (mController.onBackPressed()) {
                 return true;
             }
@@ -1615,7 +1450,6 @@ public class PlayContainer extends FrameLayout implements CustomAdapt, PlaybackH
             return;
         }
         VodInfo vod = scheduler.vod();
-        // 线路/集号不可信(历史恢复、源更新)时降级为仅片名(与 getCastTitle 的兜底一致),不裸链式取值
         VodInfo.VodSeries vs = vod == null ? null : scheduler.currentSeries(vod.playFlag, vod.playIndex);
         mController.setTitle(vod == null ? "" : (vs == null ? vod.name : vod.name + " " + vs.name));
     }
@@ -1631,7 +1465,6 @@ public class PlayContainer extends FrameLayout implements CustomAdapt, PlaybackH
             String nextKey = scheduler.vod().sourceKey + scheduler.vod().id + scheduler.vod().playFlag + nextIndex + next.name;
             String nextSubtKey = scheduler.vod().sourceKey + "-" + scheduler.vod().id + "-" + scheduler.vod().playFlag + "-" + nextIndex + "-" + next.name + "-subt";
             long startSkipMs = scheduler.playerCfg() == null ? 0 : scheduler.playerCfg().optInt("st", 0) * 1000L;
-            // 内核判定(预载方案):取实际播放器实例,非 app ExoPlayer 时协调器跳过预载(规格 §1)
             AbstractPlayer mediaPlayer = mVideoView == null ? null : mVideoView.getMediaPlayer();
             boolean exoKernel = mediaPlayer instanceof ExoPlayer;
             return new PreloadCoordinator.Snapshot(mContext, scheduler.sourceKey(), scheduler.vod().playFlag, scheduler.progressKey(), nextKey, next.url, nextSubtKey, startSkipMs, exoKernel);
@@ -1640,7 +1473,6 @@ public class PlayContainer extends FrameLayout implements CustomAdapt, PlaybackH
             return null;
         }
     }
-            /** 预览态启用/全屏禁用自动换线(委托调度层,见 PlaybackController.setAutoSwitchLineEnabled) */
     @Override
     public void setAutoSwitchLineEnabled(boolean enabled) {
         scheduler.setAutoSwitchLineEnabled(enabled);
@@ -1670,7 +1502,6 @@ mController.toggleControlBar();
         long position = mVideoView.getCurrentPosition();
         scheduler.setPendingInherit(scheduler.progressKey(), position);
         mVideoView.pause();
-        // 所有权在引擎:换源"点击即停"只表达"释放内核"的意图(见 releasePlayerKernel)
         releasePlayerKernel();
         if (mController != null) mController.stopOther();
         resetDanmuState();

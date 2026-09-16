@@ -12,10 +12,6 @@ import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.util.fastFirstOrNull
 
-/**
- * 拖拽手势检查器(2026-09-13 照搬 `示例文件/android` 的 DragGestureInspector):
- * 在 Initial pass 预判按下后于 Main pass 观察拖拽,不消费事件,可与子层 clickable 共存。
- */
 suspend fun PointerInputScope.inspectDragGestures(
     enabled: () -> Boolean = { true },
     onDragStart: (down: PointerInputChange) -> Unit = {},

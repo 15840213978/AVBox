@@ -13,11 +13,6 @@ import okhttp3.Cache
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 
-/**
- * Coil 图片管线:TVBox 海报地址约定(url@Headers={...}、@Cookie=、@User-Agent=、@Referer=)
- * 由 OkHttp 拦截器剥离附加参数并注入请求头,行为与旧 ImgUtil.getImageModel 一致。
- * Coil 不感知该约定,必须在网络层处理(3.6 无逐请求 header API)。
- */
 object VodImages {
 
     private const val PIC_HTTP_CACHE_MB = 250L
@@ -28,7 +23,6 @@ object VodImages {
         SingletonImageLoader.setSafe { appContext ->
             ImageLoader.Builder(appContext)
                 .components {
-                    // OkHttpNetworkFetcher 被 Kotlin 层 HIDDEN,经 Java 桥注册以注入海报请求头拦截器
                     add(com.github.tvbox.osc.util.CoilBridge.okhttpFetcher { picClient() })
                 }
                 .crossfade(true)
@@ -72,7 +66,6 @@ object VodImages {
         }
     }
 
-    /** 返回 null 表示无需改写(data: 直传,或不含 @ 附加参数) */
     private fun parseVodPicUrl(raw: String): Pair<String, Map<String, String>>? {
         if (raw.startsWith("data:") || !raw.contains('@')) return null
 
@@ -86,7 +79,6 @@ object VodImages {
         fun put(k: String, v: String?) {
             if (!v.isNullOrEmpty()) headers[k] = v
         }
-        // okhttp 已对 URL 中的附加参数做百分号编码,先还原再按 JSON 解析
         grab("@Headers")?.let { json ->
             try {
                 val decoded = URLDecoder.decode(json, "UTF-8")

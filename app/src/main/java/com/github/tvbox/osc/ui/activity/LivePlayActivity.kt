@@ -69,15 +69,6 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
 import java.util.regex.Pattern
 
-/**
- * 直播页(avbox-mobile-ui-spec §4.5,Step 5 Compose 重写):
- * 竖屏 16:9 播放器(MyVideoView + ComposeLiveController,AndroidView 包壳)
- * → 频道信息区(频道号/名称/直播或回看/线路/当前与下个节目)
- * → 频道分组折叠列表(点选换台,密码锁分组走旧 LivePasswordDialog)。
- * EPG 节目单与直播设置均为 bottom sheet;数字选台与全部 DPAD/MENU/INFO 逻辑随 TV 代码删除。
- * 全屏 = 点播放器进横屏沉浸(同详情页);左右快滑切上一/下一频道(§4.5)。
- * EPG 加载/解析(JSON+XML)、时移回看 URL 构建、自动换源状态机等业务逻辑自旧 Java 版 1:1 移植。
- */
 internal class LiveListRow(
     val group: LiveChannelGroup?,
     val channel: LiveChannelItem?,
@@ -89,13 +80,12 @@ class LivePlayActivity : BaseActivity() {
 
     companion object {
         private const val TAG = "LivePlayActivity"
-        /** 退出全屏后系统栏过渡(旋转 + 系统栏滑入)耗时,过渡结束后补一次状态栏图标外观断言(对齐详情页 §4.4 补丁⑤) */
         private const val SYSBAR_APPEARANCE_REASSERT_DELAY_MS = 400L
         private const val EPG_LOAD_DELAY = 1200L
         private const val RESOLUTION_INFO_MAX_RETRY = 10
         private const val RESOLUTION_INFO_RETRY_DELAY = 300L
         private const val RESOLUTION_INFO_HIDE_DELAY = 3000L
-        private const val OVERLAY_HIDE_DELAY = 6000L // 旧 postTimeout
+        private const val OVERLAY_HIDE_DELAY = 6000L
         private const val CONNECT_TIMEOUT_SWITCH_DELAY = 3500L
         private const val DEFAULT_EPG_ADDRESS = "http://epg.51zmt.top:8000/api/diyp/?ch={name}&date={date}"
         private val FORMAT_DATE = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
@@ -104,22 +94,16 @@ class LivePlayActivity : BaseActivity() {
 
     internal enum class PageState { LOADING, EMPTY, READY }
 
-    // ============================================================
-    // Compose 状态
-    // ============================================================
-
     internal var pageState by mutableStateOf(PageState.LOADING)
     internal var playState by mutableStateOf(VideoView.STATE_IDLE)
     internal var snapshotVisible by mutableStateOf(false)
     internal var snapshotBitmap by mutableStateOf<Bitmap?>(null)
     private var fullScreen by mutableStateOf(false)
-    /** 旋转过渡态:已下发方向切换、等系统旋转落地,布局形态延后切换(见 isFullBox) */
     private var rotating by mutableStateOf(false)
     internal var overlayVisible by mutableStateOf(false)
-    internal var isBackState by mutableStateOf(false) // 旧 isBack(回看中)
+    internal var isBackState by mutableStateOf(false)
     internal var epgSheetVisible by mutableStateOf(false)
     internal var settingsSheetVisible by mutableStateOf(false)
-    // 频道分组密码弹窗目标:(groupIndex, liveChannelIndex),null=隐藏
     internal var passwordDialogTarget by mutableStateOf<Pair<Int, Int>?>(null)
     internal var settingsVersion by mutableIntStateOf(0)
     internal var channelVersion by mutableIntStateOf(0)
@@ -147,12 +131,7 @@ class LivePlayActivity : BaseActivity() {
         val nextEpgTitle: String = "",
     )
 
-    // ============================================================
-    // 业务状态(自旧 Java 版移植)
-    // ============================================================
-
     internal var mVideoView: MyVideoView? = null
-    /** 直播自己的控制层:点播页接管播放器后会被顶掉,回前台要重新挂上(见 rebindLiveControllerIfNeeded) */
     private var liveController: ComposeLiveController? = null
     private val mHandler = Handler(Looper.getMainLooper())
     private val liveChannelGroupList = ArrayList<LiveChannelGroup>()
@@ -168,7 +147,7 @@ class LivePlayActivity : BaseActivity() {
     private var liveConfigRequestId = 0
     private val livePlayerManager = LivePlayerManager()
     private val channelGroupPasswordConfirmed = ArrayList<Int>()
-    internal var channelName: LiveChannelItem? = null // 旧 channel_Name
+    internal var channelName: LiveChannelItem? = null
     private val hsEpg = Hashtable<String, ArrayList<Epginfo>>()
     internal var epgdata = ArrayList<Epginfo>()
     private var epgStringAddress = ""
@@ -185,34 +164,26 @@ class LivePlayActivity : BaseActivity() {
     private var loadingLiveConfigOnEnter = false
     private var liveSettingGroupList: List<LiveSettingGroup> = ArrayList()
     private var nowday = Date()
-    private var epgDayPresented = "" // 旧 liveEpgDateAdapter 仅含"今天"单条目的等价物
-
-    // ============================================================
-    // 生命周期
-    // ============================================================
+    private var epgDayPresented = ""
 
     override fun getLayoutResID(): Int = R.layout.activity_main
 
     override fun shouldRefreshAutoSize(): Boolean = true
 
     override fun hideSysBar() {
-        // 竖屏保留系统栏(§3),全屏沉浸时走基类逻辑
         if (fullScreen) super.hideSysBar()
     }
 
     override fun init() {
         enableTransparentEdgeToEdge()
-        // 播放器与状态栏均为纯黑,状态栏图标强制白色(§3/Step 4 定稿⑤)
         applyStatusBarAppearance()
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 when {
-                    // bottom sheet 有独立窗口,返回键由其自行处理,正常不会走到这里
                     epgSheetVisible -> epgSheetVisible = false
                     settingsSheetVisible -> settingsSheetVisible = false
-                    // 全屏时侧滑返回一步到位退出横屏;浮层本会自动隐藏,无需单独消费一次返回
                     fullScreen -> applyFullscreen(false)
-                    isBackState -> backToLiveFromEpg() // 旧:退出回看回到直播(不再顺带换线,见 spec 记录)
+                    isBackState -> backToLiveFromEpg()
                     else -> {
                         exitingLivePlay = true
                         finish()
@@ -224,10 +195,7 @@ class LivePlayActivity : BaseActivity() {
         nowday = Date()
         epgDayPresented = FORMAT_DATE1.format(nowday)
         initVideoView()
-        // 直播/点播标记不在这里写:改由引擎的模式切换写(见 PlaybackEngine.setLiveFlag)——
-        // Activity 生命周期与"引擎已切回点播"没有时序关系,IjkMediaPlayer 在 prepare 时会读到滞后的直播参数
         findViewById<ComposeView>(R.id.compose_view).setContent {
-            // 纯黑状态栏页面:图标恒白由本页 init/沉浸退出逻辑断言,主题不接管
             AVBoxTheme(manageStatusBarIcons = false) {
                 LiveScreen(activity = this)
             }
@@ -238,11 +206,8 @@ class LivePlayActivity : BaseActivity() {
 
     override fun onResume() {
         super.onResume()
-        // 系统回前台会按主题重设状态栏图标外观,在首帧前重新断言(对齐详情页 §4.4 补丁⑤)
         applyStatusBarAppearance()
         exitingLivePlay = false
-        // P4:回到前台时确保引擎仍是"直播人格"。被点播页接管过(返回 true)则内核已被释放、
-        // 内容不可信 —— 重播当前频道;否则照旧恢复播放(直播退后台被 onPause 暂停的那一路)
         val takenOverByVod = PlaybackService.peek()?.enterLiveState() ?: false
         rebindLiveControllerIfNeeded()
         if (takenOverByVod) {
@@ -259,35 +224,22 @@ class LivePlayActivity : BaseActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        // 同上:标记改由引擎(exitLive → exitLiveState / 引擎释放)复位,页面不再直接写
         hideSwitchChannelSnapshot()
-        // P4:播放器归引擎 —— 只退出直播模式(还回点播进度管理器、清直播控制器),实例留给点播复用
         PlaybackService.peek()?.exitLive()
         mVideoView = null
         mHandler.removeCallbacksAndMessages(null)
     }
 
-    // ============================================================
-    // 播放器与控制层
-    // ============================================================
-
     private fun initVideoView() {
         val controller = ComposeLiveController(this)
         controller.setListener(liveControlListener)
         liveController = controller
-        // P4:与点播共用同一播放器实例 —— 引擎切到"直播人格"(撤点播进度管理器、结束点播媒体会话、
-        // 清掉上一部点播的残留帧/封面),直播自己的控制层与切换逻辑不变
         val view = PlaybackService.engine(this).also { it.enterLive() }.player()
         view.setVideoController(controller)
         view.setProgressManager(null)
         mVideoView = view
     }
 
-    /**
-     * 直播自己的控制层:点播页 attach 时会 `setVideoController(点播控制器)`,
-     * 把直播控制器从播放器上顶掉;此前直播页没有任何恢复点,从点播页返回后手势/菜单/时移/清晰度
-     * 全部失效。这里在回前台时按"当前挂的是不是直播控制器"补挂一次。
-     */
     private fun rebindLiveControllerIfNeeded() {
         val view = mVideoView ?: return
         val controller = liveController ?: return
@@ -297,11 +249,6 @@ class LivePlayActivity : BaseActivity() {
         }
     }
 
-    /**
-     * 被点播页接管后回到直播(见 PlaybackEngine.enterLiveState):内核已被释放,直播流无法
-     * 续播(地址早已失效或被点播替换)—— 等同一次"不换台号的强制切台",重播当前频道。
-     * 与 playChannel 的差别仅在于绕过"同频道不重播"守卫;时移/回看状态复位与切台一致。
-     */
     private fun replayCurrentChannelAfterTakeover() {
         val item = currentLiveChannelItem ?: return
         val videoView = mVideoView ?: return
@@ -318,13 +265,6 @@ class LivePlayActivity : BaseActivity() {
         epgVersion++
     }
 
-    /**
-     * 释放播放内核(切台 / 换解码器 / 换源 / 时移进出)。
-     *
-     * <p>所有权收口:播放器归引擎,页面只表达"我要换内核"的意图。
-     * 行为与改造前 `videoView.release()` 完全一致(释放内核 + 渲染视图,下次 start 新建),
-     * 但走引擎后引擎自己知道内核没了,不会把预载/会话/接管标记留在"还在播"的假象上。
-     */
     private fun releasePlayerKernel() {
         val eng = PlaybackService.peek()
         if (eng != null && !eng.isReleased()) eng.releasePlayer()
@@ -357,7 +297,6 @@ class LivePlayActivity : BaseActivity() {
         }
 
         override fun onHorizontalFling(direction: Int) {
-            // §4.5:左右滑视频区切上一/下一频道
             if (direction > 0) playNext() else playPrevious()
         }
 
@@ -368,7 +307,6 @@ class LivePlayActivity : BaseActivity() {
         }
     }
 
-    /** 旧 LiveControlListener.playStateChanged 的自动换源状态机,1:1 移植 */
     private fun handleAutoSourceSwitch(state: Int) {
         mHandler.removeCallbacks(mConnectTimeoutChangeSourceRun)
         when (state) {
@@ -399,7 +337,6 @@ class LivePlayActivity : BaseActivity() {
 
     fun applyFullscreen(full: Boolean) {
         if (fullScreen == full) return
-        // 目标方向与实际方向不一致 → 进旋转过渡态:布局形态等落地再切
         rotating = (full != (resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE))
         fullScreen = full
         requestedOrientation = if (full) {
@@ -415,9 +352,6 @@ class LivePlayActivity : BaseActivity() {
             overlayVisible = false
             val controller = WindowCompat.getInsetsController(window, window.decorView)
             controller.show(WindowInsetsCompat.Type.systemBars())
-            // 退回竖屏后状态栏区域仍是纯黑,保持白色图标;同步断言可能被系统的过渡结束态覆盖
-            // (vivo OriginOS 实测会在横竖屏过渡时按主题重设图标外观,浅色主题 → 深色图标,
-            //  深色图标在纯黑底上"消失"),故等旋转/系统栏过渡结束后再兜底断言一次(§4.4 补丁⑤)
             applyStatusBarAppearance()
             window.decorView.postDelayed({
                 if (!isFinishing && !isDestroyed) applyStatusBarAppearance()
@@ -425,13 +359,6 @@ class LivePlayActivity : BaseActivity() {
         }
     }
 
-    /**
-     * 竖屏状态栏区域为纯黑,图标必须白色(对齐详情页 §4.4 补丁⑤;全屏沉浸时系统栏隐藏,此值不影响)。
-     * 系统 ROM 会在沉浸退出/横竖屏过渡与回前台时按主题重设图标外观(浅色主题 → 深色图标),
-     * 深色图标在纯黑底上等于"消失",故关键时机(init/onResume/旋转落地/退出全屏)反复断言。
-     * 导航键图标按应用主题断言(状态栏恒白不受影响):本页 manageStatusBarIcons=false 主题不接管,
-     * 而 light() 导航栏样式使 EdgeToEdge 恒设深色图标,深色主题下压深色内容几乎不可见。
-     */
     private fun applyStatusBarAppearance() {
         val systemDark = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
             Configuration.UI_MODE_NIGHT_YES
@@ -441,27 +368,16 @@ class LivePlayActivity : BaseActivity() {
         }
     }
 
-    /** 旋转落地回调:清过渡态,布局形态在这一帧才真正切换 */
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
         rotating = false
-        // 旋转落地是 ROM 重设状态栏图标外观的时机之一(快速横竖切换时同步断言必被覆盖),落地即重新断言
         applyStatusBarAppearance()
     }
 
-    /**
-     * 当前布局形态是否为「全屏铺满」——与 Compose 侧([LiveScreen]/[LiveReadyContent]/[PlayerArea])的判断必须一致。
-     * 过渡期跟随**当前方向**(横屏=全屏样、竖屏=直播竖屏样),旋转落地后才切到目标态 [fullScreen]。
-     * 兜底:万一系统没下发 onConfigurationChanged,形态退化为"当前方向的自然形态",不会卡死。
-     */
     fun isFullBox(): Boolean {
         val landNow = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
         return if (rotating) landNow else fullScreen
     }
-
-    // ============================================================
-    // 播放链路(playChannel/playNext/换源/自动兜底,1:1 移植)
-    // ============================================================
 
     private fun playChannel(channelGroupIndex: Int, liveChannelIndex: Int, changeSource: Boolean): Boolean {
         if ((channelGroupIndex == currentChannelGroupIndex && liveChannelIndex == currentLiveChannelIndex && !changeSource)
@@ -487,7 +403,7 @@ class LivePlayActivity : BaseActivity() {
         isSHIYI = false
         isBackState = false
         overlayVisible = false
-        stopTimeshiftTicker() // 切台即退出回看:一并停掉时移进度刷新
+        stopTimeshiftTicker()
         val item = currentLiveChannelItem ?: return false
         item.include_back = canCurrentChannelCatchup()
         updateChannelInfoUi()
@@ -580,8 +496,6 @@ class LivePlayActivity : BaseActivity() {
 
     private fun switchLivePlayerAndReplay(): Boolean {
         val videoView = mVideoView
-        // 取局部变量:currentLiveChannelItem 是 var,判空后无法 smart-cast,
-        // 原写法在下面用 !! 取值;改为一次取值,后续不再依赖字段中途不变
         val item = currentLiveChannelItem ?: return false
         if (!allowLiveSwitchPlayer || videoView == null) {
             return false
@@ -664,10 +578,6 @@ class LivePlayActivity : BaseActivity() {
         return true
     }
 
-    // ============================================================
-    // 频道列表 / 分组 / 密码
-    // ============================================================
-
     private fun selectChannelGroup(groupIndex: Int, liveChannelIndex: Int) {
         selectedChannelGroupIndex = groupIndex
         if (isNeedInputPassword(groupIndex)) {
@@ -746,10 +656,6 @@ class LivePlayActivity : BaseActivity() {
         val group = liveChannelGroupList.getOrNull(groupIndex) ?: return null
         return if (!isNeedInputPassword(groupIndex)) group.liveChannels else ArrayList()
     }
-
-    // ============================================================
-    // 直播配置加载链(1:1 移植)
-    // ============================================================
 
     private fun initLiveChannelList() {
         if (ApiConfig.get().shouldReloadLiveConfig()) {
@@ -840,9 +746,6 @@ class LivePlayActivity : BaseActivity() {
                         mHandler.post { setEmptyLiveChannelList() }
                         return@Runnable
                     }
-                    // 解析(纯函数)留在后台线程;写共享的 liveChannelGroupList 与刷新 UI 一律回主线程
-                    // (修复竞态:loadLives 会对 ApiConfig.liveChannelGroupList 做 clear/add,
-                    //  原先在后台线程执行,与主线程读同一 list 并发;纯 URL 分支本就在主线程做,这里对齐)
                     val livesArray = TxtSubscribe.parseToJsonArray(sortJson)
                     mHandler.post {
                         ApiConfig.get().loadLives(livesArray)
@@ -998,7 +901,6 @@ class LivePlayActivity : BaseActivity() {
         clearLiveChannelList(releasePlayer)
     }
 
-
     private fun initLiveSettingGroupList() {
         liveSettingGroupList = ApiConfig.get().liveSettingGroupList
     }
@@ -1073,10 +975,6 @@ class LivePlayActivity : BaseActivity() {
         }
     }
 
-    /**
-     * 直播设置「配置切换」组的选中项:
-     * 第 0 项 = 合成的「跟随点播源」;其后为直播配置历史,历史第 i 项在该组里的 itemIndex = i + 1。
-     */
     private fun getCurrentLiveConfigIndex(): Int {
         if (ApiConfig.isLiveFollowVod()) return 0
         val history = KV.get(HawkConfig.LIVE_API_HISTORY, ArrayList<String>())
@@ -1087,17 +985,17 @@ class LivePlayActivity : BaseActivity() {
     internal fun clickSettingItem(groupIndex: Int, position: Int) {
         if (groupIndex in 0..2 && !isCurrentLiveChannelValid()) return
         when (groupIndex) {
-            0 -> { // 线路切换
+            0 -> {
                 val item = currentLiveChannelItem ?: return
                 if (position < 0 || position >= item.sourceNum || position == item.sourceIndex) return
                 item.sourceIndex = position
                 playChannel(currentChannelGroupIndex, currentLiveChannelIndex, true)
             }
-            1 -> { // 画面比例
+            1 -> {
                 if (position == livePlayerManager.livePlayerScale) return
                 mVideoView?.let { livePlayerManager.changeLivePlayerScale(it, position) }
             }
-            2 -> { // 播放解码
+            2 -> {
                 if (position == livePlayerManager.livePlayerType) return
                 val videoView = mVideoView ?: return
                 releasePlayerKernel()
@@ -1105,11 +1003,11 @@ class LivePlayActivity : BaseActivity() {
                 currentLiveChannelItem?.let { videoView.setUrl(it.url, liveChannelHeader()) }
                 videoView.start()
             }
-            3 -> { // 超时换源
+            3 -> {
                 if (position == KV.get(HawkConfig.LIVE_CONNECT_TIMEOUT, 1)) return
                 KV.put(HawkConfig.LIVE_CONNECT_TIMEOUT, position)
             }
-            4 -> { // 偏好设置
+            4 -> {
                 when (position) {
                     0 -> KV.put(HawkConfig.LIVE_SHOW_TIME, !KV.get(HawkConfig.LIVE_SHOW_TIME, false)).also { showTime() }
                     1 -> KV.put(HawkConfig.LIVE_SHOW_NET_SPEED, !KV.get(HawkConfig.LIVE_SHOW_NET_SPEED, false)).also { showNetSpeed() }
@@ -1117,7 +1015,7 @@ class LivePlayActivity : BaseActivity() {
                     3 -> KV.put(HawkConfig.LIVE_CROSS_GROUP, !KV.get(HawkConfig.LIVE_CROSS_GROUP, false))
                 }
             }
-            5 -> { // 多源切换
+            5 -> {
                 if (position == ApiConfig.getLiveGroupIndex()) return
                 val currentChannelName = getPreferredLiveRefreshChannelName()
                 val currentSourceIndex = getPreferredLiveRefreshSourceIndex()
@@ -1134,12 +1032,12 @@ class LivePlayActivity : BaseActivity() {
                 }
                 refreshLiveChannelListAndPlay(currentChannelName, currentSourceIndex)
             }
-            6 -> { // 配置切换:第 0 项 =「跟随点播源」,其后为直播配置历史
+            6 -> {
                 val history = KV.get(HawkConfig.LIVE_API_HISTORY, ArrayList<String>())
                 val target: String
                 if (position == 0) {
                     if (ApiConfig.isLiveFollowVod()) return
-                    target = "" // 空 = 跟随当前点播源
+                    target = ""
                 } else {
                     if (position - 1 >= history.size) return
                     target = history[position - 1]
@@ -1207,7 +1105,6 @@ class LivePlayActivity : BaseActivity() {
         return if (header.isEmpty()) null else header
     }
 
-    /** 旧 initLiveObj:读取当前多源的 catchup/logo/type=3 爬虫 jar 配置 */
     private fun initLiveObj() {
         catchup = null
         logoUrl = null
@@ -1245,13 +1142,6 @@ class LivePlayActivity : BaseActivity() {
         }
     }
 
-    // ============================================================
-    // 时移回看(EPG 点击 → catchup URL 播放)
-    // ============================================================
-
-    /** EPG 行点击:不再在内部关闭节目单(sheet 置 false 会跳过滑出动画),
-     * 改由组合层在返回 true 时走 LocalSheetDismiss 带动画关闭。
-     * @return true = 已切换播放(回直播或开始回看);false = 无变化(重复点击/条件不满足) */
     internal fun onEpgRowClicked(position: Int): Boolean {
         if (position == currentLiveLookBackIndex) return false
         val selectedData = epgdata.getOrNull(position) ?: return false
@@ -1262,7 +1152,6 @@ class LivePlayActivity : BaseActivity() {
         currentLiveLookBackIndex = position
         var switched = false
         if (!now.before(selectedData.startdateTime) && !now.after(selectedData.enddateTime)) {
-            // 正在播出 → 回直播
             backToLiveFromEpg()
             switched = true
         } else if (canCurrentChannelCatchup()) {
@@ -1287,8 +1176,6 @@ class LivePlayActivity : BaseActivity() {
         shiyiTimeC = LiveEpgParser.getCatchupDurationSeconds(epg)
         tsDuration = PlayerUtils.safeTimeMs(shiyiTimeC.toLong() * 1000)
         tsPosition = PlayerUtils.safeTimeMs(videoView.currentPosition)
-        // 时移条每秒跟随播放前进(此前该 Runnable 从未被 post,
-        // 回看时滑块与「位置/时长」文本只有拖动才更新)
         startTimeshiftTicker()
         isBackState = true
         overlayVisible = true
@@ -1309,10 +1196,6 @@ class LivePlayActivity : BaseActivity() {
         epgVersion++
     }
 
-    // ============================================================
-    // 时移条 / 全屏浮层显隐
-    // ============================================================
-
     private val mHideOverlayRun = Runnable { overlayVisible = false }
 
     private fun scheduleOverlayHide() {
@@ -1323,20 +1206,17 @@ class LivePlayActivity : BaseActivity() {
     private val mUpdateTimeshiftRun = object : Runnable {
         override fun run() {
             val videoView = mVideoView ?: return
-            // 已退出回看则不再自续(兜底:即使某条退出路径漏了 removeCallbacks 也会停下)
             if (!isSHIYI) return
             tsPosition = PlayerUtils.safeTimeMs(videoView.currentPosition)
             mHandler.postDelayed(this, 1000)
         }
     }
 
-    /** 启动时移进度刷新(进回看时调用;先 remove 再 post,避免重复进入时叠加多个 ticker) */
     private fun startTimeshiftTicker() {
         mHandler.removeCallbacks(mUpdateTimeshiftRun)
         mHandler.postDelayed(mUpdateTimeshiftRun, 1000)
     }
 
-    /** 停止时移进度刷新(退出回看 / 切台 / 销毁时调用) */
     private fun stopTimeshiftTicker() {
         mHandler.removeCallbacks(mUpdateTimeshiftRun)
     }
@@ -1354,10 +1234,6 @@ class LivePlayActivity : BaseActivity() {
         if (videoView.isPlaying) videoView.pause() else videoView.start()
         scheduleOverlayHide()
     }
-
-    // ============================================================
-    // 切台快照 / 清晰度 / 时间与网速
-    // ============================================================
 
     private fun showSwitchChannelSnapshot() {
         var bitmap: Bitmap? = null
@@ -1446,10 +1322,6 @@ class LivePlayActivity : BaseActivity() {
 
     private val mHideGestureHintRun = Runnable { gestureHintText = null }
 
-    // ============================================================
-    // 频道信息区(旧 showBottomEpg/setDefaultBottomEpg 移植,常驻不再自动隐藏)
-    // ============================================================
-
     private fun updateChannelInfoUi() {
         if (isSHIYI) return
         val channel = channelName ?: return
@@ -1471,7 +1343,6 @@ class LivePlayActivity : BaseActivity() {
         } else {
             epgdata = ArrayList()
         }
-        // 默认值:当前整点时段(旧 setDefaultBottomEpg)
         val timeZone = TimeZone.getTimeZone("GMT+8:00")
         val currentStart = Calendar.getInstance(timeZone)
         currentStart.set(Calendar.MINUTE, 0)
@@ -1522,10 +1393,6 @@ class LivePlayActivity : BaseActivity() {
         )
         epgVersion++
     }
-
-    // ============================================================
-    // EPG 加载与解析(1:1 移植)
-    // ============================================================
 
     private val mLoadEpgRun = Runnable {
         if (channelName != null) getEpg(Date())
@@ -1717,10 +1584,6 @@ class LivePlayActivity : BaseActivity() {
         return savedEpgKey == channel.channelName + "_" + epgDayPresented
     }
 
-    // ============================================================
-    // 时移回看 URL 构建(1:1 移植)
-    // ============================================================
-
     private fun currentChannelHasCatchup(): Boolean {
         return currentLiveChannelItem != null && LiveEpgParser.hasCatchupSource(currentLiveChannelItem?.channelCatchup)
     }
@@ -1758,15 +1621,6 @@ class LivePlayActivity : BaseActivity() {
         return LiveEpgParser.appendCatchupUrl(url, "/PLTV/,/TVOD/", source)
     }
 
-    // ============================================================
-    // EPG/回看:纯解析已抽到同包 LiveEpgParser(可在纯 JVM 单测里直接调用)
-    // 本文件保留页面态、网络编排与代际校验
-    // ============================================================
-
-    // ============================================================
-    // 频道列表行数据与密码态查询(供 Compose 侧消费)
-    // ============================================================
-
     internal fun buildChannelRows(): List<LiveListRow> {
         val rows = ArrayList<LiveListRow>()
         for (group in liveChannelGroupList) {
@@ -1785,5 +1639,4 @@ class LivePlayActivity : BaseActivity() {
 
     fun isPasswordConfirmedForUi(groupIndex: Int): Boolean = isPasswordConfirmed(groupIndex)
 
-    // Compose UI 已拆到同包 LiveScreens.kt:setContent 里调用 LiveScreen(this)
 }

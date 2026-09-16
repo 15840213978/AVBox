@@ -112,10 +112,6 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlin.coroutines.resume
 
-/**
-* 搜索页(avbox-mobile-ui-spec §4.6):系统输入法 TextField + 搜索历史 chips + 各源结果分区。
-* 继承 BaseActivity 以复用 AutoSize,使旧勾选源对话框渲染正常。
-*/
 class SearchActivity : BaseActivity() {
 
     override fun getLayoutResID(): Int = R.layout.activity_main
@@ -123,7 +119,6 @@ class SearchActivity : BaseActivity() {
     override fun shouldRefreshAutoSize(): Boolean = true
 
     override fun hideSysBar() {
-        // 手机端保留系统栏(§3)
     }
 
     override fun init() {
@@ -151,68 +146,45 @@ class SearchViewModel : ViewModel() {
     val running = MutableStateFlow(false)
     val searchedTitle = MutableStateFlow("")
 
-    /** 热搜榜:豆瓣当日热播片名 Top20(KV 缓存 home_hot/home_hot_day,当日有效) */
     val hotSearch = MutableStateFlow<List<String>>(emptyList())
 
-    /** 搜索建议(爱奇艺 suggest);非空时热搜卡片标题与内容切换为建议(2026-09-15) */
     val suggest = MutableStateFlow<List<String>>(emptyList())
 
-    /** 建议请求序号:防乱序竞态(慢响应不得覆盖新输入的结果) */
     private var suggestSeq = 0
 
-    /**
-     * 本轮搜索编号(仅本实例内比较;取值 = 进程级自增 [SEARCH_SEQ])。
-     * ⚠️ 不能用实例内自增(从 0 起步):每个新实例的首搜都会是 "1",而结果经**进程级 EventBus**
-     * 分发、旧实例的迟到任务(退出只 unregister+取消 viewModelScope,不会中断 type=3 阻塞爬虫)
-     * 也会 post —— 旧实例的 "1" 会通过新实例首搜(token="1")的 token 校验,把 A 的结果写进 B
-     * 的列表(2026-09-13 修复)。
-     */
     private var token = 0
-    // 搜索线程数(2026-09-12):设置页滑块可调(16/32/48/64),search() 入口对比 KV 变化后重建;
-    // 旧协程持有旧实例引用,release 后旧实例即被 GC,无泄漏
     private var semaphorePermits = KV.get(HawkConfig.SEARCH_THREADS, HawkConfig.SEARCH_THREADS_DEFAULT)
     private var semaphore = Semaphore(semaphorePermits)
     private val pendingSources = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.CompletableDeferred<Unit>>()
     private val scope = viewModelScope
 
     companion object {
-        /**
-         * 进程级搜索序号:token 跨实例(跨搜索页)不复用的保证 —— 旧实例的迟到结果
-         * 必然与新实例的 token 不等,被 [onSearchResultEvent] 的 token 校验丢弃。
-         */
         private val SEARCH_SEQ = java.util.concurrent.atomic.AtomicInteger(0)
 
-        /** 单源超时:与 SourceViewModel 内部 future.get(30s) 约定一致 */
         private const val SEARCH_TIMEOUT_MS = 30_000L
 
-        /** 豆瓣热播接口 */
         private const val DOUBAN_HOT_URL =
             "https://movie.douban.com/j/new_search_subjects?sort=U&range=0,10&tags=&playable=1&start=0&year_range="
 
         private const val HOT_SEARCH_LIMIT = 20
 
-        /** 搜索建议接口(爱奇艺,FongMi 同款;无鉴权) */
         private const val SUGGEST_URL = "https://suggest.video.iqiyi.com/?if=mobile&key="
 
-        /** 搜索建议展示上限 */
         private const val SUGGEST_LIMIT = 20
 
         @Volatile
         var checkedSources: HashMap<String, String>? = null
             private set
 
-        /** 记录上面那份缓存属于哪个点播源地址,用于判断是否需要重新装载 */
         @Volatile
         private var checkedSourcesApiUrl: String? = null
 
-        /** 换源收尾时调用:丢弃会话缓存,下次打开搜索页按新源重新装载 */
         @JvmStatic
         fun clearCheckedSources() {
             checkedSources = null
             checkedSourcesApiUrl = null
         }
 
-        /** 按当前点播源装载缓存(只在过期或未装载时真正读一次 KV) */
         @JvmStatic
         fun loadCheckedSources() {
             val api = KV.get(HawkConfig.API_URL, "")
@@ -220,10 +192,6 @@ class SearchViewModel : ViewModel() {
             checkedSourcesApiUrl = api
         }
 
-        /**
-         * 缓存是 null(从未装载)、属于别的源地址、或选择里的源 key 已对不上当前源列表 ⇒ 需要重新装载。
-         * 只用 == null 判断是不够的:换源后缓存非 null 却全是旧源的 key,正是本次要修的缺陷。
-         */
         @JvmStatic
         fun isCheckedSourcesStale(): Boolean {
             if (checkedSources == null) return true
@@ -233,21 +201,18 @@ class SearchViewModel : ViewModel() {
     }
 
     init {
-        // 搜索结果经 EventBus 分发(SourceViewModel 对 searchResult 不走 LiveData)
         org.greenrobot.eventbus.EventBus.getDefault().register(this)
         fetchHotSearch()
     }
 
     override fun onCleared() {
         org.greenrobot.eventbus.EventBus.getDefault().unregister(this)
-        // 取消在途建议请求:否则回调持有已销毁页面的 VM 直到 HTTP 超时,轻微延迟回收
         try {
             OkGo.getInstance().cancelTag("suggest")
         } catch (_: Throwable) {
         }
     }
 
-    /** 热搜榜:优先当日 KV 缓存(与首页共享),过期则请求豆瓣并回写缓存,失败退旧缓存 */
     private fun fetchHotSearch() {
         scope.launch(Dispatchers.IO) {
             val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.CHINA)
@@ -289,11 +254,6 @@ class SearchViewModel : ViewModel() {
         emptyList()
     }
 
-    /**
-     * 搜索建议(爱奇艺 suggest):输入防抖后由 UI 触发。
-     * 请求序号防乱序——快速输入时先发后到的旧响应直接丢弃(FongMi 缺这层,2026-09-15 补)。
-     * 失败静默:保留旧建议/热搜内容,不打断输入。
-     */
     fun fetchSuggest(text: String) {
         val seq = ++suggestSeq
         OkGo.get<String>(SUGGEST_URL + java.net.URLEncoder.encode(text, "UTF-8").replace("+", "%20"))
@@ -313,7 +273,6 @@ class SearchViewModel : ViewModel() {
             })
     }
 
-    /** 清空建议并使在途请求失效(输入框清空时恢复热搜) */
     fun clearSuggest() {
         suggestSeq++
         suggest.value = emptyList()
@@ -323,7 +282,6 @@ class SearchViewModel : ViewModel() {
         val arr = org.json.JSONObject(json).optJSONArray("data") ?: return emptyList()
         (0 until minOf(arr.length(), SUGGEST_LIMIT)).mapNotNull { i ->
             val o = arr.optJSONObject(i) ?: return@mapNotNull null
-            // 爱奇艺字段为 name;title 兜底以兼容 360 排行等 name/title 双键数据源
             val name = o.optString("name")
             val title = o.optString("title")
             when {
@@ -339,33 +297,25 @@ class SearchViewModel : ViewModel() {
     fun search(title: String) {
         val t = title.trim()
         if (t.isEmpty()) return
-        // 设置页改了搜索线程数时重建信号量:旧协程持有旧实例引用,release 后旧实例即被 GC
         val configured = KV.get(HawkConfig.SEARCH_THREADS, HawkConfig.SEARCH_THREADS_DEFAULT)
         if (configured != semaphorePermits) {
             semaphorePermits = configured
             semaphore = Semaphore(configured)
         }
-        // 进程级自增:保证跨实例(退出重进后)的 token 不复用,旧实例迟到结果会被校验丢弃
         token = SEARCH_SEQ.incrementAndGet()
         val myToken = token
         val tokenStr = myToken.toString()
         searchedTitle.value = t
         HistoryHelper.setSearchHistory(t)
-        // 搜索发起:清建议(在途请求序号一并作废),页面随即切结果分支
         clearSuggest()
-        // 与旧引擎一致:重搜前停掉在途爬虫
         try {
             JsLoader.stopAll()
         } catch (_: Throwable) {
         }
-        // BugReview #23:取消在途搜索请求;否则旧任务继续占用信号量许可直到 30s 超时,
-        // 新搜索仅前 6 个源能启动(假卡死)
         try {
             com.lzy.okgo.OkGo.getInstance().cancelTag("search")
         } catch (_: Throwable) {
         }
-        // BugReview #23:完成旧 pending 表项,旧协程的 done.await() 立即返回并归还许可
-        // (直接 clear 会让旧续体悬到超时)
         for (entry in pendingSources) {
             entry.value.complete(Unit)
         }
@@ -391,19 +341,12 @@ class SearchViewModel : ViewModel() {
                             pendingSources[bean.key] = done
                             try {
                                 withTimeoutOrNull(SEARCH_TIMEOUT_MS) {
-                                    // getSearch 的爬虫分支在调用线程阻塞执行,必须在 IO 线程调用;
-                                    // 结果统一经 EventBus(TYPE_SEARCH_RESULT,主线程)回调
                                     withContext(Dispatchers.IO) {
                                         searchCaller.getSearch(bean.key, t, tokenStr)
                                     }
                                     done.await()
                                 }
                             } finally {
-                                // 二参删除:只在值仍是「本轮那份」deferred 时才移除。
-                                // 一参 remove(key) 会误删新一轮登记的同源表项 —— 旧轮慢源的 finally
-                                // 可能晚于新一轮登记才执行(它卡在阻塞的 getSearch 里)⇒ 新一轮该源的
-                                // deferred 永不完成,只能等 withTimeoutOrNull(30s) 超时,running 迟迟
-                                // 不置 false、顶部进度条不消失(2026-09-13 修复)
                                 pendingSources.remove(bean.key, done)
                             }
                         }
@@ -423,7 +366,6 @@ class SearchViewModel : ViewModel() {
         val sourceKey = data.sourceKey ?: return
         if (results.value.none { it.sourceKey == sourceKey }) return
         pendingSources.remove(sourceKey)?.complete(Unit)
-        // 精确匹配排前(旧高匹配策略的简化)
         val videos = data.movie?.videoList.orEmpty()
             .sortedByDescending { it.name?.trim() == searchedTitle.value }
         updateResult(sourceKey, videos)
@@ -452,17 +394,12 @@ fun SearchScreen(vm: SearchViewModel = viewModel()) {
     val hotSearch by vm.hotSearch.collectAsState()
     val suggest by vm.suggest.collectAsState()
     var query by remember { mutableStateOf("") }
-    // 结果源筛选:null = 全部(下方横向 chips 单选,新搜索时重置)
     var selectedSource by remember { mutableStateOf<String?>(null) }
     var history by remember { mutableStateOf(KV.get(HawkConfig.SEARCH_HISTORY, ArrayList<String>())) }
     val searchedTitle by vm.searchedTitle.collectAsState()
-    // 长按卡片菜单(收藏/搜索相似内容):与首页共用同一组件(2026-09-16)
     val vodMenu = rememberVodCardMenuState()
 
-    // 外部带标题进入(历史/兜底跳转)自动搜索;勾选源从持久化恢复(与旧行为一致)
     LaunchedEffect(Unit) {
-        // 只在"未装载 / 源地址变了 / 选择里的源 key 已对不上当前源列表"时重新装载。
-        // 不能只判 == null:切源后缓存非 null 但全是旧源的 key,会让搜索被悄悄窄化到两源共有项(本次修复的 bug)
         if (SearchViewModel.isCheckedSourcesStale()) {
             SearchViewModel.loadCheckedSources()
         }
@@ -473,8 +410,6 @@ fun SearchScreen(vm: SearchViewModel = viewModel()) {
         }
     }
 
-    // 搜索建议(2026-09-15,FongMi 同款交互):输入防抖 300ms——LaunchedEffect 换 key 自动取消
-    // 上次协程,天然防抖;清空输入框立即恢复热搜
     LaunchedEffect(query) {
         val t = query.trim()
         if (t.isEmpty()) {
@@ -485,15 +420,6 @@ fun SearchScreen(vm: SearchViewModel = viewModel()) {
         }
     }
 
-    /**
-     * 配置(源集合)就绪后重新装载选择。
-     *
-     * 必要性:切源时 `AppBootstrap` 会先作废配置再异步拉取,窗口内 `sourceBeanList` 是空的 ——
-     * 若在这时装载过选择(哪怕是上面那句),拿到的就是"错误基准下的选择"。所以每次 `Boot.Ready`
-     * 都重新对一次基准;`loadCheckedSources` 只是读一次 KV,开销可忽略。
-     *
-     * ⚠️ 校验必须留在 `LaunchedEffect` 里:判定要读 KV 并遍历源列表,放进 composable 体会每次重组都跑。
-     */
     val bootState by com.github.tvbox.osc.ui.page.AppBootstrap.state.collectAsState()
     LaunchedEffect(bootState) {
         if (bootState is com.github.tvbox.osc.ui.page.AppBootstrap.Boot.Ready && SearchViewModel.isCheckedSourcesStale()) {
@@ -501,7 +427,6 @@ fun SearchScreen(vm: SearchViewModel = viewModel()) {
         }
     }
 
-    // 无边框顶栏(2026-09-11 晚照 `示例文件/android` 官方方案重做):Scaffold + M3 TopAppBar
     val resultListState = rememberLazyListState()
 
     fun submit(text: String) {
@@ -515,10 +440,8 @@ fun SearchScreen(vm: SearchViewModel = viewModel()) {
     }
 
     AppTopBarScaffold(
-        // 顶栏不折叠(2026-09-12):搜索框胶囊常驻,不随结果列表滚动折叠
         collapseEnabled = false,
         titleContent = {
-            // 40dp 胶囊输入框(§4.6;2026-09-10 改 BasicTextField 自绘,修复固定高度下文字被裁)
             SearchField(
                 query = query,
                 onQueryChange = { query = it },
@@ -527,7 +450,6 @@ fun SearchScreen(vm: SearchViewModel = viewModel()) {
             )
         },
         navigationIcon = {
-            // 返回按钮(40dp 圆形容器,图标来自 .tubiao/左箭头.svg,2026-09-11;2026-09-16 容器玻璃化)
             Box(
                 modifier = Modifier
                     .size(40.dp)
@@ -545,16 +467,12 @@ fun SearchScreen(vm: SearchViewModel = viewModel()) {
         },
     ) { topPad, _ ->
         if (results.isEmpty() && !running) {
-            // 未搜索:搜索历史 + 热搜榜,各自圆角卡片容器(2026-09-10);内容延伸至状态栏下
             Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .verticalScroll(rememberScrollState()),
             ) {
-                // 顶部占位 = 顶栏高度 - 20dp(与下方历史卡自身 28dp 上边距合计 = 顶栏 + 8dp,
-                // 首卡与顶栏间距与设置页一致;2026-09-12 用户定稿,原 -8+28=+20)
                 Spacer(Modifier.height(topPad - 20.dp))
-                // 搜索历史卡片(28dp 圆角;距顶部搜索栏 28dp,2026-09-11 用户定稿)
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -575,7 +493,6 @@ fun SearchScreen(vm: SearchViewModel = viewModel()) {
                             color = MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.weight(1f),
                         )
-                        // 右上角删除控件(与管理页同款 40dp 圆形):点击清空全部搜索历史
                         ManageActionIcon(
                             iconRes = R.drawable.ic_delete,
                             contentDescription = "清空搜索历史",
@@ -586,7 +503,6 @@ fun SearchScreen(vm: SearchViewModel = viewModel()) {
                         )
                     }
                     if (history.isEmpty()) {
-                        // 空态文案居中(2026-09-11 用户要求)
                         Text(
                             text = "暂无搜索历史",
                             style = MaterialTheme.typography.bodyMedium,
@@ -597,8 +513,6 @@ fun SearchScreen(vm: SearchViewModel = viewModel()) {
                                 .padding(vertical = 8.dp),
                         )
                     } else {
-                        // FlowRow 自动换行纵向排列(单行 LazyRow 超出裁切且显拥挤,2026-09-11 用户定稿);
-                        // 标题行与 chips 间距 8dp 呼吸感
                         FlowRow(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -611,7 +525,6 @@ fun SearchScreen(vm: SearchViewModel = viewModel()) {
                                     word = word,
                                     onClick = { submit(word) },
                                     onLongClick = {
-                                        // 长按删除单条搜索历史
                                         HistoryHelper.removeSearchHistory(word)
                                         history = KV.get(HawkConfig.SEARCH_HISTORY, ArrayList())
                                     },
@@ -620,8 +533,6 @@ fun SearchScreen(vm: SearchViewModel = viewModel()) {
                         }
                     }
                 }
-                // 热搜榜/搜索建议卡片(28dp 圆角):输入框有词时标题切为「搜索建议」并展示建议 chips
-                // (2026-09-15,FongMi 同款);无词时双列排位热搜,前三名高亮,点击直接搜索
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -644,7 +555,6 @@ fun SearchScreen(vm: SearchViewModel = viewModel()) {
                         )
                     }
                     if (suggest.isNotEmpty()) {
-                        // 建议词:与搜索历史同款 chips(点击直接搜索)
                         FlowRow(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -657,7 +567,6 @@ fun SearchScreen(vm: SearchViewModel = viewModel()) {
                             }
                         }
                     } else if (hotSearch.isEmpty()) {
-                        // 空态文案居中(2026-09-11 用户要求)
                         Text(
                             text = "暂无热搜数据",
                             style = MaterialTheme.typography.bodyMedium,
@@ -732,28 +641,18 @@ fun SearchScreen(vm: SearchViewModel = viewModel()) {
                 LazyColumn(
                     state = resultListState,
                     modifier = Modifier.fillMaxSize(),
-                    // 顶部留白 = 顶栏高度 - 4dp(进度条/chips 自带 12dp 内边距,合计 = 顶栏 + 8dp,
-                    // 首项与顶栏间距与其他页面一致;2026-09-12 用户定稿,原 -8=+4)
                     contentPadding = PaddingValues(top = topPad - 4.dp, bottom = 12.dp),
-                    // 组间距不再用统一 spacedBy(24dp):其会让 chips 与首个分组间空出一大块
-                    // (chips 底 4dp + 24dp = 28dp);改为 item 自带 top padding,首组 12dp/其余 24dp(2026-09-12 用户定稿)
                 ) {
-                    // 前导区:波浪线进度条 + 结果源筛选 chips 合并为一个 item ——
-                    // 二者原有的紧邻关系(12dp 内边距)在合并后保持,不被列表 spacedBy(24dp) 额外拉开
                     if (running || done.size > 1) {
                         item(key = "search_leading") {
                             Column {
                                 if (running) {
-                                    // 波浪线不定长进度条(2026-09-11):水平与搜索框对齐(左右 16dp),
-                                    // 上下各留 12dp,避免贴住顶部搜索控件与下方源筛选 chips / 结果卡片
                                     LinearWavyProgressIndicator(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .padding(horizontal = 16.dp, vertical = 12.dp),
                                     )
                                 }
-                                // 结果源筛选(2026-09-11 用户要求):横向滑动 chips(「全部」+ 有结果的源),单选过滤下方分区;
-                                // 仅 1 个源时不显示(无可筛选余地);未在跑进度条时顶部补 12dp 与搜索框留白
                                 if (done.size > 1) {
                                     LazyRow(
                                         modifier = Modifier.padding(top = if (running) 0.dp else 12.dp),
@@ -772,7 +671,6 @@ fun SearchScreen(vm: SearchViewModel = viewModel()) {
                                             FilterChip(
                                                 selected = selectedSource == result.sourceKey,
                                                 onClick = {
-                                                    // 再点已选中的源 = 取消筛选,回到「全部」
                                                     selectedSource = if (selectedSource == result.sourceKey) null else result.sourceKey
                                                 },
                                                 label = { Text(result.sourceName) },
@@ -784,9 +682,6 @@ fun SearchScreen(vm: SearchViewModel = viewModel()) {
                             }
                         }
                     }
-                    // 每分区一个 item(标题+横滑卡片行),按 sourceKey 稳定复用,结果陆续到达时增量插入;
-                    // shown = 源筛选后的可见分区(未筛选时等于 done);
-                    // 组间距 = item 自带 top padding(首组 12dp 紧贴 chips,其余 24dp;2026-09-12 用户定稿)
                     itemsIndexed(shown, key = { _, r -> r.sourceKey }) { index, result ->
                         Column(modifier = Modifier.padding(top = if (index == 0) 12.dp else 24.dp)) {
                             Row(
@@ -801,8 +696,6 @@ fun SearchScreen(vm: SearchViewModel = viewModel()) {
                                     color = MaterialTheme.colorScheme.onSurface,
                                     modifier = Modifier.weight(1f),
                                 )
-                                // 2026-09-09:源分区「全部 >」入口,进二级页网格展示该源全部搜索结果
-                                // 2026-09-11:补加半透明 surface 容器背景(与首页「全部 >」统一样式)
                                 Row(
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(18.dp))
@@ -846,7 +739,6 @@ fun SearchScreen(vm: SearchViewModel = viewModel()) {
         }
     }
 
-    // 长按卡片:收藏/操作菜单(页面根部渲染,覆盖全屏)
     VodCardMenu(vodMenu)
 }
 
@@ -901,7 +793,6 @@ private fun SearchField(
     modifier: Modifier = Modifier,
 ) {
     Row(
-        // 2026-09-16:容器改走 glassTopBarSurface(液态玻璃开启时为玻璃胶囊,跟随底部导航栏)
         modifier = modifier
             .glassTopBarSurface(ContinuousCapsule, MaterialTheme.colorScheme.cardContainer)
             .padding(horizontal = 12.dp),

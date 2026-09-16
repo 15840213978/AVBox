@@ -19,17 +19,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 
-/** 分区/页面加载三态(avbox-mobile-ui-spec §4.1、§6):加载、空态、错误+重试 */
 sealed interface LoadState {
     data object Loading : LoadState
     data object Empty : LoadState
     data class Error(val message: String? = null) : LoadState
 }
 
-/**
- * 三态容器:Loading 默认转圈 64dp(2026-09-11 用户定稿;分区骨架等由调用方通过 [loadingContent] 注入),
- * Empty 居中空态图标(可选)+文案,Error 居中文案 + 重试按钮。
- */
 @Composable
 fun LoadStateBox(
     state: LoadState,

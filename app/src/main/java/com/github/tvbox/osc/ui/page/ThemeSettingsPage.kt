@@ -67,29 +67,17 @@ import com.github.tvbox.osc.ui.theme.ThemeSource
 import com.materialkolor.PaletteStyle
 import kotlin.math.roundToInt
 
-/** 非自定义模式下不可用行的整体透明度(与示例项目一致) */
 private const val DisabledAlpha = 0.45f
 
-/**
- * 主题设置页(2026-09-11,照搬 `示例文件/android` 的主题设置页):
- * 自定义主题开关 / 深浅模式 / 预设色卡 / 自定义种子色(取色器)/ 配色风格,
- * 配置读写走 [AppThemeState](KV 持久化 + 全局可观察),改动即时全局生效。
- *
- * 未走 ViewModel:主题是进程级单例状态,页面只做"读状态 + 下发 intent",
- * 加一层 VM 只是转发(同 [MainScreen] 直接读 AppBootstrap 的既有风格)。
- */
 @Composable
 fun ThemeSettingsScreen(onNavigateBack: () -> Unit) {
     val config = AppThemeState.config
     val isCustom = config.source == ThemeSource.CUSTOM
     var seedPickerOpen by remember { mutableStateOf(false) }
-    // 液态玻璃滑条:拖动中走本地 state,松手才落盘(与全局 SettingsSliderRow 约定一致);
-    // remember 键绑 config 值,外部变更(恢复默认)即时回显
     val glassConfig = LiquidGlassState.config
     var blurValue by remember(glassConfig.blurDp) { mutableStateOf(glassConfig.blurDp) }
     var distortionValue by remember(glassConfig.distortionDp) { mutableStateOf(glassConfig.distortionDp) }
 
-    // 无边框顶栏(2026-09-11 晚照 `示例文件/android` 官方方案重做):Scaffold + M3 TopAppBar
     val listState = rememberScrollState()
 
     AppTopBarScaffold(
@@ -110,10 +98,8 @@ fun ThemeSettingsScreen(onNavigateBack: () -> Unit) {
                 .verticalScroll(listState)
                 .padding(horizontal = 16.dp)
                 .padding(bottom = 8.dp),
-            // 分组间距 28dp,与设置页同规格(2026-09-13 用户定稿:此前漏配,两个分组贴死,分组结构不可见)
             verticalArrangement = Arrangement.spacedBy(28.dp),
         ) {
-            // 顶部占位 = 顶栏高度 - 20dp:spacedBy(28) 已含 28dp,净间距仍为 topPad+8dp(与设置页同公式)
             Spacer(Modifier.height(topPad - 20.dp))
 
             SettingsGroup(title = null) {
@@ -130,14 +116,12 @@ fun ThemeSettingsScreen(onNavigateBack: () -> Unit) {
                         },
                     )
                 }
-                // 主题模式与取色来源无关,始终可用
                 ThemeCard(SettingsCardPosition.MIDDLE) {
                     ThemeModeRow(
                         currentMode = config.mode,
                         onModeSelected = { AppThemeState.setMode(it) },
                     )
                 }
-                // 预设色卡 / 自定义色 / 配色风格仅在自定义模式下可用
                 ThemeCard(SettingsCardPosition.MIDDLE, enabled = isCustom) {
                     PresetSeedsRow(
                         currentSeed = config.seedArgb,
@@ -162,12 +146,7 @@ fun ThemeSettingsScreen(onNavigateBack: () -> Unit) {
                 }
             }
 
-            // 液态玻璃组(2026-09-13,用户定稿:布局照搬示例 NavStyleScreen 设计稿——
-            // 头部卡(标题+重置,无 icon)、开关卡、两张滑条卡;重置按钮不带容器底,其余与设计稿一致;
-            // 2026-09-16 用户定稿:无总开关,「底部导航」「应用控件」两个开关各自控制自己的效果
-            // (默认都开),模糊/扭曲两档参数共用)
             SettingsGroup(title = null) {
-                // 头部卡:标题 + 重置(纯文字),下行为版本支持说明(2026-09-13 用户定稿:去掉 icon,只保留标题)
                 SettingsCard(SettingsCardPosition.FIRST) {
                     Column(
                         modifier = Modifier
@@ -226,7 +205,6 @@ fun ThemeSettingsScreen(onNavigateBack: () -> Unit) {
                 }
             }
 
-            // 底部收尾:28dp 已由 spacedBy 提供,补 36dp 保持总收尾 64dp 不变
             Spacer(Modifier.height(36.dp))
         }
     }
@@ -237,19 +215,12 @@ fun ThemeSettingsScreen(onNavigateBack: () -> Unit) {
             initialColor = config.seedArgb,
             onConfirm = { argb ->
                 AppThemeState.setSeed(argb)
-                // 关闭由 ThemeColorPickerSheet 内部带动画处理(2026-09-13),
-                // 滑出结束经 onDismissRequest → onDismiss 置 seedPickerOpen = false
             },
             onDismiss = { seedPickerOpen = false },
         )
     }
 }
 
-/**
- * 主题页设置卡:复用全局 [SettingsCard](卡位圆角 + cardContainer 底色),
- * 内部按示例项目主题页规格(minHeight 64dp / 水平 16dp / 垂直 12dp 且内容垂直居中);
- * [enabled] 为 false 时整卡降透明度表示不可用。
- */
 @Composable
 private fun ThemeCard(
     position: SettingsCardPosition,
@@ -272,7 +243,6 @@ private fun ThemeCard(
     }
 }
 
-/** 分组标题行(如"主题颜色") */
 @Composable
 private fun HeaderRow(title: String) {
     Text(
@@ -282,7 +252,6 @@ private fun HeaderRow(title: String) {
     )
 }
 
-/** 自定义主题开关行(卡内自带 16dp 内边距,故不套用全局 SettingsSwitchRow) */
 @Composable
 private fun CustomThemeSwitchRow(checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
     Row(
@@ -300,11 +269,6 @@ private fun CustomThemeSwitchRow(checked: Boolean, onCheckedChange: (Boolean) ->
     }
 }
 
-/**
- * 液态玻璃滑条行(2026-09-13 照搬示例 NavStyleScreen 的 NavSliderRow):
- * 标题 + 右侧数值角标(surfaceVariant 小圆角块) + Slider(显式配色与全局滑块一致);
- * 拖动中走本地 state,松手经 [onValueChangeFinished] 落盘。
- */
 @Composable
 private fun GlassSliderRow(
     title: String,
@@ -345,7 +309,6 @@ private fun GlassSliderRow(
             onValueChangeFinished = onValueChangeFinished,
             valueRange = valueRange,
             steps = 0,
-            // 显式配色:原生 Slider 默认 inactiveTrack 走 surfaceContainerHighest 色阶,与全站滑块观感不一
             colors = SliderDefaults.colors(
                 thumbColor = MaterialTheme.colorScheme.primary,
                 activeTrackColor = MaterialTheme.colorScheme.primary,
@@ -358,7 +321,6 @@ private fun GlassSliderRow(
     }
 }
 
-/** 深浅模式选择行:跟随系统 / 浅色 / 深色 */
 @Composable
 private fun ThemeModeRow(currentMode: Int, onModeSelected: (Int) -> Unit) {
     Column(modifier = Modifier.fillMaxWidth()) {
@@ -393,7 +355,6 @@ private fun ThemeModeRow(currentMode: Int, onModeSelected: (Int) -> Unit) {
     }
 }
 
-/** 自定义种子色入口行:点击打开取色器 */
 @Composable
 private fun CustomSeedRow(seedArgb: Int, enabled: Boolean, onClick: () -> Unit) {
     Row(
@@ -420,7 +381,6 @@ private fun CustomSeedRow(seedArgb: Int, enabled: Boolean, onClick: () -> Unit) 
     }
 }
 
-/** 配色风格选择行:横向滚动 FilterChip */
 @Composable
 private fun VariantSelectorRow(
     currentStyle: PaletteStyle,
@@ -452,7 +412,6 @@ private fun VariantSelectorRow(
     }
 }
 
-/** 预设色卡网格(4 列 × 2 行);色卡配色由 [AppThemeState.previewScheme] 计算并缓存 */
 @Composable
 private fun PresetSeedsRow(
     currentSeed: Int,
@@ -474,7 +433,6 @@ private fun PresetSeedsRow(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 rowItems.forEach { (name, argb) ->
-                    // key 含 style:换风格时色卡重建,produceState 才会按新风格重算预览
                     key(argb, style) {
                         PresetSeedCard(
                             name = name,
@@ -492,7 +450,6 @@ private fun PresetSeedsRow(
     }
 }
 
-/** 单个预设色卡:动态配色预览(主色条 + 次色/第三色块)+ 选中态(勾选圈) */
 @Composable
 private fun PresetSeedCard(
     name: String,
@@ -511,7 +468,6 @@ private fun PresetSeedCard(
         value = AppThemeState.previewScheme(seedArgb, style)
     }
     val borderColor = if (selected) MaterialTheme.colorScheme.primary else Color.Transparent
-    // 圆角 16dp(2026-09-11 用户定稿;曾为 shapes.medium 12dp → 28dp → 16dp)
     val cardShape = RoundedCornerShape(16.dp)
     Surface(
         modifier = modifier

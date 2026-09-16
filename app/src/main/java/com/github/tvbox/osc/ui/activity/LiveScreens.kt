@@ -87,19 +87,8 @@ import java.util.ArrayList
 import java.util.Date
 import kotlin.math.max
 
-/**
- * 直播页 Compose UI(自 LivePlayActivity 拆出,同包)。
- * 只做渲染与交互回调;页面状态、播放控制与业务逻辑仍在 LivePlayActivity,
- * 经 `activity` 参数读取(相关成员为 internal)。
- */
-
-// ============================================================
-// Compose UI
-// ============================================================
-
 @Composable
 internal fun LiveScreen(activity: LivePlayActivity) {
-    // 背景色跟随实际形态:过渡期不当帧变黑/变浅,避免半新半旧
     val background = if (activity.isFullBox()) Color.Black else MaterialTheme.colorScheme.surfaceContainer
     Box(
         modifier = Modifier
@@ -113,7 +102,6 @@ internal fun LiveScreen(activity: LivePlayActivity) {
                 errorText = "",
                 retryText = "",
                 modifier = Modifier.fillMaxSize(),
-                // 播放器页:加载指示保持 48dp(页面级 64dp 定稿的例外,spec §6)
                 loadingContent = { ContainedLoadingIndicator(Modifier.size(48.dp)) },
             )
 
@@ -139,9 +127,6 @@ internal fun LiveScreen(activity: LivePlayActivity) {
     }
 }
 
-/**
- * 频道分组密码弹窗:密码为空时确定按钮禁用。
- */
 @Composable
 private fun LivePasswordDialog(
     onConfirm: (String) -> Unit,
@@ -181,8 +166,6 @@ private fun LivePasswordDialog(
 
 @Composable
 private fun LiveReadyContent(activity: LivePlayActivity) {
-    // 播放区形态 = activity.isFullBox()(过渡期跟随实际方向);
-    // 竖屏高度 = 短边 × 16:9,钳制在 [150dp, 长边/2](与详情页同一套算法)
     val configuration = LocalConfiguration.current
     val shortEdge = minOf(configuration.screenWidthDp, configuration.screenHeightDp).dp
     val longEdge = maxOf(configuration.screenWidthDp, configuration.screenHeightDp).dp
@@ -195,7 +178,6 @@ private fun LiveReadyContent(activity: LivePlayActivity) {
             modifier = if (activity.isFullBox()) {
                 Modifier.fillMaxSize()
             } else {
-                // 状态栏区域纯黑（背景画在 statusBarsPadding 外圈），播放器紧贴其下（对齐详情页补丁⑤）
                 Modifier
                     .fillMaxWidth()
                     .background(Color.Black)
@@ -220,7 +202,6 @@ private fun PlayerArea(activity: LivePlayActivity, modifier: Modifier) {
                 modifier = Modifier.fillMaxSize(),
             )
         }
-        // 切台快照
         if (activity.snapshotVisible) {
             Box(modifier = Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
                 activity.snapshotBitmap?.let { bitmap ->
@@ -234,13 +215,11 @@ private fun PlayerArea(activity: LivePlayActivity, modifier: Modifier) {
                 CircularProgressIndicator(modifier = Modifier.size(36.dp), strokeWidth = 3.dp)
             }
         }
-        // 加载态
         if (!activity.snapshotVisible &&
             (activity.playState == VideoView.STATE_PREPARING || activity.playState == VideoView.STATE_BUFFERING)
         ) {
             CircularProgressIndicator(modifier = Modifier.align(Alignment.Center).size(40.dp), color = Color.White)
         }
-        // 清晰度角标
         if (activity.resolutionVisible && activity.resolutionText.isNotEmpty()) {
             Surface(
                 modifier = Modifier.align(Alignment.TopStart).padding(12.dp),
@@ -255,7 +234,6 @@ private fun PlayerArea(activity: LivePlayActivity, modifier: Modifier) {
                 )
             }
         }
-        // 亮度/音量指示
         activity.gestureHintText?.let { hint ->
             Surface(
                 modifier = Modifier.align(Alignment.Center),
@@ -270,15 +248,12 @@ private fun PlayerArea(activity: LivePlayActivity, modifier: Modifier) {
                 )
             }
         }
-        // 时移条(回看中)
         if (activity.isBackState && activity.overlayVisible) {
             TimeshiftBar(activity, Modifier.align(Alignment.BottomCenter))
         }
-        // 竖屏:常驻角标入口(节目单/设置);形态判定走 isFullBox(过渡期跟随实际方向)
         if (!activity.isFullBox()) {
             PlayerCornerButtons(activity, Modifier.align(Alignment.TopEnd))
         } else if (activity.overlayVisible) {
-            // 全屏:返回按钮(浮层随交互显隐)
             IconButton(
                 onClick = { activity.applyFullscreen(false) },
                 modifier = Modifier.align(Alignment.TopStart),
@@ -324,7 +299,6 @@ private fun TimeshiftBar(activity: LivePlayActivity, modifier: Modifier) {
     Row(
         modifier = modifier
             .fillMaxWidth()
-            // 回看时移条不加半透明黑底,直接叠在画面上
             .padding(horizontal = 12.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -415,14 +389,9 @@ private fun ChannelInfoSection(activity: LivePlayActivity) {
     }
 }
 
-// ============================================================
-// 频道分组折叠列表
-// ============================================================
-
 @Composable
 private fun ChannelListSection(activity: LivePlayActivity, modifier: Modifier) {
     val listState = rememberLazyListState()
-    // 频道数据/展开变化时定位到当前频道
     LaunchedEffect(activity.scrollTick, activity.channelVersion) {
         val rows = activity.buildChannelRows()
         var target = -1
@@ -531,17 +500,14 @@ private fun ChannelRow(
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 private fun EpgSheet(activity: LivePlayActivity) {
-    activity.epgVersion // 读取以保证数据变化时刷新
+    activity.epgVersion
     val channelNameStr = activity.channelName?.channelName ?: ""
     AVBoxBottomSheet(
         onDismissRequest = { activity.epgSheetVisible = false },
         title = if (channelNameStr.isEmpty()) "节目单" else "节目单 · $channelNameStr",
         containerColor = MaterialTheme.colorScheme.surfaceContainer,
-        // 内容自带 LazyColumn(heightIn 520dp),滚动交给它,避免与封装的内容区抢手势
         isScrollable = false,
     ) {
-        // 切换成功才关闭节目单:走 LocalSheetDismiss 滑出动画;
-        // 须在 SheetOverlay 的 provider 作用域内读取
         val dismissAnimated = LocalSheetDismiss.current
         val epgList = activity.epgdata
         if (epgList.isEmpty()) {
@@ -566,7 +532,6 @@ private fun EpgSheet(activity: LivePlayActivity) {
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable(enabled = clickable) {
-                            // 仅在真正切换播放(回直播/开始回看)时关闭节目单,与原行为一致
                             if (activity.onEpgRowClicked(index)) dismissAnimated()
                         }
                         .padding(horizontal = 16.dp, vertical = 10.dp),
@@ -602,20 +567,15 @@ private fun EpgSheet(activity: LivePlayActivity) {
     }
 }
 
-// ============================================================
-// 直播设置 bottom sheet
-// ============================================================
-
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 private fun SettingsSheet(activity: LivePlayActivity) {
-    activity.settingsVersion // 读取以保证数据变化时刷新
+    activity.settingsVersion
     val groups = activity.visibleSettingGroups()
     AVBoxBottomSheet(
         onDismissRequest = { activity.settingsSheetVisible = false },
         title = "直播设置",
         containerColor = MaterialTheme.colorScheme.surfaceContainer,
-        // 内容自带 LazyColumn(heightIn 560dp),滚动交给它
         isScrollable = false,
     ) {
         LazyColumn(
@@ -626,11 +586,9 @@ private fun SettingsSheet(activity: LivePlayActivity) {
             groups.forEach { group ->
                 val items = group.liveSettingItems ?: return@forEach
                 item(key = "sg" + group.groupIndex) {
-                    // 配置切换(组6)标注长按删除入口
                     SettingsGroup(
                         title = if (group.groupIndex == 6) group.groupName + "（长按可删除）" else group.groupName,
                     ) {
-                        // 与设置页一致:每项一张小卡,按卡位拼圆角(FIRST/MIDDLE/LAST)
                         items.forEachIndexed { index, item ->
                             val position = when {
                                 items.size == 1 -> SettingsCardPosition.SINGLE
@@ -653,8 +611,6 @@ private fun SettingsSheet(activity: LivePlayActivity) {
                                         title = item.itemName,
                                         selected = activity.settingSelectedIndex(group.groupIndex) == item.itemIndex,
                                         onClick = { activity.clickSettingItem(group.groupIndex, item.itemIndex) },
-                                        // 配置切换历史:长按删除(当前使用中的配置拒绝删除);
-                                        // 第 0 项是合成的「跟随点播源」,不参与删除,历史下标需 -1
                                         onLongClick = if (group.groupIndex == 6 && item.itemIndex > 0) {
                                             { activity.removeLiveConfigHistory(item.itemIndex - 1) }
                                         } else {

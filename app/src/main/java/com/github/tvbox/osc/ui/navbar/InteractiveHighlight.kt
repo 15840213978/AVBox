@@ -19,10 +19,6 @@ import com.kyant.backdrop.isRuntimeShaderSupported
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 
-/**
- * 交互高亮(2026-09-13 照搬 `示例文件/android` 的 InteractiveHighlight):
- * AGSL 运行时着色器渲染跟随手指的光斑(API 33+),低版本回退纯色叠加。
- */
 class InteractiveHighlight(
     val animationScope: CoroutineScope,
     val position: (size: Size, offset: Offset) -> Offset = { _, offset -> offset },

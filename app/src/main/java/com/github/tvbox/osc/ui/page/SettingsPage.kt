@@ -73,7 +73,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/** 设置项状态:集中从 KV 读取,设置变更后整体刷新 */
 data class SettingsState(
     val playType: Int,
     val playRender: Int,
@@ -84,9 +83,7 @@ data class SettingsState(
     val preferAac: Boolean,
     val autoSwitchLine: Boolean,
     val m3u8Purify: Boolean,
-    /** 无痕模式:不记录搜索历史与观看历史(收藏正常) */
     val incognito: Boolean,
-    /** 禁用手势控制:开启后播放器不再响应上下滑调节亮度/音量 */
     val gestureControlDisabled: Boolean,
     val danmuOpen: Boolean,
     val danmuApi: String,
@@ -102,7 +99,6 @@ data class SettingsState(
     val apiUrl: String,
     val apiLines: List<String>,
     val dohIndex: Int,
-    /** 缓存占用展示文本(目录扫描耗时,由 SettingsViewModel.refreshCacheSize 异步统计后回填) */
     val cacheSizeText: String = "",
 ) {
     val apiLineVisible: Boolean
@@ -110,11 +106,6 @@ data class SettingsState(
 }
 
 class SettingsViewModel : ViewModel() {
-    /**
-     * 缓存占用文本:目录递归统计是耗时 IO,单独异步算,不放进 loadState 阻塞主线程。
-     * ⚠️ 必须声明在 [_state] 之前 —— _state 的初始化器会调用 loadState(),
-     * 而 Kotlin 属性按声明顺序初始化,声明在后面时这里读到的仍是 null(非空参数 → NPE 崩溃)。
-     */
     private var cacheSizeText: String = ""
 
     private val _state = mutableStateOf(loadState())
@@ -130,7 +121,6 @@ class SettingsViewModel : ViewModel() {
         refreshCacheSize()
     }
 
-    /** 后台统计缓存占用并回填;值未变化时不触发重组 */
     fun refreshCacheSize() {
         viewModelScope.launch {
             val text = withContext(Dispatchers.IO) { FileUtils.formatCacheSize(FileUtils.getCacheSize()) }
@@ -138,10 +128,6 @@ class SettingsViewModel : ViewModel() {
         }
     }
 
-    /**
-     * 清除缓存(内部 + 外部,含 Exo 视频缓存)。
-     * [onCleared] 在清理完成、占用文本刷新后于主线程回调(Tip 提示由 UI 层负责,ViewModel 不碰 UI)。
-     */
     fun clearCache(onCleared: () -> Unit = {}) {
         viewModelScope.launch {
             val text = withContext(Dispatchers.IO) {
@@ -162,7 +148,6 @@ class SettingsViewModel : ViewModel() {
 
     private fun loadState(): SettingsState = SettingsState(
         playType = KV.get(HawkConfig.PLAY_TYPE, 2),
-        // 默认 SurfaceView(2026-09-09 用户定稿)
         playRender = KV.get(HawkConfig.PLAY_RENDER, 1),
         playScale = KV.get(HawkConfig.PLAY_SCALE, 0),
         ijkCodec = KV.get(HawkConfig.IJK_CODEC, "硬解码"),
@@ -173,7 +158,6 @@ class SettingsViewModel : ViewModel() {
         m3u8Purify = KV.get(HawkConfig.M3U8_PURIFY, false),
         incognito = KV.get(HawkConfig.INCOGNITO, false),
         gestureControlDisabled = KV.get(HawkConfig.GESTURE_CONTROL_DISABLED, false),
-        // 默认与 DanmuHelper.isOpen() 对齐(true),避免首装显示“关”但弹幕实际开着
         danmuOpen = KV.get(HawkConfig.DANMU_OPEN, true),
         danmuApi = KV.get(HawkConfig.DANMU_API, ""),
         defaultLoadLive = KV.get(HawkConfig.DEFAULT_LOAD_LIVE, false),
@@ -191,14 +175,12 @@ class SettingsViewModel : ViewModel() {
         cacheSizeText = cacheSizeText,
     )
 
-    /** 通用写入口:写 KV 后刷新状态流 */
     fun <T> put(key: String, value: T) {
         KV.put(key, value)
         refresh()
     }
 }
 
-/** 单选选项 sheet 的 UI 状态(设置页与播放设置页共用) */
 class OptionSheetState(
     val title: String,
     val options: List<String>,
@@ -209,9 +191,6 @@ class OptionSheetState(
 @Composable
 fun SettingsPage(vm: SettingsViewModel = viewModel(), bottomPadding: Dp = 0.dp) {
     val state by vm.state
-    // 缓存占用会随播放持续增长,而 ViewModel 只在首帧(或改设置/清理后)算一次;
-    // 播放发生在 Detail/LivePlay 等独立 Activity,返回本页必然走 ON_RESUME,故在此重算,
-    // 否则会一直显示进播放页之前的旧值(实测:播完一分钟返回仍显示 0KB)
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { vm.refreshCacheSize() }
     val context = LocalContext.current
     var optionSheet by remember { mutableStateOf<OptionSheetState?>(null) }
@@ -224,7 +203,6 @@ fun SettingsPage(vm: SettingsViewModel = viewModel(), bottomPadding: Dp = 0.dp) 
     }
     var aboutSheet by remember { mutableStateOf(false) }
 
-    // 无边框顶栏(2026-09-11 晚照 `示例文件/android` 官方方案重做):Scaffold + M3 TopAppBar
     val listState = rememberScrollState()
 
     fun openOptions(title: String, options: List<String>, currentIndex: Int, onSelect: (Int) -> Unit) {
@@ -245,17 +223,13 @@ fun SettingsPage(vm: SettingsViewModel = viewModel(), bottomPadding: Dp = 0.dp) 
                 .fillMaxSize()
                 .verticalScroll(listState)
                 .padding(horizontal = 16.dp)
-                // 液态玻璃模式:叠加悬浮栏遮挡高度(MainScreen 下发,M3 栏模式为 0)
                 .padding(bottom = 8.dp + bottomPadding),
-            verticalArrangement = Arrangement.spacedBy(28.dp), // 2026-09-09:分组卡片间距 28dp(用户定稿)
+            verticalArrangement = Arrangement.spacedBy(28.dp),
         ) {
-            // 顶部占位 = 顶栏高度 - 20dp(2026-09-12 用户定稿:首卡与顶栏间距在 -12 基础上再缩小 8dp,约 13dp 视觉间距)
             Spacer(Modifier.height(topPad - 20.dp))
 
-            // 应用信息卡(2026-09-12 用户定稿:AVBox 大字 + 介绍 + 版本胶囊 + 右侧图标,28dp 圆角渐变动态取色)
             AppInfoHeaderCard(versionName)
 
-            // ---- 设置入口(2026-09-12 用户定稿:配置管理/主题设置/播放设置/偏好设置/预载设置 合并为一组) ----
             SettingsGroup(title = null) {
                 SettingsCard(SettingsCardPosition.FIRST) {
                     SettingsRow(
@@ -299,7 +273,6 @@ fun SettingsPage(vm: SettingsViewModel = viewModel(), bottomPadding: Dp = 0.dp) 
                 }
             }
 
-            // ---- 首页与网络(2026-09-12 用户定稿:默认启动页/历史记录上限/清除缓存/DOH 一组) ----
             SettingsGroup(title = null) {
                 SettingsCard(SettingsCardPosition.FIRST) {
                     SettingsRow(
@@ -331,8 +304,6 @@ fun SettingsPage(vm: SettingsViewModel = viewModel(), bottomPadding: Dp = 0.dp) 
                         },
                     )
                 }
-                // 清除缓存(2026-09-12):口径 = 内部缓存 + 外部缓存(Exo 视频缓存 exo-video-cache 在外部缓存目录,
-                // 只清内部缓存等于没清);点击直接清理并刷新占用显示,不做二次确认(缓存清理不丢用户数据)
                 SettingsCard(SettingsCardPosition.MIDDLE) {
                     SettingsRow(
                         title = "清除缓存",
@@ -363,7 +334,6 @@ fun SettingsPage(vm: SettingsViewModel = viewModel(), bottomPadding: Dp = 0.dp) 
                 }
             }
 
-            // ---- 接口线路(多线路订阅时显示;2026-09-12 配置管理/DOH 移出后独立成组) ----
             if (state.apiLineVisible) {
                 SettingsGroup(title = null) {
                     SettingsCard(SettingsCardPosition.SINGLE) {
@@ -379,14 +349,11 @@ fun SettingsPage(vm: SettingsViewModel = viewModel(), bottomPadding: Dp = 0.dp) 
                                     val newApi = HistoryHelper.getApiLineUrl(state.apiLines[idx])
                                     if (newApi.isNotEmpty()) {
                                         val oldApi = KV.get(HawkConfig.API_URL, "")
-                                        // 2026-09-12 点播/直播拆分:只切点播;直播跟随态继续跟随新线路,
-                                        // 独立直播源原样保留(旧实现双写会把独立直播源冲掉)
                                         val followLive = ApiConfig.isLiveFollowVod()
                                         KV.put(HawkConfig.API_URL, newApi)
                                         if (followLive) KV.put(HawkConfig.LIVE_API_URL, "")
                                         vm.refresh()
                                         if (oldApi != newApi) {
-                                            // 作废旧配置 + 通知首页刷新 + 重载:失败时不会残留旧线路的内容
                                             AppBootstrap.onApiUrlChanged()
                                         } else {
                                             ApiConfig.get().invalidateLiveConfig()
@@ -399,7 +366,6 @@ fun SettingsPage(vm: SettingsViewModel = viewModel(), bottomPadding: Dp = 0.dp) 
                 }
             }
 
-            // ---- 关于 ----
             SettingsGroup(title = null) {
                 SettingsCard(SettingsCardPosition.FIRST) {
                     SettingsRow(
@@ -467,7 +433,6 @@ private fun AppInfoHeaderCard(versionName: String) {
                     color = scheme.onPrimaryContainer.copy(alpha = 0.75f),
                     modifier = Modifier.padding(top = 2.dp),
                 )
-                // 版本号胶囊(深底浅字,与卡片背景形成对比)
                 Surface(
                     shape = CircleShape,
                     color = scheme.onPrimaryContainer,
@@ -481,8 +446,6 @@ private fun AppInfoHeaderCard(versionName: String) {
                     )
                 }
             }
-            // 图标:复用自适应图标前景矢量(不占位图,随主题 tint 着色,深浅模式共用一套资源);
-            // 前景自带启动器安全边距(图形约占画布 48%),放大 1.7 倍以匹配原图标的视觉大小
             Icon(
                 painter = painterResource(R.drawable.ic_launcher_foreground),
                 contentDescription = null,
@@ -496,7 +459,6 @@ private fun AppInfoHeaderCard(versionName: String) {
     }
 }
 
-/** 关于(2026-09-09:由 View 版 AboutDialog 迁移为 bottom sheet;免责文案取自原 dialog_about.xml) */
 @Composable
 private fun AboutSheet(versionName: String, onDismiss: () -> Unit) {
     AVBoxBottomSheet(onDismissRequest = onDismiss, title = "关于") {
@@ -534,7 +496,6 @@ private fun currentLineIndex(state: SettingsState): Int {
     return state.apiLines.indexOfFirst { HistoryHelper.getApiLineUrl(it) == current }.coerceAtLeast(0)
 }
 
-/** 项目仓库地址(2026-09-12 用户提供):设置页「访问 GitHub 仓库」入口跳转目标 */
 private const val GITHUB_REPO_URL = "https://github.com/XiaochangXu/AVBox"
 
 private fun openExternalUrl(context: Context, url: String) {
@@ -545,7 +506,6 @@ private fun openExternalUrl(context: Context, url: String) {
     }
 }
 
-/** 文本输入对话框(Material3 AlertDialog,2026-09-11 由 bottom sheet 迁移):确认按钮固定右下角;设置页与偏好设置页共用 */
 @Composable
 fun TextEditDialog(
     title: String,

@@ -36,7 +36,6 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import com.github.tvbox.osc.ui.theme.cardContainer
 
-/** 卡位:决定当前卡片的圆角(avbox-mobile-ui-spec §4.3) */
 enum class SettingsCardPosition {
     SINGLE,
     FIRST,
@@ -51,15 +50,10 @@ private fun shapeFor(position: SettingsCardPosition): Shape = when (position) {
     SettingsCardPosition.LAST -> RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp, bottomEnd = 28.dp, bottomStart = 28.dp)
 }
 
-/**
- * 设置分组卡片:按卡位自动圆角,Surface 裁剪保证 ripple 按卡圆角裁剪(avbox-mobile-ui-spec §4.3)。
- * 一个可视分组拆多张卡时,各卡间距由 [SettingsGroup] 统一为 2dp。
- */
 @Composable
 fun SettingsCard(
     position: SettingsCardPosition,
     modifier: Modifier = Modifier,
-    // 为 null 时使用全局 cardContainer 色;页面可传 surfaceBright 等覆盖
     color: Color? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
@@ -72,10 +66,6 @@ fun SettingsCard(
     }
 }
 
-/**
- * 设置分组:组标题(13sp onSurfaceVariant)+ 若干张卡,卡间距 2dp;组间距由页面侧统一控制。
- * 分组拆多张卡时仅首卡传 title,各卡 position 依次 FIRST/MIDDLE/LAST。
- */
 @Composable
 fun SettingsGroup(
     title: String?,
@@ -84,7 +74,7 @@ fun SettingsGroup(
 ) {
     Column(
         modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(2.dp), // 2026-09-09:卡间距 4→2dp(用户定稿)
+        verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         title?.let {
             Text(
@@ -98,10 +88,6 @@ fun SettingsGroup(
     }
 }
 
-/**
- * 右侧当前值 + chevron 的设置行;无 [onClick] 时不显示 chevron;
- * 可带左侧圆形角标图标(iconRes)与标题下方小标题(subtitle,2026-09-12)。
- */
 @Composable
 fun SettingsRow(
     title: String,
@@ -149,10 +135,6 @@ fun SettingsRow(
     }
 }
 
-/**
- * 设置行左侧圆形角标图标(2026-09-12 用户定稿):40dp 圆形容器 primaryContainer 底(动态取色),
- * 图标 22dp onPrimaryContainer;规格与搜索页卡片角标(SearchActivity.SectionIconBadge)一致。
- */
 @Composable
 fun SettingsIconBadge(@DrawableRes iconRes: Int, contentDescription: String? = null) {
     Box(
@@ -171,10 +153,6 @@ fun SettingsIconBadge(@DrawableRes iconRes: Int, contentDescription: String? = n
     }
 }
 
-/**
- * 滑块设置行:标题 + 右侧当前值 + M3 Slider(动态取色,自动读 colorScheme.primary/surfaceVariant)。
- * 拖动中仅回调 [onValueChange](调用方更新本地 state),松手才回调 [onValueChangeFinished] 落盘。
- */
 @Composable
 fun SettingsSliderRow(
     title: String,
@@ -226,10 +204,6 @@ fun SettingsSliderRow(
     }
 }
 
-/**
- * 开关设置行:Switch 不直接接收点击,由整行 clickable 接管,避免双响应。
- * 可带标题下方小标题(subtitle,2026-09-12),样式与 [SettingsRow] 一致。
- */
 @Composable
 fun SettingsSwitchRow(
     title: String,
@@ -267,11 +241,6 @@ fun SettingsSwitchRow(
     }
 }
 
-/**
- * bottom sheet 单选项(avbox-mobile-ui-spec §4.3:选项列表与设置行统一视觉)。
- * [trailing]:标题与单选圈之间的可选插槽(如订阅源 sheet 的「搜索/详情」策略标记)。
- * [onLongClick]:可选长按动作(如直播设置「配置切换」历史的长按删除,2026-09-12 方案 2)。
- */
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun SettingsOptionRow(
@@ -318,7 +287,6 @@ private fun RowTitle(title: String, enabled: Boolean, modifier: Modifier = Modif
     )
 }
 
-/** 标题下方小标题(副标题):bodySmall + onSurfaceVariant,不可用行同透明度规则 */
 @Composable
 private fun RowSubtitle(text: String, enabled: Boolean, modifier: Modifier = Modifier) {
     Text(

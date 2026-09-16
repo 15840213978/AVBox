@@ -28,14 +28,9 @@ import com.github.tvbox.osc.ui.components.TopBarActionBox
 import com.github.tvbox.osc.util.HawkConfig
 import kotlin.math.roundToInt
 
-/**
- * 预载设置页(2026-09-12 用户定稿):设置 tab 入口,收纳预载与磁盘缓存相关项。
- * 卡片顺序(用户指定):下一集预载 → 预载时长 → 边播边缓存 → 缓存容量。
- */
 @Composable
 fun PreloadSettingsScreen(onNavigateBack: () -> Unit, vm: SettingsViewModel = viewModel()) {
     val state by vm.state
-    // 滑块拖动中值(松手才落盘;key 绑定 state,落盘刷新后自动与持久值同步)
     var sliderPreloadDuration by remember(state.preloadDuration) { mutableStateOf(state.preloadDuration) }
     var sliderCacheSize by remember(state.exoCacheSizeMb) { mutableStateOf(state.exoCacheSizeMb) }
 
@@ -59,7 +54,6 @@ fun PreloadSettingsScreen(onNavigateBack: () -> Unit, vm: SettingsViewModel = vi
                 .padding(horizontal = 16.dp)
                 .padding(bottom = 8.dp),
         ) {
-            // 顶部占位 = 顶栏高度 + 8dp:首卡与顶栏间距与设置页一致(2026-09-12 用户定稿,原 -8+28=+20)
             Spacer(Modifier.height(topPad + 8.dp))
 
             SettingsGroup(title = null) {
@@ -71,7 +65,6 @@ fun PreloadSettingsScreen(onNavigateBack: () -> Unit, vm: SettingsViewModel = vi
                         onCheckedChange = { vm.put(HawkConfig.PRELOAD_NEXT_EPISODE, it) },
                     )
                 }
-                // 预载时长(第二期参数化):20~120s 步长 10,控制下一集预载的数据范围(内存缓冲 + 磁盘写盘)
                 SettingsCard(SettingsCardPosition.MIDDLE) {
                     SettingsSliderRow(
                         title = "预载时长",
@@ -87,8 +80,6 @@ fun PreloadSettingsScreen(onNavigateBack: () -> Unit, vm: SettingsViewModel = vi
                         },
                     )
                 }
-                // 边播边缓存(第二期扩展,2026-09-13 默认关):点播全程走磁盘缓存数据源(直播页不启用);
-                // 与预载共用同一缓存实例。开启会对本地代理源(网盘)引入 EXO 起播失败风险,故默认关+副标题提示。
                 SettingsCard(SettingsCardPosition.MIDDLE) {
                     SettingsSwitchRow(
                         title = "边播边缓存",
@@ -97,7 +88,6 @@ fun PreloadSettingsScreen(onNavigateBack: () -> Unit, vm: SettingsViewModel = vi
                         onCheckedChange = { vm.put(HawkConfig.PLAY_CACHE, it) },
                     )
                 }
-                // 缓存容量(第二期扩展):128MB~4GB 步长 128,SimpleCache 创建时固定 → 改动重启 App 生效
                 SettingsCard(SettingsCardPosition.LAST) {
                     SettingsSliderRow(
                         title = "缓存容量",

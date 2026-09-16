@@ -130,10 +130,7 @@ fun FloatingBottomBar(
 
         var currentIndex by remember(selectedTabIndex) { mutableIntStateOf(selectedTabIndex()) }
 
-
         val currentOnTabSelected by rememberUpdatedState(onTabSelected)
-        // DampedDragAnimation / InteractiveHighlight 被 remember 缓存,enabled 闭包捕获首帧值,
-        // 须经 rememberUpdatedState 转发,否则进入全屏后拖拽手势仍处于启用状态。
         val currentInteractive by rememberUpdatedState(interactive)
 
         val dampedDragAnimation = remember(animationScope, tabsCount, density) {
@@ -216,10 +213,6 @@ fun FloatingBottomBar(
                     backdrop = backdrop,
                     shape = { ContinuousCapsule },
                     effects = {
-                        // blur/lens 只由 isBlurEnabled 控制,不随 interactive() 关闭——
-                        // 转场期间导航条保持玻璃质感(interactive 仅用于手势门控)
-                        // 切 Tab 期间降级:保留 blur,去掉 vibrancy + lens(GPU 最贵的部分),
-                        // 将三层 drawBackdrop 的 GPU 开销从 3×(vibrancy+blur+lens) 降到 1×blur
                         if (isBlurEnabled) {
                             val switching = isTabSwitching()
                             if (!switching) {
@@ -277,8 +270,6 @@ fun FloatingBottomBar(
                         backdrop = backdrop,
                         shape = { ContinuousCapsule },
                         effects = {
-                            // 切 Tab 期间跳过中层 drawBackdrop:此层 alpha=0 不可见,
-                            // 仅在非切 Tab 时为顶层 CombinedBackdrop 提供采样源
                             if (isBlurEnabled && !isTabSwitching()) {
                                 val progress = dampedDragAnimation.pressProgress
                                 vibrancy()
@@ -328,9 +319,6 @@ fun FloatingBottomBar(
                     backdrop = rememberCombinedBackdrop(backdrop, tabsBackdrop),
                     shape = { ContinuousCapsule },
                     effects = {
-                        // 切 Tab 期间跳过顶层 drawBackdrop:pressProgress 接近 0 时
-                        // lens 半径为 0(库内部直接 return),shadow/innerShadow alpha=0,
-                        // 视觉上不可见,跳过可省去 CombinedBackdrop 的双重采样 + GPU effect
                         if (isBlurEnabled && supportsLens && !isTabSwitching()) {
                             val progress = dampedDragAnimation.pressProgress
                             lens(
@@ -388,8 +376,6 @@ private fun RowScope.TabsContent(
 ) {
     val scale = LocalFloatingBottomBarTabScale.current
     val currentIndex = selectedTabIndex()
-    // enabled 门控:导航条隐藏(alpha=0 只影响绘制)时禁用 clickable,
-    // 否则点击会在这里被消费,穿透不到下层二级页面的内容(如右下角 FAB)。
     val enabled = interactive()
     tabs.forEachIndexed { index, tab ->
         val selected = index == currentIndex

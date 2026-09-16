@@ -20,10 +20,6 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
 
-/**
- * 按压缩放卡片(avbox-mobile-ui-spec §6):ripple + 按压缩放 0.96~0.98。
- * 首页海报卡默认 16dp 圆角,可通过 [shape] 覆盖。
- */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun PressableCard(

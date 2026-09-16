@@ -21,10 +21,6 @@ import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shape
 import com.github.tvbox.osc.ui.theme.cardContainer
 
-/**
- * 骨架屏 shimmer(avbox-mobile-ui-spec §6,统一替代 LoadSir 加载态):
- * 灰卡底色上扫过一道高光;[base]/[highlight] 默认取卡片容器色,可覆盖。
- */
 fun Modifier.shimmer(
     base: Color? = null,
     highlight: Color = Color.White.copy(alpha = 0.15f),
@@ -51,7 +47,6 @@ fun Modifier.shimmer(
     }
 }
 
-/** 骨架占位块,配合 [shimmer] 使用 */
 @Composable
 fun SkeletonBox(
     modifier: Modifier = Modifier,

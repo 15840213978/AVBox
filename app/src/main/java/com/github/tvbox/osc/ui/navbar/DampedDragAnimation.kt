@@ -16,10 +16,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 
-/**
- * 阻尼拖拽动画(2026-09-13 照搬 `示例文件/android` 的 DampedDragAnimation):
- * 滑动指示器的拖拽跟随 + 松手回弹 + 按压缩放 + 速度感知形变,全由 spring 驱动。
- */
 class DampedDragAnimation(
     private val animationScope: CoroutineScope,
     val initialValue: Float,

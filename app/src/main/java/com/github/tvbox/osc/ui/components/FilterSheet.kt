@@ -21,12 +21,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.github.tvbox.osc.bean.MovieSort
 
-/**
- * 分类筛选 bottom sheet(§4.1 类型/年份/地区;每组单选胶囊,清除/确定整组生效)。
- * 2026-09-09 由 HomePage 私有实现移出,供栏目二级页(PartitionListActivity)复用。
- * 2026-09-13 清除/确定改走「带动画关闭」:先回调 onConfirm 再滑出,
- * 调用方 onConfirm 里不要再自己关闭 sheet(直接置 false 会跳过滑出动画)。
- */
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun FilterSheet(
@@ -39,7 +33,6 @@ fun FilterSheet(
         onDismissRequest = onDismiss,
         title = "筛选 · ${sort.name ?: ""}",
     ) {
-        // 此处读取发生在 SheetOverlay 的 provider 作用域内;防抖防滑出窗口内双触发 onConfirm
         val dismissAnimated = LocalSheetDismiss.current
         var accepted by remember { mutableStateOf(false) }
         Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
