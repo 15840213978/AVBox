@@ -37,6 +37,7 @@ import com.github.tvbox.osc.cache.CacheManager;
 import com.github.tvbox.osc.subtitle.model.Subtitle;
 import com.github.tvbox.osc.subtitle.model.Time;
 import com.github.tvbox.osc.util.FileUtils;
+import com.github.tvbox.osc.util.LOG;
 import com.github.tvbox.osc.util.MD5;
 import com.github.tvbox.osc.util.SubtitleHelper;
 
@@ -83,9 +84,14 @@ public class DefaultSubtitleEngine implements SubtitleEngine {
             return;
         }
 
+        final int loadSeq = mLoadSeq;
         SubtitleLoader.loadSubtitle(path, new SubtitleLoader.Callback() {
             @Override
             public void onSuccess(final SubtitleLoadSuccessResult subtitleLoadSuccessResult) {
+                if (loadSeq != mLoadSeq) {
+                    LOG.i("echo-sub drop stale: " + (path.startsWith("data:") ? "inline" : path));
+                    return;
+                }
                 if (subtitleLoadSuccessResult == null) {
                     Log.d(TAG, "onSuccess: subtitleLoadSuccessResult is null.");
                     return;
@@ -100,6 +106,8 @@ public class DefaultSubtitleEngine implements SubtitleEngine {
                     return;
                 }
                 mSubtitles = buildSubtitles(captions);
+                LOG.i("echo-sub ready: lines=" + mSubtitles.size()
+                        + " src=" + (path.startsWith("data:") ? "inline" : path));
                 setSubtitleDelay(SubtitleHelper.getTimeDelay());
                 notifyPrepared();
 
@@ -123,7 +131,9 @@ public class DefaultSubtitleEngine implements SubtitleEngine {
 
             @Override
             public void onError(final Exception exception) {
+                if (loadSeq != mLoadSeq) return;
                 Log.e(TAG, "onError: " + exception.getMessage());
+                LOG.e("echo-sub fail: " + (path.startsWith("data:") ? "inline" : path) + " -> " + exception.getMessage());
             }
         });
     }
@@ -189,6 +199,9 @@ public class DefaultSubtitleEngine implements SubtitleEngine {
     }
 
     private String playSubtitleCacheKey;
+    /** 加载序号:切集/重载/销毁后,老请求的迟到结果必须丢弃(否则会覆盖当前歌词/字幕,表现为"出来得慢或串词") */
+    private int mLoadSeq;
+
     public void setPlaySubtitleCacheKey(String cacheKey) {
         playSubtitleCacheKey = cacheKey;
     }
@@ -202,6 +215,7 @@ public class DefaultSubtitleEngine implements SubtitleEngine {
         stop();
         mSubtitles = null;
         mUIRenderTask = null;
+        mLoadSeq++;
     }
 
     @Override

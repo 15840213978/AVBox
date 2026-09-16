@@ -420,6 +420,11 @@ public class PlayContainer extends FrameLayout implements CustomAdapt, PlaybackH
         engine.attach(this, surfaceSlot);
         if (mVideoView != null && mController != null) {
             mVideoView.setVideoController((BaseVideoController) mController);
+            int state = mVideoView.getCurrentPlayState();
+            if (mVideoView.getMediaPlayer() != null
+                    && state != VideoView.STATE_IDLE && state != VideoView.STATE_ERROR) {
+                rebindPlaybackOverlay();
+            }
         }
         LOG.i("echo-p4 re-attach after live/other page");
     }
@@ -478,7 +483,7 @@ public class PlayContainer extends FrameLayout implements CustomAdapt, PlaybackH
     @Subscribe(threadMode = ThreadMode.MAIN)
     public void refresh(RefreshEvent event) {
         if (event.type == RefreshEvent.TYPE_SUBTITLE_SIZE_CHANGE) {
-            mController.getSubtitleView().setTextSize((int) event.obj);
+            applySubtitleTextSize();
         }
         if (event.type == RefreshEvent.TYPE_SET_DANMU_SETTINGS) {
             setDanmuViewSettings(event.obj instanceof Boolean && (Boolean) event.obj);
@@ -506,6 +511,7 @@ public class PlayContainer extends FrameLayout implements CustomAdapt, PlaybackH
     }
 
     private void checkDanmu(String danmu, DanmuLoadController.LoadCallback callback) {
+        scheduler.setPlayDanmu(danmu);
         if (danmuLoadController != null) {
             VodInfo.VodSeries series = scheduler.vod() == null ? null : scheduler.currentSeries(scheduler.vod().playFlag, scheduler.vod().playIndex);
             danmuLoadController.check(danmu, scheduler.vod() == null ? "" : scheduler.vod().name, series == null ? "" : series.name, callback);
@@ -762,6 +768,10 @@ public class PlayContainer extends FrameLayout implements CustomAdapt, PlaybackH
                     style -> {
                         KV.put(HawkConfig.SUBTITLE_TEXT_STYLE, style);
                         setSubtitleViewTextStyle(style);
+                        return kotlin.Unit.INSTANCE;
+                    },
+                    () -> {
+                        applySubtitleTextSize();
                         return kotlin.Unit.INSTANCE;
                     }));
         } catch (Exception e) {
@@ -1175,6 +1185,7 @@ public class PlayContainer extends FrameLayout implements CustomAdapt, PlaybackH
         TrackInfo trackInfo = null;
         AbstractPlayer mediaPlayer = mVideoView.getMediaPlayer();
         mController.getLyricView().setTextSize(previewMode ? 16 : 24);
+        applySubtitleTextSize();
         mController.getLyricView().setVisibility(View.GONE);
         mController.getLyricView().reset();
         mController.getLyricView().bindToMediaPlayer(mediaPlayer);
@@ -1220,13 +1231,20 @@ public class PlayContainer extends FrameLayout implements CustomAdapt, PlaybackH
             }
             exoPlayer.loadDefaultTrack(scheduler.progressKey());
         }
-        if (!TextUtils.isEmpty(scheduler.playLyric())) {
-            mController.getLyricView().setSubtitlePath(scheduler.playLyric());
+        // 歌词来源:内联 data: 在内存里、毫秒级;URL 歌词优先吃本集缓存,否则每次起播都要走网络(快慢全看源站,慢链还要等满 10s 超时)
+        String lyric = scheduler.playLyric();
+        String lyricPath = lyric;
+        if (TextUtils.isEmpty(lyric) || !lyric.startsWith("data:")) {
+            String cachedLyric = cachedPlayPath(scheduler.lyricCacheKey());
+            if (!TextUtils.isEmpty(cachedLyric)) lyricPath = cachedLyric;
+        }
+        if (!TextUtils.isEmpty(lyricPath)) {
+            mController.getLyricView().setSubtitlePath(lyricPath);
             mController.getLyricView().setVisibility(View.VISIBLE);
         }
         mController.getSubtitleView().bindToMediaPlayer(mVideoView.getMediaPlayer());
         mController.getSubtitleView().setPlaySubtitleCacheKey(scheduler.subtitleCacheKey());
-        String subtitlePathCache = (String)CacheManager.getCache(MD5.string2MD5(scheduler.subtitleCacheKey()));
+        String subtitlePathCache = cachedPlayPath(scheduler.subtitleCacheKey());
         if (subtitlePathCache != null && !subtitlePathCache.isEmpty()) {
             hideExoInternalSubtitle();
             mController.getSubtitleView().setSubtitlePath(subtitlePathCache);
@@ -1262,6 +1280,25 @@ public class PlayContainer extends FrameLayout implements CustomAdapt, PlaybackH
                 }
             }
         }
+    }
+
+    private void rebindPlaybackOverlay() {
+        initSubtitleView();
+        checkDanmu(scheduler.playDanmu());
+    }
+
+    /**
+     * 某集已落盘的字幕/歌词来源:内联 data: 直接可用;本地文件要确认还在(系统可能清 /zimu/ 缓存目录,否则会静默无字幕);
+     * 其余情况返回空,由调用方回退到本次起播的新地址。
+     */
+    private String cachedPlayPath(String cacheKey) {
+        if (TextUtils.isEmpty(cacheKey)) return "";
+        Object cached = CacheManager.getCache(MD5.string2MD5(cacheKey));
+        if (!(cached instanceof String)) return "";
+        String path = (String) cached;
+        if (TextUtils.isEmpty(path)) return "";
+        if (path.startsWith("data:")) return path;
+        return new File(path).exists() ? path : "";
     }
 
             private void clearLyricView() {
@@ -1321,6 +1358,7 @@ public class PlayContainer extends FrameLayout implements CustomAdapt, PlaybackH
             scheduler.publishTitle();
             scheduler.clearTriedLines();
             scheduler.setUserPickedLine(session.userPickedLine());
+            rebindPlaybackOverlay();
             if (mVideoView != null && !mVideoView.isPlaying()) mVideoView.start();
             return;
         }
@@ -1483,7 +1521,15 @@ this.previewMode = previewMode;
 if (mController != null) {
 mController.setPreviewMode(previewMode);
 mController.getLyricView().setTextSize(previewMode ? 16 : 24);
+applySubtitleTextSize();
 }
+}
+
+/** 字幕字号 = 设置值 × 当前形态(预览 0.6×/全屏 1×);统一走 setTextSize(float)=sp —— SimpleSubtitleView 只重写了 float 重载(描边层 backGroundText 随之同步),int 实参会被加宽到 float,同样落到该重载 */
+private void applySubtitleTextSize() {
+if (mController == null || mController.getSubtitleView() == null) return;
+int size = SubtitleHelper.getTextSize(mActivity);
+mController.getSubtitleView().setTextSize(previewMode ? size * 0.6f : (float) size);
 }
 
 public void toggleControllerControls() {

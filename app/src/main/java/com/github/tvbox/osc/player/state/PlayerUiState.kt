@@ -187,6 +187,8 @@ class SubtitleSheetState(
     val onSelectRemote: () -> Unit,
     /** 外挂字幕文字样式(2026-09-12 补回丢失逻辑):0=样式一 白色,1=样式二 粉色(#FFB6C1) */
     val onSelectStyle: (Int) -> Unit = {},
+    /** 字号按钮只写了设置,需播放层立即按当前形态(预览 0.6×/全屏 1×)应用到字幕视图 */
+    val onTextSizeChange: () -> Unit = {},
 )
 
 /** 字幕搜索面板状态（替代 View 版 SearchSubtitleDialog）；onLoadSubtitle = 拿到字幕直链后回调 */

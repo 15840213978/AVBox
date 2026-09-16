@@ -111,6 +111,7 @@ fun SubtitleSheet(sheet: SubtitleSheetState, onDismiss: () -> Unit) {
                                 val next = cur.coerceAtLeast(12)
                                 sizeText = next.toString()
                                 SubtitleHelper.setTextSize(next)
+                                sheet.onTextSizeChange()
                             }
                         }, modifier = Modifier.width(playerDim(R.dimen.vs_140)))
                         Text(
@@ -132,6 +133,7 @@ fun SubtitleSheet(sheet: SubtitleSheetState, onDismiss: () -> Unit) {
                                 val next = cur.coerceAtMost(60)
                                 sizeText = next.toString()
                                 SubtitleHelper.setTextSize(next)
+                                sheet.onTextSizeChange()
                             }
                         }, modifier = Modifier.width(playerDim(R.dimen.vs_140)))
                     }

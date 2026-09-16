@@ -195,11 +195,16 @@ public class MyVideoView extends VideoView implements DrawHandler.Callback {
     }
 
     public void showVideoFrame() {
-        if (frameCover != null) frameCover.setVisibility(GONE);
+        hideVideoFrameCover();
         // 画面已出 → 顺手撤掉封面:artworkView 与渲染 Surface 同层且盖在其上,
         // 任何「画面已就绪却仍显示封面」的时序都会把视频压成一张海报(有声无画)。
         // 这里做终极兜底,保证「有画面」与「显示封面」互斥。
         clearArtwork();
+    }
+
+    /** 纯音频没有画面可露:只收黑帧、**保留封面**(海报就是它的背景,播放中不能只剩黑底) */
+    public void hideVideoFrameCover() {
+        if (frameCover != null) frameCover.setVisibility(GONE);
     }
 
     public boolean isVideoFrameCleared() {

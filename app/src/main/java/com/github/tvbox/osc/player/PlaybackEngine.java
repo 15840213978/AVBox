@@ -148,7 +148,12 @@ public final class PlaybackEngine implements PlaybackHostApi {
                 // vod 去更新通知/预载(错内容)或把直播画面当成点播起播
                 if (liveMode) return;
                 if (playState == VideoView.STATE_PLAYING && !released) {
-                    videoView.showVideoFrame();
+                    // 纯音频没有画面可露、海报就是它的背景(只有确认是影视才需要「收黑帧 + 撤封面」的互斥)
+                    if (controller.isConfirmedAudioOnly()) {
+                        videoView.hideVideoFrameCover();
+                    } else {
+                        videoView.showVideoFrame();
+                    }
                     // 纯音频渲染兜底(2026-09-13):URL 预判漏网(无后缀音乐直链)时,轨道信息就绪后补切
                     controller.ensureAudioOnlyRender();
                     // 正片稳定播放 → 延迟评估下一集预载(预载方案第一期)

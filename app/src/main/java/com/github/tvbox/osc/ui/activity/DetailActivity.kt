@@ -17,15 +17,12 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModelProvider
 import com.github.tvbox.osc.R
 import com.github.tvbox.osc.base.BaseActivity
-import com.github.tvbox.osc.event.RefreshEvent
 import com.github.tvbox.osc.player.PageHost
 import com.github.tvbox.osc.ui.player.PlayContainer
 import com.github.tvbox.osc.ui.theme.AVBoxTheme
 import com.github.tvbox.osc.ui.theme.AppThemeState
 import com.github.tvbox.osc.util.PermissionHelper
-import com.github.tvbox.osc.util.SubtitleHelper
 import kotlinx.coroutines.launch
-import org.greenrobot.eventbus.EventBus
 
 private const val SYSBAR_APPEARANCE_REASSERT_DELAY_MS = 400L
 
@@ -138,6 +135,7 @@ class DetailActivity : BaseActivity(), PageHost {
     }
 
     fun applyFullscreen(full: Boolean) {
+        playContainer?.setAutoSwitchLineEnabled(!full)
         if (fullScreen == full) return
         fullScreen = full
         requestedOrientation = if (full) {
@@ -155,10 +153,6 @@ class DetailActivity : BaseActivity(), PageHost {
                 if (!isFinishing && !isDestroyed) applyStatusBarAppearance()
             }, SYSBAR_APPEARANCE_REASSERT_DELAY_MS)
         }
-        val container = playContainer
-        if (container != null) {
-            container.setAutoSwitchLineEnabled(!full)
-        }
         syncFullBoxSideEffects()
     }
 
@@ -174,15 +168,8 @@ class DetailActivity : BaseActivity(), PageHost {
     }
 
     private fun syncFullBoxSideEffects() {
-        val preview = !isFullBox()
-        playContainer?.setPreviewMode(preview)
-        applySubtitleTextSize(preview)
-    }
-
-    private fun applySubtitleTextSize(preview: Boolean) {
-        var size = SubtitleHelper.getTextSize(this)
-        if (preview) size = (size * 0.6).toInt()
-        EventBus.getDefault().post(RefreshEvent(RefreshEvent.TYPE_SUBTITLE_SIZE_CHANGE, size))
+        // 字幕字号随形态缩放(预览 0.6×)已收口到 PlayContainer.setPreviewMode,这里不再单独下发
+        playContainer?.setPreviewMode(!isFullBox())
     }
 
     fun startDetailFallbackAfterLinesExhausted(): Boolean = vm.startFallbackAfterLinesExhausted()

@@ -2,6 +2,7 @@ package com.github.tvbox.osc.player;
 
 import android.annotation.SuppressLint;
 import android.content.Context;
+import android.util.Base64;
 
 import android.annotation.TargetApi;
 import android.graphics.Bitmap;
@@ -70,6 +71,7 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -783,6 +785,8 @@ public class PlaybackController {
 
     /** 预览态启用/全屏禁用自动换线(全屏时用户在看画面,不该被换线打断) */
     public void setAutoSwitchLineEnabled(boolean enabled) {
+        // 值未变就直接返回:页面每次进入/重进都会下发一遍,重复的"禁用"不能再去动在途取流超时与换线记录
+        if (allowAutoSwitchLine == enabled) return;
         allowAutoSwitchLine = enabled;
         if (!enabled) {
             cancelPlayTimeout();
@@ -1205,6 +1209,9 @@ public class PlaybackController {
                             }
                         }
                         setSubtitleCacheKey(info.optString("subtKey", null));
+                        String lyricPick = playLyric();
+                        LOG.i("echo-lyric pick: " + (TextUtils.isEmpty(lyricPick) ? "none"
+                                : lyricPick.startsWith("data:") ? "inline len=" + lyricPick.length() : lyricPick));
                         String playUrl = info.optString("playUrl", "");
                         String flag = info.optString("flag");
                         Object rawUrl = info.opt("url");
@@ -1212,7 +1219,9 @@ public class PlaybackController {
                         if (url.startsWith("[") && view != null) {
                             url = view.firstUrlByArray(url);
                         }
+                        // 音乐源取流结果的封面字段常是 cover 而不是 artwork;漏读会让换集后海报不刷新
                         String artwork = info.optString("artwork", "");
+                        if (TextUtils.isEmpty(artwork)) artwork = info.optString("cover", "");
                         if (TextUtils.isEmpty(artwork) && !TextUtils.isEmpty(playLyric()) && vod() != null) {
                             artwork = vod().pic;
                         }
@@ -1317,22 +1326,27 @@ public class PlaybackController {
 
     private String getSubtitleUrl(JSONObject object) {
         if (object == null) return "";
-        String url = object.optString("url", "");
-        if (!TextUtils.isEmpty(url) && !FileUtils.hasExtension(url)) {
-            String format = object.optString("format", "");
-            String name = object.optString("name", "字幕");
-            String ext = ".srt";
-            if ("text/x-ssa".equals(format)) {
-                ext = ".ass";
-            } else if ("text/vtt".equals(format)) {
-                ext = ".vtt";
-            } else if ("text/lrc".equals(format)) {
-                ext = ".lrc";
-            }
-            String filename = name + (name.toLowerCase(Locale.ROOT).endsWith(ext) ? "" : ext);
-            if (view != null) url += "#" + view.encodeUrl(filename);
+        String format = object.optString("format", "");
+        String name = object.optString("name", "字幕");
+        String ext = ".srt";
+        if ("text/x-ssa".equals(format)) {
+            ext = ".ass";
+        } else if ("text/vtt".equals(format)) {
+            ext = ".vtt";
+        } else if ("text/lrc".equals(format)) {
+            ext = ".lrc";
         }
-        return url;
+        String filename = name + (name.toLowerCase(Locale.ROOT).endsWith(ext) ? "" : ext);
+        String url = object.optString("url", "");
+        String data = object.optString("data", "");
+        // 本地代理 URL 要靠爬虫的内存态现取,拿不到就整段没有字幕/歌词;同一份内容已在 data 里时直接用
+        if (!TextUtils.isEmpty(data) && (TextUtils.isEmpty(url) || PlayerHelper.isLocalProxyUrl(url))) {
+            url = "data:text/plain;base64," + Base64.encodeToString(data.getBytes(StandardCharsets.UTF_8), Base64.NO_WRAP);
+            // data: URI 的文件名只能靠 fragment 带(内容里出现的点会让 hasExtension 误判)
+            return view == null ? url : url + "#" + view.encodeUrl(filename);
+        }
+        if (TextUtils.isEmpty(url) || FileUtils.hasExtension(url)) return url;
+        return view == null ? url : url + "#" + view.encodeUrl(filename);
     }
 
     private boolean isLyricSubtitle(String name) {
@@ -2357,10 +2371,21 @@ public class PlaybackController {
     private boolean audioPlayback;
     /** 纯音频封面地址(影视绝不设置:否则视频被压成海报) */
     private String playArtwork;
+    /** 当前集的弹幕地址(取流结果或弹幕搜索的产物;退页面重进时页面要重新拿一份) */
+    private String playDanmu;
 
     @Nullable
     public String playArtwork() {
         return playArtwork;
+    }
+
+    @Nullable
+    public String playDanmu() {
+        return playDanmu;
+    }
+
+    public void setPlayDanmu(String danmu) {
+        this.playDanmu = danmu == null ? "" : danmu;
     }
 
     /**
