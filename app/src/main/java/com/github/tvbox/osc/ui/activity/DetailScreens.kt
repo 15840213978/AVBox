@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -687,7 +688,7 @@ private fun EpisodeSheet(vm: DetailViewModel, revision: Int) {
         isScrollable = false,
     ) {
         val dismissAnimated = LocalSheetDismiss.current
-        Column(modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)) {
+        Column(modifier = Modifier.fillMaxWidth()) {
             if (flags.size > 1) {
                 LazyRow(
                     contentPadding = PaddingValues(horizontal = 16.dp),
@@ -732,7 +733,10 @@ private fun EpisodeSheet(vm: DetailViewModel, revision: Int) {
             androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
                 state = gridState,
                 columns = androidx.compose.foundation.lazy.grid.GridCells.Fixed(gridColumnCount),
-                modifier = Modifier.fillMaxWidth().height(gridHeight),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f, fill = false)
+                    .heightIn(max = gridHeight),
                 contentPadding = PaddingValues(horizontal = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),

@@ -12,6 +12,7 @@ import com.github.tvbox.osc.ui.page.ConfigManageScreen
 import com.github.tvbox.osc.ui.theme.AVBoxTheme
 import com.github.tvbox.osc.util.PermissionHelper
 import com.github.tvbox.osc.util.handleLocalConfigResult
+import com.github.tvbox.osc.util.handleLocalSourceTreeResult
 import com.github.tvbox.osc.util.startLocalConfig
 
 class ConfigManageActivity : BaseActivity() {
@@ -24,7 +25,12 @@ class ConfigManageActivity : BaseActivity() {
 
     private val localConfigLauncher =
         registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-            if (uri != null) handleLocalConfigResult(this, uri)
+            if (uri != null && handleLocalConfigResult(this, uri)) sourceTreeLauncher.launch(null)
+        }
+
+    private val sourceTreeLauncher =
+        registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+            handleLocalSourceTreeResult(this, uri)
         }
 
     fun launchLocalConfig(onResult: (api: String) -> Unit) {

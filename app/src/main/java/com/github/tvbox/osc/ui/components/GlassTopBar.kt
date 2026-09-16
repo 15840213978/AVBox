@@ -30,6 +30,8 @@ import kotlin.math.min
 
 internal val LocalTopBarGlassBackdrop = compositionLocalOf<LayerBackdrop?> { null }
 
+internal const val GLASS_BACKDROP_BAND_MARGIN_DP = 64
+
 @Composable
 fun Modifier.glassTopBarSurface(
     shape: Shape,

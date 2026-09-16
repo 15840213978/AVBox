@@ -33,7 +33,7 @@ public class LOG {
      * debug 包保留排查通道。
      */
     private static final boolean FILE_LOG = BuildConfig.DEBUG;
-    private static final String[] FILE_LOG_PREFIXES = {"echo-preload", "echo-setDataSource", "echo-play-cache", "echo-kv", "echo-exo-cache", "echo-music", "echo-lyric", "echo-sub", "echo-danmu", "echo-p3", "echo-p4", "echo-p5", "clearCache", "echo--jar"};
+    private static final String[] FILE_LOG_PREFIXES = {"echo-preload", "echo-setDataSource", "echo-play-cache", "echo-kv", "echo-exo-cache", "echo-music", "echo-lyric", "echo-sub", "echo-danmu", "echo-p3", "echo-p4", "echo-p5", "clearCache", "echo--jar", "echo-local-src"};
     private static final String FILE_LOG_NAME = "preload_debug.log";
     private static ExecutorService fileLogExecutor;
 

@@ -371,6 +371,7 @@ fun ConfigManageScreen(onNavigateBack: () -> Unit) {
                         emptyText = "暂无订阅",
                         errorText = "",
                         retryText = "",
+                        emptyIconRes = R.drawable.ic_empty_record,
                         modifier = Modifier.fillMaxSize(),
                     )
                 } else {
@@ -431,6 +432,20 @@ fun ConfigManageScreen(onNavigateBack: () -> Unit) {
                                     }
                                 },
                             )
+                        }
+                        if (!mIsVod && mItems.isEmpty()) {
+                            item(key = "Live#empty") {
+                                LoadStateBox(
+                                    state = LoadState.Empty,
+                                    emptyText = "暂无直播源",
+                                    errorText = "",
+                                    retryText = "",
+                                    emptyIconRes = R.drawable.ic_empty_record,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(220.dp),
+                                )
+                            }
                         }
                     }
                 }

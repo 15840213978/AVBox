@@ -76,21 +76,6 @@ fun PreferenceSettingsScreen(onNavigateBack: () -> Unit, vm: SettingsViewModel =
                 }
                 SettingsCard(SettingsCardPosition.MIDDLE) {
                     SettingsSwitchRow(
-                        title = "无痕模式",
-                        checked = state.incognito,
-                        onCheckedChange = { vm.put(HawkConfig.INCOGNITO, it) },
-                    )
-                }
-                SettingsCard(SettingsCardPosition.MIDDLE) {
-                    SettingsSwitchRow(
-                        title = "禁用手势控制",
-                        subtitle = "开启后将禁用手势控制亮度和音量",
-                        checked = state.gestureControlDisabled,
-                        onCheckedChange = { vm.put(HawkConfig.GESTURE_CONTROL_DISABLED, it) },
-                    )
-                }
-                SettingsCard(SettingsCardPosition.MIDDLE) {
-                    SettingsSwitchRow(
                         title = "弹幕开关",
                         checked = state.danmuOpen,
                         onCheckedChange = { vm.put(HawkConfig.DANMU_OPEN, it) },
@@ -146,6 +131,34 @@ fun PreferenceSettingsScreen(onNavigateBack: () -> Unit, vm: SettingsViewModel =
                                 vm.put(HawkConfig.SEARCH_THREADS, sliderThreads)
                             }
                         },
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(28.dp))
+
+            SettingsGroup(title = null) {
+                SettingsCard(SettingsCardPosition.FIRST) {
+                    SettingsSwitchRow(
+                        title = "无痕模式",
+                        checked = state.incognito,
+                        onCheckedChange = { vm.put(HawkConfig.INCOGNITO, it) },
+                    )
+                }
+                SettingsCard(SettingsCardPosition.MIDDLE) {
+                    SettingsSwitchRow(
+                        title = "禁用手势控制",
+                        subtitle = "开启后将禁用手势控制亮度和音量",
+                        checked = state.gestureControlDisabled,
+                        onCheckedChange = { vm.put(HawkConfig.GESTURE_CONTROL_DISABLED, it) },
+                    )
+                }
+                SettingsCard(SettingsCardPosition.LAST) {
+                    SettingsSwitchRow(
+                        title = "禁用导航动画",
+                        subtitle = "开启后将禁用底部导航的侧滑动画",
+                        checked = state.navAnimationDisabled,
+                        onCheckedChange = { vm.put(HawkConfig.NAV_ANIMATION_DISABLED, it) },
                     )
                 }
             }

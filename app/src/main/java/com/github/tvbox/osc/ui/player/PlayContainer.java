@@ -300,7 +300,10 @@ public class PlayContainer extends FrameLayout implements CustomAdapt, PlaybackH
         public void startVideoPlayback(String url, HashMap<String, String> headers, boolean forceExoPlayer) {
             if (mVideoView == null) return;
             mController.hidePauseRoot();
-            boolean reusePlayer = !forceExoPlayer && mVideoView.getMediaPlayer() != null;
+            // EXO 解码方式变更标记(2026-09-17,见 MyVideoView.requireKernelRebuild):复用内核不会重选解码器,
+            // 必须走非复用路径先释放再新建;无条件消费一次,避免标记残留到下一次无关起播
+            boolean rebuildKernel = mVideoView.consumeKernelRebuildRequired();
+            boolean reusePlayer = !forceExoPlayer && mVideoView.getMediaPlayer() != null && !rebuildKernel;
             if (!reusePlayer) hideTip();
             if (!reusePlayer && mVideoView.getMediaPlayer() != null) {
                 releasePlayerKernel();

@@ -37,11 +37,14 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.ContentDrawScope
@@ -49,10 +52,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.github.tvbox.osc.R
 import com.github.tvbox.osc.server.ControlManager
 import com.github.tvbox.osc.ui.activity.LivePlayActivity
+import com.github.tvbox.osc.ui.components.GLASS_BACKDROP_BAND_MARGIN_DP
 import com.github.tvbox.osc.ui.components.LocalSheetHost
 import com.github.tvbox.osc.ui.components.SheetHost
 import com.github.tvbox.osc.ui.components.SheetHostState
@@ -135,6 +141,12 @@ private fun MainContent() {
     }
 
     val sheetHost = remember { SheetHostState() }
+    var navAnimationEnabled by remember {
+        mutableStateOf(!KV.get(HawkConfig.NAV_ANIMATION_DISABLED, false))
+    }
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        navAnimationEnabled = !KV.get(HawkConfig.NAV_ANIMATION_DISABLED, false)
+    }
     val liquidGlassConfig = LiquidGlassState.config
     val liquidGlassEnabled = liquidGlassConfig.navbarEnabled &&
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
@@ -144,6 +156,21 @@ private fun MainContent() {
             { drawRect(liquidBackdropBgColor); drawContent() }
         }
     val liquidBackdrop = rememberLayerBackdrop(onDraw = liquidBackdropOnDraw)
+    val density = LocalDensity.current
+    val liquidBackdropBandHeight = with(density) {
+        WindowInsets.navigationBars.getBottom(density).toDp() +
+            (FLOATING_NAV_OVERLAY_DP + GLASS_BACKDROP_BAND_MARGIN_DP).dp
+    }
+    val liquidBackdropBounds: (Size) -> Rect? = remember(density, liquidBackdropBandHeight) {
+        { size ->
+            Rect(
+                0f,
+                size.height - with(density) { liquidBackdropBandHeight.toPx() },
+                size.width,
+                size.height
+            )
+        }
+    }
     val glassTabs = remember { AppTab.entries.map { GlassTabItem(it.icon, it.label) } }
     CompositionLocalProvider(LocalSheetHost provides sheetHost) {
         Box(modifier = Modifier.fillMaxSize()) {
@@ -159,7 +186,15 @@ private fun MainContent() {
                                 val selected = pagerState.currentPage == index
                                 NavigationBarItem(
                                     selected = selected,
-                                    onClick = { scope.launch { pagerState.animateScrollToPage(index) } },
+                                    onClick = {
+                                        scope.launch {
+                                            if (navAnimationEnabled) {
+                                                pagerState.animateScrollToPage(index)
+                                            } else {
+                                                pagerState.scrollToPage(index)
+                                            }
+                                        }
+                                    },
                                     icon = { Icon(painterResource(tab.icon), contentDescription = tab.label) },
                                     label = { Text(tab.label) },
                                 )
@@ -171,10 +206,17 @@ private fun MainContent() {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .then(if (liquidGlassEnabled) Modifier.layerBackdrop(liquidBackdrop) else Modifier),
+                        .then(
+                            if (liquidGlassEnabled) {
+                                Modifier.layerBackdrop(liquidBackdrop, liquidBackdropBounds)
+                            } else {
+                                Modifier
+                            }
+                        ),
                 ) {
                     HorizontalPager(
                         state = pagerState,
+                        userScrollEnabled = navAnimationEnabled,
                         beyondViewportPageCount = 3,
                         modifier = Modifier
                             .fillMaxSize()
@@ -196,7 +238,6 @@ private fun MainContent() {
                 }
             }
             if (liquidGlassEnabled) {
-                val density = LocalDensity.current
                 val gradientHeight = with(density) {
                     WindowInsets.navigationBars.getBottom(density).toDp() + FLOATING_NAV_OVERLAY_DP.dp
                 }
@@ -223,7 +264,15 @@ private fun MainContent() {
                     FloatingBottomBar(
                         backdrop = liquidBackdrop,
                         selectedTabIndex = { pagerState.targetPage },
-                        onTabSelected = { index -> scope.launch { pagerState.animateScrollToPage(index) } },
+                        onTabSelected = { index ->
+                            scope.launch {
+                                if (navAnimationEnabled) {
+                                    pagerState.animateScrollToPage(index)
+                                } else {
+                                    pagerState.scrollToPage(index)
+                                }
+                            }
+                        },
                         tabs = glassTabs,
                         config = liquidGlassConfig,
                         interactive = { true },

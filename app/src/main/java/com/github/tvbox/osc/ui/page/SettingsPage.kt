@@ -78,6 +78,7 @@ data class SettingsState(
     val playRender: Int,
     val playScale: Int,
     val ijkCodec: String,
+    val exoDecode: String,
     val ijkCachePlay: Boolean,
     val playTunnel: Boolean,
     val preferAac: Boolean,
@@ -85,6 +86,7 @@ data class SettingsState(
     val m3u8Purify: Boolean,
     val incognito: Boolean,
     val gestureControlDisabled: Boolean,
+    val navAnimationDisabled: Boolean,
     val danmuOpen: Boolean,
     val danmuApi: String,
     val defaultLoadLive: Boolean,
@@ -151,6 +153,7 @@ class SettingsViewModel : ViewModel() {
         playRender = KV.get(HawkConfig.PLAY_RENDER, 1),
         playScale = KV.get(HawkConfig.PLAY_SCALE, 0),
         ijkCodec = KV.get(HawkConfig.IJK_CODEC, "硬解码"),
+        exoDecode = KV.get(HawkConfig.EXO_DECODE, "硬解码"),
         ijkCachePlay = KV.get(HawkConfig.IJK_CACHE_PLAY, false),
         playTunnel = KV.get(HawkConfig.PLAY_TUNNEL, false),
         preferAac = KV.get(HawkConfig.PLAY_PREFER_AAC, false),
@@ -158,6 +161,7 @@ class SettingsViewModel : ViewModel() {
         m3u8Purify = KV.get(HawkConfig.M3U8_PURIFY, false),
         incognito = KV.get(HawkConfig.INCOGNITO, false),
         gestureControlDisabled = KV.get(HawkConfig.GESTURE_CONTROL_DISABLED, false),
+        navAnimationDisabled = KV.get(HawkConfig.NAV_ANIMATION_DISABLED, false),
         danmuOpen = KV.get(HawkConfig.DANMU_OPEN, true),
         danmuApi = KV.get(HawkConfig.DANMU_API, ""),
         defaultLoadLive = KV.get(HawkConfig.DEFAULT_LOAD_LIVE, false),
@@ -242,7 +246,7 @@ fun SettingsPage(vm: SettingsViewModel = viewModel(), bottomPadding: Dp = 0.dp) 
                 SettingsCard(SettingsCardPosition.MIDDLE) {
                     SettingsRow(
                         title = "主题设置",
-                        subtitle = "修改应用的配色",
+                        subtitle = "修改应用的配色和效果",
                         iconRes = R.drawable.ic_settings_theme,
                         onClick = { ThemeSettingsActivity.start(context) },
                     )

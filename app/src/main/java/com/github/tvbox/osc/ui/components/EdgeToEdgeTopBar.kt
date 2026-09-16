@@ -33,10 +33,13 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.ContentDrawScope
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -98,18 +101,30 @@ fun AppTopBarScaffold(
             }
         },
     ) { padding ->
+        val topPadding = padding.calculateTopPadding()
+        val density = LocalDensity.current
+        val glassBandHeight = topPadding + GLASS_BACKDROP_BAND_MARGIN_DP.dp
+        val glassBounds: (Size) -> Rect? = remember(density, glassBandHeight) {
+            { size -> Rect(0f, 0f, size.width, with(density) { glassBandHeight.toPx() }) }
+        }
         Box(modifier = Modifier.fillMaxSize()) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .then(if (glassEnabled) Modifier.layerBackdrop(glassBackdrop) else Modifier),
+                    .then(
+                        if (glassEnabled) {
+                            Modifier.layerBackdrop(glassBackdrop, glassBounds)
+                        } else {
+                            Modifier
+                        }
+                    ),
             ) {
                 content(
-                    padding.calculateTopPadding(),
+                    topPadding,
                     padding.calculateBottomPadding(),
                 )
             }
-            TopScrim(height = padding.calculateTopPadding())
+            TopScrim(height = topPadding)
         }
     }
 }

@@ -278,7 +278,7 @@ private fun SheetOverlay(
                             content = content,
                         )
                     } else {
-                        Column(content = content)
+                        Column(modifier = Modifier.weight(1f, fill = false), content = content)
                     }
                 }
             }

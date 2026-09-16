@@ -20,7 +20,7 @@
 |---|---|
 | Hawk 调用点 | **34 个文件、约 250+ 处**(`Hawk.get/put/contains/delete`) |
 | 高密度文件 | `ApiConfig` 48 / `LivePlayActivity` 35 / `SettingsPage` 28 / `HistoryHelper` 14 / `DanmuHelper` 12 |
-| 键总量 | `HawkConfig` 定义 75 个(另有 `DEFAULT_LOAD_LIVE` 等少量直接字符串键) |
+| 键总量 | `HawkConfig` 定义 78 个 `public static final String`(可用 `Select-String "public static final String"` 复核;另有 `DEFAULT_LOAD_LIVE` 等少量直接字符串键;2026-09-17 新增 `nav_animation_disabled`) |
 | 其他存储 | ~~2 处独立 SharedPreferences(`thunder` 雷电标识、`AudioTrackMemory`),与 Hawk 无关,不在本次范围~~ → **2026-09-15 已补迁入 KV**(`thunder_imei`/`thunder_mac`;音轨记忆 `audio_track_<progressKey>_*`),**全仓不再有 SharedPreferences**,见 `history/features.md` 同日"SP 残留清零"条目 |
 
 ### 1.2 键类型分布(决定编码规则的关键)
@@ -32,6 +32,7 @@
 |---|---|---|
 | `search_history` / `api_history` / `live_api_history` / `api_line_list` | `ArrayList<String>` | 历史与线路列表 |
 | `subscribe_list` / `live_subscribe_list` | `ArrayList<String>` | 每项 `名字\t链接`(配置管理页) |
+| `local_source_trees` | `ArrayList<String>` | 本地源目录授权(SAF tree uri 字符串),本地服务靠它直读原目录 |
 | `live_group_list` | **`JsonArray`(Gson 节点树)** | 直播分组,注意它不是 List |
 | `source_card_policy` | `HashMap<String, String>` | 源级卡片点击策略 |
 | `sources_for_search` | **`HashMap<String, HashMap<String, String>>`** | 嵌套泛型,读侧需要显式 TypeToken |

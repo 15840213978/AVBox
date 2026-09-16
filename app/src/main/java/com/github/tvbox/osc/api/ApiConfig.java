@@ -4,6 +4,7 @@ import static com.github.tvbox.osc.util.RegexUtils.getPattern;
 
 import android.app.Activity;
 import android.net.Uri;
+import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.TextUtils;
@@ -253,6 +254,11 @@ public class ApiConfig {
                     callback.error(LOCAL_SOURCE_UNREADABLE_MSG);
                     return;
                 }
+                // 文件已被删除/改名(2026-09-17)同理:回落快照只会显示删除前的旧内容,且快照重启/清缓存都不掉
+                if (isLocalSourceMissing(apiUrl)) {
+                    callback.error(LOCAL_SOURCE_MISSING_MSG);
+                    return;
+                }
                 if (cache.exists()) {
                     try {
                         String json = readConfigFile(cache);
@@ -344,6 +350,11 @@ public class ApiConfig {
                     callback.error(LOCAL_SOURCE_UNREADABLE_MSG);
                     return;
                 }
+                // 与点播同款(2026-09-17):本地直播源文件被删后不再静默回落旧快照
+                if (isLocalSourceMissing(liveApiUrl)) {
+                    callback.error(LOCAL_SOURCE_MISSING_MSG);
+                    return;
+                }
                 if (live_cache.exists()) {
                     try {
                         parseLiveConfigContent(liveApiUrl, live_cache);
@@ -364,6 +375,9 @@ public class ApiConfig {
     /** 本地源文件不可读的提示(UI 直接展示) */
     private static final String LOCAL_SOURCE_UNREADABLE_MSG = "本地源文件读不到\n请开启「所有文件访问」后重试(或重新导入本地源)";
 
+    /** 本地源文件已不存在的提示(UI 直接展示) */
+    private static final String LOCAL_SOURCE_MISSING_MSG = "本地源文件已不存在\n可能已在文件管理器里被删除或改名,请重新导入本地源";
+
     /**
      * 本机文件源(`clan://localhost/` / `file://`)且当前无存储权限 ⇒ 本地服务按原始路径读必然 EACCES。
      * 把"静默回落 filesDir 旧快照"改成明确报错,否则用户改了本地 json 不生效且毫无提示(2026-09-16)。
@@ -373,6 +387,40 @@ public class ApiConfig {
         if (apiUrl == null) return false;
         if (!apiUrl.startsWith("clan://localhost/") && !apiUrl.startsWith("file://")) return false;
         return !PermissionHelper.isStorageGranted(App.getInstance());
+    }
+
+    /**
+     * 本机文件源的**目标文件已不存在**(2026-09-17)。
+     *
+     * <p>为什么单独判:把本地 json 删掉后本地服务返回 "File ... not found",拉取失败会静默回落
+     * filesDir 里的旧快照并报 success —— 与 {@link #isLocalSourceUnreadable} 要避免的情况完全一致
+     * (用户以为源正常、实则内容永不更新),而快照在 getFilesDir 下,重启/清缓存都不会掉。
+     *
+     * <p>⚠️ 调用方**必须**先判 {@link #isLocalSourceUnreadable}:无存储权限时 File.exists 的结论不可信
+     * (可能把"读不到"误报成"不存在")。只判解析得出真实路径的两种形态,`clan://<ip>/…` 无此概念。
+     */
+    private static boolean isLocalSourceMissing(String apiUrl) {
+        String path = localSourcePath(apiUrl);
+        return path != null && !new File(path).exists();
+    }
+
+    /** 本机文件源地址 → 真实路径(与 {@code RemoteServer} 的 `/file/` 同一映射);非本机形态或解析不出返回 null */
+    private static String localSourcePath(String apiUrl) {
+        if (apiUrl == null) return null;
+        String url = apiUrl;
+        int pk = url.indexOf(";pk;");
+        if (pk >= 0) url = url.substring(0, pk);
+        int query = url.indexOf('?');
+        if (query >= 0) url = url.substring(0, query);
+        if (url.startsWith("clan://localhost/")) {
+            return Environment.getExternalStorageDirectory().getAbsolutePath()
+                    + "/" + Uri.decode(url.substring("clan://localhost/".length()));
+        }
+        if (url.startsWith("file://")) {
+            // 手写的地址可能带百分号编码(中文目录),解码后再判存在,避免把"存在"误报成"已删除"
+            return Uri.decode(url.substring("file://".length()));
+        }
+        return null;
     }
 
     private boolean hasLiveConfigResult() {

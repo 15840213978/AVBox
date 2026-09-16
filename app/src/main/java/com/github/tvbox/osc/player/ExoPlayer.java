@@ -21,6 +21,7 @@ import androidx.media3.exoplayer.DefaultLoadControl;
 import androidx.media3.exoplayer.DefaultRenderersFactory;
 import androidx.media3.exoplayer.Renderer;
 import androidx.media3.exoplayer.RenderersFactory;
+import androidx.media3.exoplayer.mediacodec.MediaCodecSelector;
 import androidx.media3.exoplayer.source.MediaSource;
 import androidx.media3.exoplayer.source.TrackGroupArray;
 import androidx.media3.exoplayer.text.TextOutput;
@@ -48,6 +49,47 @@ public class ExoPlayer extends ExoMediaPlayer {
     private final ArrayList<Renderer> capturedVideoRenderers = new ArrayList<>();
     /** 点播磁盘缓存标记(第二期「边播边缓存」,由 MyVideoView 注入;直播页恒 false) */
     private boolean useDiskCache;
+
+    /**
+     * EXO 解码方式(硬解/软解)的进程级下发位(2026-09-17)。
+     *
+     * <p>为什么是静态位而不是实例字段:选择器实例活在**视频渲染器**里,而渲染器随播放器实例创建;
+     * 换集/换线走复用路径不重建渲染器(与 IJK 的 codec 固化同一类问题)。选择器在**查询时**读本静态位,
+     * 于是只要解码器是新建的,就会用上最新值 —— 无须重建播放器。
+     *
+     * <p>⚠️ 但 media3 会在格式兼容时**跨 period 复用同一 MediaCodec**(renderer disable 只 flush 不 release,
+     * 复用评估见 MediaCodecVideoRenderer.canReuseCodec),此时选择器不会再被查询 —— 光改静态位,
+     * 换集仍然沿用旧解码器。故 {@code PlayerHelper.updateCfg} 在检测到值变化且当前活着 EXO 内核时,
+     * 会给 VideoView 打"必须重建内核"标记(MyVideoView.requireKernelRebuild),起播处据此走非复用路径。
+     *
+     * <p>写入点只有一个:{@code PlayerHelper.updateCfg}(每次起播前由 applyPlayerConfigToView 调用),
+     * 推的是"本剧配置 exo 键 → 缺省回落全局 EXO_DECODE"的有效值。
+     */
+    private static volatile boolean preferSoftwareDecode = false;
+
+    /** 下发 EXO 解码方式:true = 软解(系统软件解码器优先) */
+    public static void setPreferSoftwareDecode(boolean prefer) {
+        preferSoftwareDecode = prefer;
+    }
+
+    /** 当前已下发的 EXO 解码方式(供 PlayerHelper 判断"这次起的解码方式变了没") */
+    public static boolean isPreferSoftwareDecode() {
+        return preferSoftwareDecode;
+    }
+
+    /**
+     * 视频渲染器专用解码选择器:软解 = softwareOnly 解码器(c2.android.*)优先,硬解 = media3 默认顺序。
+     *
+     * <p>两点刻意的取舍:
+     * ① 只注入视频渲染器(见 SubtitleOffsetRenderersFactory.buildVideoRenderers)—— 音频保持
+     *    MediaCodec 优先 + ffmpeg 兜底(MODE_ON),不因"视频软解"顺带降级音频解码;
+     * ② PREFER_SOFTWARE 是**排序**不是过滤:设备没有该编码的软件解码器时自动回落硬解,
+     *    不会因软解不可用而起播失败。
+     */
+    private static final MediaCodecSelector EXO_VIDEO_CODEC_SELECTOR =
+            (mimeType, requiresSecureDecoder, requiresTunnelingDecoder) ->
+                    (preferSoftwareDecode ? MediaCodecSelector.PREFER_SOFTWARE : MediaCodecSelector.DEFAULT)
+                            .getDecoderInfos(mimeType, requiresSecureDecoder, requiresTunnelingDecoder);
 
     public ExoPlayer(Context context) {
         super(context);
@@ -573,12 +615,14 @@ public class ExoPlayer extends ExoMediaPlayer {
 
         @Override
         protected void buildVideoRenderers(Context context, int extensionRendererMode,
-                                           androidx.media3.exoplayer.mediacodec.MediaCodecSelector mediaCodecSelector,
+                                           MediaCodecSelector mediaCodecSelector,
                                            boolean enableDecoderFallback, android.os.Handler eventHandler,
                                            androidx.media3.exoplayer.video.VideoRendererEventListener eventListener,
                                            long allowedJoiningTimeMs, ArrayList<Renderer> out) {
             int firstRendererIndex = out.size();
-            super.buildVideoRenderers(context, extensionRendererMode, mediaCodecSelector, enableDecoderFallback,
+            // 解码方式注入点(2026-09-17):只换视频渲染器的选择器(EXO_VIDEO_CODEC_SELECTOR 内部
+            // 按静态下发位在软解/硬解之间动态二选一),音频渲染器继续用工厂默认选择器
+            super.buildVideoRenderers(context, extensionRendererMode, EXO_VIDEO_CODEC_SELECTOR, enableDecoderFallback,
                     eventHandler, eventListener, allowedJoiningTimeMs, out);
             if (videoRendererSink != null) {
                 for (int i = firstRendererIndex; i < out.size(); i++) {

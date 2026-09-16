@@ -15,6 +15,9 @@ public class HawkConfig {
     public static final String HOME_API = "home_api";
     public static final String DEFAULT_PARSE = "parse_default";
     public static final String IJK_CODEC = "ijk_codec";
+    // EXO 解码方式(2026-09-17):与 IJK 的 IJK_CODEC 独立开键 —— IJK 走内核自带 options(mediacodec=0/1),
+    // EXO 走 media3 的 MediaCodecSelector(软解 = 系统软件解码器 c2.android.* 优先,仅视频渲染器)
+    public static final String EXO_DECODE = "exo_decode";
     public static final String SUBTITLE_TEXT_STYLE = "subtitle_text_style";//外挂字幕文字样式 0 白 1 粉(#FFB6C1)
     public static final String PLAY_TYPE = "play_type";//1 ijk 2 exo 10 MXPlayer
     public static final String LIVE_PLAY_TYPE = "live_play_type";//1 ijk 2 exo 10 MXPlayer
@@ -64,6 +67,10 @@ public class HawkConfig {
      * 判定统一走 [com.github.tvbox.osc.util.GestureHelper.isControlDisabled],点播与直播两侧共用
      */
     public static final String GESTURE_CONTROL_DISABLED = "gesture_control_disabled";
+    /**
+     * 禁用导航动画(2026-09-17):开启后底部导航(HorizontalPager)不响应左右滑动手势,点底栏仍可切换
+     */
+    public static final String NAV_ANIMATION_DISABLED = "nav_animation_disabled";
     // 搜索线程数(2026-09-12,设置页滑块 16/32/48/64 四档):全站搜索源并发信号量许可数
     public static final String SEARCH_THREADS = "search_threads";
     public static final int SEARCH_THREADS_DEFAULT = 32;
@@ -124,4 +131,7 @@ public class HawkConfig {
     // 迅雷下载库的伪造设备标识(2026-09-15 由独立 SharedPreferences `rand_thunder_id` 迁入 KV,该 SP 与其 xml 已废弃)
     public static final String THUNDER_IMEI = "thunder_imei";
     public static final String THUNDER_MAC = "thunder_mac";
+    // 本地源目录授权(SAF OpenDocumentTree,持久授权):ArrayList<String>,每项为目录 tree uri 字符串。
+    // 应用读不到源目录时(无「所有文件访问」)靠它让本地服务直接读原目录,源地址得以指向原目录而不复制
+    public static final String LOCAL_SOURCE_TREES = "local_source_trees";
 }

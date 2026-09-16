@@ -23,6 +23,8 @@ public class LivePlayerManager {
                 defaultPlayerConfig.put("pl", 2);
             }
             defaultPlayerConfig.put("ijk", KV.get(HawkConfig.IJK_CODEC, "硬解码"));
+            // EXO 解码方式(2026-09-17):与 IJK 的 ijk 键独立,取全局设置(IJK/EXO 各记一份,见 PlaySettingsPage)
+            defaultPlayerConfig.put("exo", KV.get(HawkConfig.EXO_DECODE, "硬解码"));
             defaultPlayerConfig.put("pr", KV.get(HawkConfig.PLAY_RENDER, 1));
             defaultPlayerConfig.put("sc", KV.get(HawkConfig.LIVE_PLAY_SCALE, 0));
         } catch (JSONException e) {
@@ -71,6 +73,17 @@ public class LivePlayerManager {
         return currentOrDefaultConfig().optInt("sc", 0);
     }
 
+    /**
+     * 本次直播播放的**有效 IJK 解码名**("直播配置 → 缺省全局",2026-09-17)。
+     *
+     * <p>用途:直播切台不像点播那样每次起播都走 {@code PlayerHelper.updateCfg},而 rtmp 频道会强制 IJK、
+     * 需要这个值(见 {@code PlayerHelper.applyRtmpSchemeOverride})。配置为空(点播→直播接管路径尚未 init)
+     * 时回落全局设置 —— 与改造前的取值完全一致。
+     */
+    public String effectiveIjkCodecName() {
+        return currentOrDefaultConfig().optString("ijk", KV.get(HawkConfig.IJK_CODEC, "硬解码"));
+    }
+
     public void changeLivePlayerType(VideoView videoView, int playerType) {
         JSONObject playerConfig;
         try {
@@ -90,7 +103,9 @@ public class LivePlayerManager {
                     break;
                 case 2:
                     playerConfig.put("pl", 2);
-                    playerConfig.put("ijk", "软解码");
+                    // EXO(2026-09-17):解码方式按**全局 EXO 设置**走 —— 旧实现是"切到 EXO 就把 ijk 改成软解码",
+                    // 那个值随后还会被写进全局 IJK 设置,把用户在 IJK 下的选择一并带偏(同处修掉)
+                    playerConfig.put("exo", KV.get(HawkConfig.EXO_DECODE, "硬解码"));
                     break;
             }
         } catch (JSONException e) {
@@ -101,8 +116,12 @@ public class LivePlayerManager {
         try {
             defaultPlayerConfig.put("pl", playerConfig.getInt("pl"));
             defaultPlayerConfig.put("ijk", playerConfig.getString("ijk"));
+            defaultPlayerConfig.put("exo", playerConfig.optString("exo", KV.get(HawkConfig.EXO_DECODE, "硬解码")));
             KV.put(HawkConfig.LIVE_PLAY_TYPE, playerConfig.getInt("pl"));
-            KV.put(HawkConfig.IJK_CODEC, playerConfig.getString("ijk"));
+            // 只有 IJK 内核才同步全局 IJK 解码键(2026-09-17):选 EXO 时它的解码值属于 exo 键,不该覆盖 IJK 设置
+            if (playerConfig.getInt("pl") == 1) {
+                KV.put(HawkConfig.IJK_CODEC, playerConfig.getString("ijk"));
+            }
         } catch (JSONException e) {
             e.printStackTrace();
         }

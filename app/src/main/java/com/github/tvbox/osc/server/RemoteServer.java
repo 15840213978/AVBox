@@ -14,6 +14,7 @@ import com.github.tvbox.osc.base.App;
 import com.github.tvbox.osc.bean.VodInfo;
 import com.github.tvbox.osc.event.ServerEvent;
 import com.github.tvbox.osc.util.LOG;
+import com.github.tvbox.osc.util.LocalSourceTree;
 import com.github.tvbox.osc.util.OkGoHelper;
 import com.github.tvbox.osc.util.Proxy;
 import com.google.gson.JsonArray;
@@ -177,15 +178,23 @@ public class RemoteServer extends NanoHTTPD {
                         String root = Environment.getExternalStorageDirectory().getAbsolutePath();
                         String file = root + "/" + f;
                         File localFile = new File(file);
-                        if (localFile.exists()) {
-                            if (localFile.isFile()) {
-                                return NanoHTTPD.newChunkedResponse(NanoHTTPD.Response.Status.OK, "application/octet-stream", new FileInputStream(localFile));
-                            } else {
-                                return NanoHTTPD.newFixedLengthResponse(NanoHTTPD.Response.Status.OK, NanoHTTPD.MIME_PLAINTEXT, fileList(root, f));
-                            }
-                        } else {
-                            return NanoHTTPD.newFixedLengthResponse(NanoHTTPD.Response.Status.INTERNAL_ERROR, NanoHTTPD.MIME_PLAINTEXT, "File " + file + " not found!");
+                        if (localFile.isDirectory()) {
+                            return NanoHTTPD.newFixedLengthResponse(NanoHTTPD.Response.Status.OK, NanoHTTPD.MIME_PLAINTEXT, fileList(root, f));
                         }
+                        if (localFile.isFile()) {
+                            try {
+                                return NanoHTTPD.newChunkedResponse(NanoHTTPD.Response.Status.OK, "application/octet-stream", new FileInputStream(localFile));
+                            } catch (Throwable ignored) {
+                                // 文件在但读不到(没开「所有文件访问」等)⇒ 交给下面的目录授权兜底
+                            }
+                        }
+                        // 本地源目录授权(SAF):应用自己读不到原目录时靠它直引原目录,副本不必搬。
+                        // 只服务回环请求 —— 应用读原目录走的就是 127.0.0.1,没必要把"应用都读不到的目录"再开给局域网客户端
+                        InputStream granted = isLocalRequest(session) ? LocalSourceTree.INSTANCE.open(App.getInstance(), f) : null;
+                        if (granted != null) {
+                            return NanoHTTPD.newChunkedResponse(NanoHTTPD.Response.Status.OK, "application/octet-stream", granted);
+                        }
+                        return NanoHTTPD.newFixedLengthResponse(NanoHTTPD.Response.Status.INTERNAL_ERROR, NanoHTTPD.MIME_PLAINTEXT, "File " + file + " not found!");
                     } catch (Throwable th) {
                         return NanoHTTPD.newFixedLengthResponse(NanoHTTPD.Response.Status.INTERNAL_ERROR, NanoHTTPD.MIME_PLAINTEXT, th.getMessage());
                     }
@@ -328,6 +337,12 @@ public class RemoteServer extends NanoHTTPD {
 
     public String getLoadAddress() {
         return "http://127.0.0.1:" + RemoteServer.serverPort + "/";
+    }
+
+    /** 请求是否来自应用本机(回环);局域网客户端不算 */
+    private static boolean isLocalRequest(IHTTPSession session) {
+        String address = session.getRemoteIpAddress();
+        return address != null && (address.startsWith("127.") || address.equals("::1"));
     }
 
     public static Response createPlainTextResponse(Response.IStatus status, String text) {

@@ -117,14 +117,25 @@ fun PlaySettingsScreen(onNavigateBack: () -> Unit, vm: SettingsViewModel = viewM
                     )
                 }
                 SettingsCard(SettingsCardPosition.MIDDLE) {
+                    // 解码方式单行联动(2026-09-17):显示/写入**当前内核**那一份设置 —— IJK 与 EXO 独立开键、
+                    // 各自记忆(IJK 软解 = 内核自带 ffmpeg;EXO 软解 = 系统软件解码器 c2.android.*,仅视频)
+                    val isIjkKernel = state.playType == 1
+                    val isExoKernel = state.playType == 2
+                    val codec = if (isIjkKernel) state.ijkCodec else state.exoDecode
                     SettingsRow(
                         title = "解码方式",
-                        valueText = state.ijkCodec,
-                        onClick = {
-                            openOptions("解码方式", listOf("硬解码", "软解码"), if (state.ijkCodec == "软解码") 1 else 0) { idx ->
-                                vm.put(HawkConfig.IJK_CODEC, if (idx == 1) "软解码" else "硬解码")
+                        valueText = codec,
+                        enabled = isIjkKernel || isExoKernel,
+                        onClick = if (isIjkKernel || isExoKernel) {
+                            {
+                                openOptions("解码方式", listOf("硬解码", "软解码"), if (codec == "软解码") 1 else 0) { idx ->
+                                    vm.put(
+                                        if (isIjkKernel) HawkConfig.IJK_CODEC else HawkConfig.EXO_DECODE,
+                                        if (idx == 1) "软解码" else "硬解码",
+                                    )
+                                }
                             }
-                        },
+                        } else null,
                     )
                 }
                 SettingsCard(SettingsCardPosition.MIDDLE) {

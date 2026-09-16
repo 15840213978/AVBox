@@ -258,6 +258,8 @@ class LivePlayActivity : BaseActivity() {
         overlayVisible = false
         stopTimeshiftTicker()
         hideSwitchChannelSnapshot()
+        // 与 playChannel 同款对齐(2026-09-17):接管路径可能紧跟在点播会话之后,别让 rtmp 频道用残留值
+        videoView.setEffectiveIjkCodec(livePlayerManager.effectiveIjkCodecName())
         videoView.setUrl(item.url, liveChannelHeader())
         videoView.start()
         showResolutionAfterChannelSwitch()
@@ -409,7 +411,13 @@ class LivePlayActivity : BaseActivity() {
         updateChannelInfoUi()
         val videoView = mVideoView
         if (videoView != null) {
-            val reusePlayer = canReusePlayer(previousLivePlayerType)
+            // 有效 IJK 解码值对齐(2026-09-17):点播由 PlayerHelper.updateCfg 在每次起播前下发,直播切台不走它 ——
+            // 这里显式对齐成"直播配置 → 全局",避免 rtmp 频道(强制 IJK)误用上一段点播会话的残留值
+            videoView.setEffectiveIjkCodec(livePlayerManager.effectiveIjkCodecName())
+            // EXO 解码方式变更标记(2026-09-17):复用内核不会重选解码器,切台必须重建 ——
+            // 与点播侧 PlayContainer.startVideoPlayback 同款;标记只在"EXO 解码值确实变了"时才被置上
+            val rebuildKernel = videoView.consumeKernelRebuildRequired()
+            val reusePlayer = !rebuildKernel && canReusePlayer(previousLivePlayerType)
             val keepExoFrame = reusePlayer && previousLivePlayerType == 2
             if (showPreviousFrame && !keepExoFrame) {
                 showSwitchChannelSnapshot()

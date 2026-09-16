@@ -630,7 +630,8 @@ class ComposeVideoController @JvmOverloads constructor(
             state.playerType = playerType
             state.playerBtnText = PlayerHelper.getPlayerName(playerType)
             state.scaleBtnText = PlayerHelper.getScaleName(cfg.getInt("sc"))
-            val codecName = cfg.getString("ijk")
+            // 解码文案按当前内核读各自的键(2026-09-17):IJK 读 cfg.ijk,EXO 读 cfg.exo
+            val codecName = cfg.optString(if (playerType == 2) "exo" else "ijk", "硬解码")
             state.ijkBtnText = when (codecName) {
                 "硬解码" -> "硬解"
                 "软解码" -> "软解"
@@ -964,18 +965,26 @@ class ComposeVideoController @JvmOverloads constructor(
     override fun onIjkClicked() {
         try {
             val cfg = playerConfig ?: return
-            var ijk = cfg.getString("ijk")
-            val codecs = ApiConfig.get().ijkCodes
-            for (i in codecs.indices) {
-                if (ijk == codecs[i].name) {
-                    ijk = if (i >= codecs.size - 1) codecs[0].name else codecs[i + 1].name
-                    break
+            val playerType = cfg.optInt("pl", 2)
+            if (playerType == 2) {
+                // EXO(2026-09-17):硬解/软解两个取值直接互切;软解 = 系统软件解码器(c2.android.*)优先,
+                // 不看 ApiConfig.ijkCodes —— 那是 IJK 的 options 列表,与 media3 的选择器无关
+                val current = cfg.optString("exo", "硬解码")
+                cfg.put("exo", if (current == "软解码") "硬解码" else "软解码")
+            } else {
+                var ijk = cfg.getString("ijk")
+                val codecs = ApiConfig.get().ijkCodes
+                for (i in codecs.indices) {
+                    if (ijk == codecs[i].name) {
+                        ijk = if (i >= codecs.size - 1) codecs[0].name else codecs[i + 1].name
+                        break
+                    }
                 }
+                cfg.put("ijk", ijk)
             }
-            cfg.put("ijk", ijk)
-            // 按剧记忆标记(2026-09-15):只有用户**在本剧显式选过**解码方式,记录里的 ijk 才优先;
-            // 否则设置页的新值会一直被播放记录里的旧 ijk 压住(见 PlaybackController.initPlayerCfg)
-            cfg.put("ijkSet", 1)
+            // 按剧记忆标记(2026-09-15;2026-09-17 拆成两内核各一个):只有用户**在该内核下**显式选过解码方式,
+            // 记录里对应的解码键才优先;否则设置页的新值会一直被播放记录里的旧值压住(见 PlaybackController.initPlayerCfg)
+            cfg.put(if (playerType == 2) "exoSet" else "ijkSet", 1)
             // 用户显式选了解码:本次播放不再自动回退软解,自动软解态作废(用户的值要能落库;见 setAllowDecodeFallback)
             listener?.setAllowDecodeFallback(false)
             updatePlayerCfgState()

@@ -64,6 +64,7 @@ public final class KVKeySpec implements KVDecoder.TypeRegistry {
         register(HawkConfig.HOME_API, "");
         register(HawkConfig.DEFAULT_PARSE, "");
         register(HawkConfig.IJK_CODEC, "");
+        register(HawkConfig.EXO_DECODE, "");
         register(HawkConfig.LIVE_CHANNEL, "");
         register(HawkConfig.DOH_JSON, "");
         register(HawkConfig.LIVE_API_URL, "");
@@ -115,6 +116,7 @@ public final class KVKeySpec implements KVDecoder.TypeRegistry {
         register(HawkConfig.DEFAULT_LOAD_LIVE, false);
         register(HawkConfig.INCOGNITO, false);
         register(HawkConfig.GESTURE_CONTROL_DISABLED, false);
+        register(HawkConfig.NAV_ANIMATION_DISABLED, false);
         register(HawkConfig.PLAY_TUNNEL, false);
         register(HawkConfig.PLAY_PREFER_AAC, false);
         register(HawkConfig.PRELOAD_NEXT_EPISODE, false);
@@ -144,6 +146,9 @@ public final class KVKeySpec implements KVDecoder.TypeRegistry {
         register(HawkConfig.SUBSCRIBE_LIST, new TypeToken<ArrayList<String>>() {
         });
         register(HawkConfig.LIVE_SUBSCRIBE_LIST, new TypeToken<ArrayList<String>>() {
+        });
+        // 本地源目录授权:tree uri 字符串列表
+        register(HawkConfig.LOCAL_SOURCE_TREES, new TypeToken<ArrayList<String>>() {
         });
         // 直播分组是 Gson 节点树,不能按 List 处理
         register(HawkConfig.LIVE_GROUP_LIST, TypeToken.get(JsonArray.class));

@@ -126,7 +126,8 @@ class PlayerUiState {
 
     // —— 衍生可见性（照搬 updatePortraitMenu 的逐按钮规则；与方向无关，预览态由菜单行/解析行的 previewMode 守卫） ——
 
-    val ijkBtnVisible: Boolean get() = playerType == 1
+    /** 解码按钮:IJK(内核 options)与 EXO(media3 视频解码选择器)都有软解路径(2026-09-17 放开 EXO) */
+    val ijkBtnVisible: Boolean get() = playerType == 1 || playerType == 2
     val trackBtnVisible: Boolean get() = playerType == 1 || playerType == 2
     val danmuBtnVisible: Boolean get() = danmuOpen
     val danmuSearchBtnVisible: Boolean get() = danmuSearchAvailable

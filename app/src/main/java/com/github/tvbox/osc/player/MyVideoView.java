@@ -37,6 +37,14 @@ public class MyVideoView extends VideoView implements DrawHandler.Callback {
     private boolean mRtmpForced;
     /** 点播磁盘缓存标记(第二期扩展「边播边缓存」):默认 false(直播页不设置),点播容器 PlayContainer 启用 */
     private boolean mExoDiskCacheEnabled;
+    /** "本次起播必须重建内核"标记(EXO 解码方式变更,见 PlayerHelper.updateCfg) */
+    private boolean mKernelRebuildRequired;
+    /**
+     * 本次播放的有效 IJK 解码名("本剧配置 → 缺省全局",由 {@code PlayerHelper.updateCfg} 下发)。
+     * rtmp 强制 IJK 的工厂/推送在 {@link #setUrl} 时才建,那时拿不到 playerCfg —— 靠这里带上
+     * (见 PlayerHelper.applyRtmpSchemeOverride)。
+     */
+    private String mEffectiveIjkCodec;
 
     /**
      * 点播磁盘缓存标记:true 时 Exo 播放器对普通集也使用 cache 数据源(边播边缓存)。
@@ -82,6 +90,33 @@ public class MyVideoView extends VideoView implements DrawHandler.Callback {
 
     public boolean isRtmpForced() {
         return mRtmpForced;
+    }
+
+    /**
+     * 标记"本次起播必须重建内核"(2026-09-17,EXO 解码方式变更时由 PlayerHelper.updateCfg 写入)。
+     *
+     * <p>为什么 EXO 必须重建:media3 跨 period 复用同一 MediaCodec(disable 时只 flush 不 release),
+     * 选择器不会再被查询 —— 换集走复用路径时只改选择器的静态下发位不生效,必须让内核重建。
+     */
+    public void requireKernelRebuild() {
+        mKernelRebuildRequired = true;
+    }
+
+    /** 取出并复位"必须重建内核"标记(起播处消费;true 时走非复用路径,先释放再新建) */
+    public boolean consumeKernelRebuildRequired() {
+        boolean required = mKernelRebuildRequired;
+        mKernelRebuildRequired = false;
+        return required;
+    }
+
+    /** 记录本次播放的有效 IJK 解码名(见 PlayerHelper.updateCfg / applyRtmpSchemeOverride) */
+    public void setEffectiveIjkCodec(String name) {
+        mEffectiveIjkCodec = name;
+    }
+
+    /** 本次播放的有效 IJK 解码名;未下发过(从未走过 updateCfg)返回 null,调用方回落全局设置 */
+    public String effectiveIjkCodec() {
+        return mEffectiveIjkCodec;
     }
 
     public void forceIjkFactory(PlayerFactory<? extends AbstractPlayer> factory) {

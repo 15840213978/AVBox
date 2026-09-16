@@ -119,6 +119,28 @@ public class SourceViewModel extends ViewModel {
         }
     };
 
+    // XStream 非线程安全:按线程缓存实例复用(勿改共享单例)
+    private static final ThreadLocal<XStream> sortXStream = new ThreadLocal<XStream>() {
+        @Override
+        protected XStream initialValue() {
+            XStream xstream = new XStream(new DomDriver());
+            xstream.autodetectAnnotations(true);
+            xstream.processAnnotations(AbsSortXml.class);
+            xstream.ignoreUnknownElements();
+            return xstream;
+        }
+    };
+    private static final ThreadLocal<XStream> listXStream = new ThreadLocal<XStream>() {
+        @Override
+        protected XStream initialValue() {
+            XStream xstream = new XStream(new DomDriver());
+            xstream.autodetectAnnotations(true);
+            xstream.processAnnotations(AbsXml.class);
+            xstream.ignoreUnknownElements();
+            return xstream;
+        }
+    };
+
     private static void cacheSort(String sourceKey, AbsSortXml sortXml) {
         attachSortSource(sourceKey, sortXml);
         SourceBean sourceBean = ApiConfig.get().getSource(sourceKey);
@@ -1397,10 +1419,7 @@ public class SourceViewModel extends ViewModel {
 
     private AbsSortXml sortXml(MutableLiveData<AbsSortXml> result, String xml) {
         try {
-            XStream xstream = new XStream(new DomDriver());//创建Xstram对象
-            xstream.autodetectAnnotations(true);
-            xstream.processAnnotations(AbsSortXml.class);
-            xstream.ignoreUnknownElements();
+            XStream xstream = sortXStream.get();
             AbsSortXml data = (AbsSortXml) xstream.fromXML(xml);
             for (MovieSort.SortData sort : data.classes.sortList) {
                 if (sort.filters == null) {
@@ -1660,10 +1679,7 @@ public class SourceViewModel extends ViewModel {
 
     private AbsXml xml(MutableLiveData<AbsXml> result, String xml, String sourceKey, String searchToken) {
         try {
-            XStream xstream = new XStream(new DomDriver());//创建Xstram对象
-            xstream.autodetectAnnotations(true);
-            xstream.processAnnotations(AbsXml.class);
-            xstream.ignoreUnknownElements();
+            XStream xstream = listXStream.get();
             if (xml.contains("<year></year>")) {
                 xml = xml.replace("<year></year>", "<year>0</year>");
             }

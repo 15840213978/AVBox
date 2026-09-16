@@ -110,4 +110,79 @@ class LocalConfigPathTest {
         assertNull(downloadGuessPath(root, "."))
         assertNull(downloadGuessPath(root, ".."))
     }
+
+    // ---- 复制分支:配置里 `./` 引用的同目录文件要跟着一起搬(否则重写后的 http 前缀必 404) ----
+
+    @Test
+    fun relativeRefsPickDotSlashTargets() {
+        val text = """{"spider":"./jar/1.jar;md5;282aee405654188f1bc1822bbf137410","logo":"./img/20.gif","ext":"./ext/2.json"}"""
+        assertEquals(listOf("jar/1.jar", "img/20.gif", "ext/2.json"), relativeRefs(text))
+    }
+
+    @Test
+    fun relativeRefsTrimSuffixAndDedupe() {
+        assertEquals(
+            listOf("a/x.json"),
+            relativeRefs("""{"./a/x.json?raw=1","./a/x.json#top","./a/x.json"}"""),
+        )
+    }
+
+    @Test
+    fun relativeRefsRejectUnsafeTargets() {
+        // 空引用、目录引用、含 `..` 的:复制落点会越界或没有意义,一律不搬
+        assertTrue(relativeRefs("""{"./"}""").isEmpty())
+        assertTrue(relativeRefs("""{"./sub/"}""").isEmpty())
+        assertTrue(relativeRefs("""{"./../up.json"}""").isEmpty())
+        assertTrue(relativeRefs("""{"../up.json"}""").isEmpty())
+    }
+
+    @Test
+    fun relativeRefsIgnoreNonRelativeValues() {
+        assertTrue(relativeRefs("""{"http://a.com/./x"}""").isEmpty())
+        assertTrue(relativeRefs("""{"clan://localhost/jar/1.jar"}""").isEmpty())
+        assertTrue(relativeRefs("""{"file:///sdcard/jar/1.jar"}""").isEmpty())
+    }
+
+    // ---- 第三方文件管理器的 FileProvider(vivo 文件管理器实测形态:没有 docId/DATA 列,路径在 Uri 里) ----
+
+    @Test
+    fun providerPathReadsExternalRootSegment() {
+        assertEquals(
+            "$root/影视备份/摸鱼本地/config.json",
+            providerPath(listOf("extfiles", "影视备份", "摸鱼本地", "config.json"), root),
+        )
+        assertEquals("$root/a.json", providerPath(listOf("external_files", "a.json"), root))
+        // 只有根段名(没跟相对路径)不认
+        assertNull(providerPath(listOf("extfiles"), root))
+        // `content://media/external/images/media/1` 这类不带外置存储根语义,不能当成路径
+        assertNull(providerPath(listOf("external", "images", "media", "1"), root))
+        assertNull(providerPath(listOf("images", "a.json"), root))
+    }
+
+    // ---- 目录授权(SAF tree)与本地服务请求路径的匹配:只有真在授权目录之下才认 ----
+
+    @Test
+    fun relativeUnderOnlyAcceptsDescendants() {
+        assertEquals("jar/1.jar", relativeUnder("$root/影视备份/摸鱼本地", "$root/影视备份/摸鱼本地/jar/1.jar"))
+        assertEquals("config.json", relativeUnder("$root/影视备份", "$root/影视备份/config.json"))
+        // 目录本身 / 前缀相同的兄弟目录都不能当成"在其之下",否则会把别的目录的文件当成授权范围内的
+        assertNull(relativeUnder("$root/影视备份/摸鱼本地", "$root/影视备份/摸鱼本地"))
+        assertNull(relativeUnder("$root/影视备份/摸鱼本地", "$root/影视备份/摸鱼本地2/x.json"))
+        assertNull(relativeUnder("$root/影视备份", "$root/其他/x.json"))
+    }
+
+    // ---- 显示名当文件名用之前必须收窄(provider 给的显示名可能是路径或 `..`) ----
+
+    @Test
+    fun safeFileNameKeepsOnlyBasename() {
+        assertEquals("config.json", safeFileName("config.json"))
+        assertEquals("config.json", safeFileName("/sdcard/a/config.json"))
+        assertEquals("config.json", safeFileName("a\\b\\config.json"))
+        assertEquals("config.json", safeFileName("  config.json  "))
+        assertEquals("local_config.json", safeFileName(null))
+        assertEquals("local_config.json", safeFileName(""))
+        assertEquals("local_config.json", safeFileName("."))
+        assertEquals("local_config.json", safeFileName(".."))
+        assertEquals("local_config.json", safeFileName("../../config.json/.."))
+    }
 }
