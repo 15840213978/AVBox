@@ -2,6 +2,7 @@ package com.github.tvbox.osc.base;
 
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.ActivityInfo;
 import android.content.res.AssetManager;
 import android.content.res.Resources;
 import android.graphics.BitmapFactory;
@@ -18,6 +19,7 @@ import androidx.core.content.PermissionChecker;
 
 import com.github.tvbox.osc.R;
 import com.github.tvbox.osc.util.AppManager;
+import com.github.tvbox.osc.util.ScreenUtils;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -55,6 +57,11 @@ public abstract class BaseActivity extends AppCompatActivity implements CustomAd
 
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
+        // TV 端统一横屏；手机端继续遵循各 Activity 在 Manifest 中的竖屏配置。
+        // 这样同一 APK 可以同时保留手机版 UI 和电视遥控器 UI。
+        if (ScreenUtils.isTv(this)) {
+            setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
+        }
         try {
             if (screenRatio < 0) {
                 DisplayMetrics dm = new DisplayMetrics();
