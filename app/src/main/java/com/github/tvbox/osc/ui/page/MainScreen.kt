@@ -70,6 +70,7 @@ import com.github.tvbox.osc.util.HawkConfig
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.github.tvbox.osc.util.KV
+import com.github.tvbox.osc.util.ScreenUtils
 import kotlinx.coroutines.launch
 
 private enum class AppTab(val label: String, @DrawableRes val icon: Int) {
@@ -86,8 +87,14 @@ private const val FLOATING_NAV_OVERLAY_DP = 64 + FLOATING_NAV_BOTTOM_MARGIN_DP
 fun MainScreen() {
     LaunchedEffect(Unit) { AppBootstrap.start() }
     val boot by AppBootstrap.state.collectAsState()
+    val context = LocalContext.current
+    val isTv = remember(context) { ScreenUtils.isTv(context) }
     Box(modifier = Modifier.fillMaxSize()) {
-        MainContent()
+        if (isTv) {
+            TvMainScreen()
+        } else {
+            MainContent()
+        }
         if (boot is AppBootstrap.Boot.Error) {
             BootErrorDialog((boot as AppBootstrap.Boot.Error).msg)
         }
