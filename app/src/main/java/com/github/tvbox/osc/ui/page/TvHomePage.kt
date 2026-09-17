@@ -21,7 +21,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -31,7 +30,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SwapHoriz
-import androidx.compose.material3.ContainedLoadingIndicator
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -148,7 +147,7 @@ fun TvHomePage(vm: HomeViewModel) {
                             .height(340.dp),
                         contentAlignment = Alignment.Center,
                     ) {
-                        ContainedLoadingIndicator(Modifier.size(58.dp))
+                        CircularProgressIndicator(modifier = Modifier.size(58.dp))
                     }
                 }
             } else if (sources.isEmpty()) {
